@@ -1,6 +1,11 @@
 # Gena
 
+[![License: Prosperity 3.0.0](https://img.shields.io/badge/license-Prosperity%203.0.0-blue.svg)](LICENSE)
+[![Deploy](https://github.com/sergey-frolov-pets/gena/actions/workflows/deploy.yml/badge.svg)](https://github.com/sergey-frolov-pets/gena/actions/workflows/deploy.yml)
+
 Serverless messenger SPA. Собирается статикой и деплоится на GitHub Pages — без бэкенда, всё состояние в браузере.
+
+**Живая версия:** https://sergey-frolov-pets.github.io/gena/
 
 ## Что умеет
 
@@ -41,3 +46,7 @@ SPA-роутинг: `dist/404.html` копируется из `index.html`.
 - Ключ агента хранится **только зашифрованным**; в бэкап не попадает ни в каком виде.
 - Если localStorage недоступен (приватный режим), ключ не сохраняется (ошибка `missing_seed`) — чтобы не писать секрет в открытом виде.
 - AES-GCM даёт целостность: подмена шифротекста или чужой `agentId` → ошибка расшифровки.
+
+## Лицензия
+
+[The Prosperity Public License 3.0.0](LICENSE) — бесплатно для некоммерческого использования, коммерческое — 30-дневный пробный период. Полный текст в файле `LICENSE`.
