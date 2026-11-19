@@ -7,7 +7,15 @@
  * восстанавливает вручную после импорта.
  */
 
-import type { Agent, AgentSettings, Message, Session } from "./types";
+import {
+  normalizeAgent,
+  type Agent,
+  type AgentConfig,
+  type AgentSettings,
+  type Message,
+  type Protocol,
+  type Session,
+} from "./types";
 
 export const BACKUP_FORMAT = "gena-backup";
 export const BACKUP_VERSION = 1;
@@ -22,6 +30,8 @@ export interface BackupAgent {
   name: string;
   address: string;
   settings: AgentSettings;
+  protocol?: Protocol;
+  config?: AgentConfig;
   createdAt: number;
   updatedAt: number;
 }
@@ -50,6 +60,8 @@ function toBackupAgent(agent: Agent): BackupAgent {
     name: agent.name,
     address: agent.address,
     settings: { ...agent.settings },
+    protocol: agent.protocol,
+    config: agent.config ? { ...agent.config } : undefined,
     createdAt: agent.createdAt,
     updatedAt: agent.updatedAt,
   };
@@ -109,6 +121,29 @@ function parseAgentSettings(raw: unknown): AgentSettings {
   };
 }
 
+function parseProtocol(raw: unknown): Protocol | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (typeof raw !== "string") {
+    throw new BackupParseError('поле "agent.protocol" должно быть строкой');
+  }
+  if (raw === "http_json" || raw === "openai" || raw === "pico_ws") {
+    return raw;
+  }
+  throw new BackupParseError(`неизвестный протокол агента: ${raw}`);
+}
+
+function parseConfig(raw: unknown): AgentConfig | undefined {
+  if (raw === undefined || raw === null) {
+    return undefined;
+  }
+  if (!isObject(raw)) {
+    throw new BackupParseError("agent.config должен быть объектом");
+  }
+  return raw as AgentConfig;
+}
+
 function parseAgent(raw: unknown): BackupAgent {
   if (!isObject(raw)) {
     throw new BackupParseError("агент должен быть объектом");
@@ -118,6 +153,8 @@ function parseAgent(raw: unknown): BackupAgent {
     name: asString(raw.name, "agent.name"),
     address: asString(raw.address, "agent.address"),
     settings: parseAgentSettings(raw.settings),
+    protocol: parseProtocol(raw.protocol),
+    config: parseConfig(raw.config),
     createdAt: asNumber(raw.createdAt, "agent.createdAt"),
     updatedAt: asNumber(raw.updatedAt, "agent.updatedAt"),
   };
@@ -190,15 +227,17 @@ export function parseBackup(text: string): BackupPayload {
 
 /** Восстановить агента из бэкапа (sealedKey пустой — ключ вводят заново). */
 export function backupAgentToAgent(backup: BackupAgent): Agent {
-  return {
+  return normalizeAgent({
     id: backup.id,
     name: backup.name,
     address: backup.address,
     sealedKey: "",
     settings: { ...backup.settings },
+    protocol: backup.protocol,
+    config: backup.config,
     createdAt: backup.createdAt,
     updatedAt: backup.updatedAt,
-  };
+  });
 }
 
 /**

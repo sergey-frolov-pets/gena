@@ -18,4 +18,10 @@ export const errorsMessages = {
   "errors.client.noAddress": "El agente no tiene dirección. Rellénala en «Conexiones».",
   "errors.client.notJson": "El agente devolvió una respuesta que no es JSON. Comprueba que la dirección sea un endpoint de agente.",
   "errors.client.noReply": "El agente respondió sin el campo reply. Revisa el contrato del agente.",
+  "errors.ws.connect": "No se pudo conectar con el agente por WebSocket. Comprueba la dirección, el token y que use wss://.",
+  "errors.ws.closed": "La conexión con el agente se cerró antes de recibir respuesta.",
+  "errors.ws.timeout": "El agente no respondió a tiempo.",
+  "errors.ws.picoError": "Error del agente: {detail}",
+  "errors.openai.empty": "El agente devolvió una respuesta vacía o inesperada.",
+  "errors.openai.error": "Error del agente: {detail}",
 } as const satisfies LocaleMessages;

@@ -18,4 +18,10 @@ export const errorsMessages = {
   "errors.client.noAddress": "एजेंट का पता सेट नहीं है। इसे «कनेक्शन» में भरें।",
   "errors.client.notJson": "एजेंट ने JSON के अलावा कुछ लौटाया। जाँचें कि पता एजेंट का endpoint है।",
   "errors.client.noReply": "एजेंट के उत्तर में reply फ़ील्ड नहीं है। एजेंट अनुबंध जाँचें।",
+  "errors.ws.connect": "WebSocket से एजेंट से कनेक्ट नहीं हो सका। पता, टोकन और wss:// का उपयोग जाँचें।",
+  "errors.ws.closed": "उत्तर मिलने से पहले एजेंट से कनेक्शन बंद हो गया।",
+  "errors.ws.timeout": "एजेंट ने समय पर उत्तर नहीं दिया।",
+  "errors.ws.picoError": "एजेंट त्रुटि: {detail}",
+  "errors.openai.empty": "एजेंट ने खाली या अप्रत्याशित उत्तर दिया।",
+  "errors.openai.error": "एजेंट त्रुटि: {detail}",
 } as const satisfies LocaleMessages;

@@ -20,4 +20,11 @@ export const chatMessages = {
   "chat.role.user": "вы",
   "chat.role.assistant": "агент",
   "chat.role.system": "система",
+  "chat.typing": "агент печатает…",
+  "chat.thought": "Размышление",
+  "chat.toolCalls": "Вызовы инструментов",
+  "chat.stop": "Стоп",
+  "chat.retry": "Повторить",
+  "chat.rename": "Переименовать",
+  "chat.renamePlaceholder": "Название диалога",
 } as const satisfies LocaleMessages;

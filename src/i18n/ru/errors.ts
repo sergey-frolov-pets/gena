@@ -18,4 +18,10 @@ export const errorsMessages = {
   "errors.client.noAddress": "У агента не задан адрес. Заполните его в разделе «Подключения».",
   "errors.client.notJson": "Агент вернул ответ не в формате JSON. Проверьте, что адрес — это endpoint агента.",
   "errors.client.noReply": "Агент ответил, но без поля reply. Проверьте контракт агента.",
+  "errors.ws.connect": "Не удалось подключиться к агенту по WebSocket. Проверьте адрес, токен и что адрес использует wss://.",
+  "errors.ws.closed": "Соединение с агентом закрылось до получения ответа.",
+  "errors.ws.timeout": "Агент не ответил вовремя.",
+  "errors.ws.picoError": "Ошибка агента: {detail}",
+  "errors.openai.empty": "Агент вернул пустой или некорректный ответ.",
+  "errors.openai.error": "Ошибка агента: {detail}",
 } as const satisfies LocaleMessages;

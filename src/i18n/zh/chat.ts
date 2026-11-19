@@ -20,4 +20,11 @@ export const chatMessages = {
   "chat.role.user": "用户",
   "chat.role.assistant": "助手",
   "chat.role.system": "系统",
+  "chat.typing": "智能体正在输入…",
+  "chat.thought": "推理",
+  "chat.toolCalls": "工具调用",
+  "chat.stop": "停止",
+  "chat.retry": "重试",
+  "chat.rename": "重命名",
+  "chat.renamePlaceholder": "对话名称",
 } as const satisfies LocaleMessages;

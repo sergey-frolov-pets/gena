@@ -4,6 +4,7 @@ import ConnectionsView from "./views/ConnectionsView.vue";
 import ChatView from "./views/ChatView.vue";
 import SessionsView from "./views/SessionsView.vue";
 import LanguageSwitcher from "./components/LanguageSwitcher.vue";
+import ThemeSwitcher from "./components/ThemeSwitcher.vue";
 import { loadAgents, loadSessions } from "./lib/store";
 import { useLocale } from "./i18n";
 
@@ -20,7 +21,10 @@ onMounted(async () => {
 <template>
   <div class="app">
     <header class="topbar">
-      <strong>{{ t("app.name") }}</strong>
+      <div class="brand">
+        <img class="brand-icon" src="/icon.svg" alt="" aria-hidden="true" />
+        <strong>{{ t("app.name") }}</strong>
+      </div>
       <nav :aria-label="t('app.nav.main')">
         <button :class="{ primary: tab === 'connections' }" @click="tab = 'connections'">
           {{ t("app.nav.connections") }}
@@ -33,6 +37,7 @@ onMounted(async () => {
         </button>
       </nav>
       <LanguageSwitcher />
+      <ThemeSwitcher />
     </header>
 
     <main class="content">
@@ -59,6 +64,18 @@ onMounted(async () => {
   border-bottom: 1px solid var(--border);
   background: var(--panel);
   flex-wrap: wrap;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brand-icon {
+  width: 22px;
+  height: 22px;
+  display: block;
 }
 
 .topbar nav {

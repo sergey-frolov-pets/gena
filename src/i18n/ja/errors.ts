@@ -18,4 +18,10 @@ export const errorsMessages = {
   "errors.client.noAddress": "エージェントにアドレスがありません。「接続」で入力してください。",
   "errors.client.notJson": "エージェントが JSON 以外を返しました。アドレスがエージェントの endpoint か確認してください。",
   "errors.client.noReply": "エージェントの応答に reply フィールドがありません。契約を確認してください。",
+  "errors.ws.connect": "WebSocket でエージェントに接続できませんでした。アドレス、トークン、wss:// の使用を確認してください。",
+  "errors.ws.closed": "応答を受信する前にエージェントへの接続が閉じられました。",
+  "errors.ws.timeout": "エージェントが時間内に応答しませんでした。",
+  "errors.ws.picoError": "エージェントエラー: {detail}",
+  "errors.openai.empty": "エージェントが空または想定外の応答を返しました。",
+  "errors.openai.error": "エージェントエラー: {detail}",
 } as const satisfies LocaleMessages;

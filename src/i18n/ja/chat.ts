@@ -20,4 +20,11 @@ export const chatMessages = {
   "chat.role.user": "ユーザー",
   "chat.role.assistant": "アシスタント",
   "chat.role.system": "システム",
+  "chat.typing": "エージェントが入力中…",
+  "chat.thought": "思考",
+  "chat.toolCalls": "ツール呼び出し",
+  "chat.stop": "停止",
+  "chat.retry": "再試行",
+  "chat.rename": "名前を変更",
+  "chat.renamePlaceholder": "ダイアログ名",
 } as const satisfies LocaleMessages;

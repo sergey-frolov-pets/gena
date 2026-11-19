@@ -18,4 +18,10 @@ export const errorsMessages = {
   "errors.client.noAddress": "智能体未设置地址。请在「连接」中填写。",
   "errors.client.notJson": "智能体返回的不是 JSON。请确认该地址是智能体的 endpoint。",
   "errors.client.noReply": "智能体响应中缺少 reply 字段。请检查智能体契约。",
+  "errors.ws.connect": "无法通过 WebSocket 连接到智能体。请检查地址、令牌以及是否使用 wss://。",
+  "errors.ws.closed": "与智能体的连接在收到回复前已关闭。",
+  "errors.ws.timeout": "智能体未及时响应。",
+  "errors.ws.picoError": "智能体错误：{detail}",
+  "errors.openai.empty": "智能体返回了空或意外的响应。",
+  "errors.openai.error": "代理错误：{detail}",
 } as const satisfies LocaleMessages;

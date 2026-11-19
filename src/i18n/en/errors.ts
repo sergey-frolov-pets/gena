@@ -18,4 +18,10 @@ export const errorsMessages = {
   "errors.client.noAddress": "The agent has no address. Fill it in under “Connections”.",
   "errors.client.notJson": "The agent returned a non-JSON response. Make sure the address is an agent endpoint.",
   "errors.client.noReply": "The agent responded without a reply field. Check the agent contract.",
+  "errors.ws.connect": "Could not connect to the agent over WebSocket. Check the address, token and that it uses wss://.",
+  "errors.ws.closed": "The connection to the agent closed before an answer arrived.",
+  "errors.ws.timeout": "The agent did not answer in time.",
+  "errors.ws.picoError": "Agent error: {detail}",
+  "errors.openai.empty": "The agent returned an empty or unexpected response.",
+  "errors.openai.error": "Agent error: {detail}",
 } as const satisfies LocaleMessages;

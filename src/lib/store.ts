@@ -4,8 +4,8 @@
  */
 
 import { ref } from "vue";
-import type { Agent, Message, Session } from "@/storage/types";
-import { DEFAULT_AGENT_SETTINGS } from "@/storage/types";
+import type { Agent, AgentConfig, Message, Protocol, Session } from "@/storage/types";
+import { DEFAULT_AGENT_SETTINGS, SCHEMA_VERSION } from "@/storage/types";
 import {
   deleteAgent,
   getAgent,
@@ -44,6 +44,8 @@ export async function createAgent(input: {
   address: string;
   apiKey: string;
   settings: Partial<typeof DEFAULT_AGENT_SETTINGS>;
+  protocol?: Protocol;
+  config?: AgentConfig;
 }): Promise<Agent> {
   const id = newId("agent");
   const sealedKey = input.apiKey ? await sealAgentKey(input.apiKey, id) : "";
@@ -54,6 +56,9 @@ export async function createAgent(input: {
     address: input.address,
     sealedKey,
     settings: { ...DEFAULT_AGENT_SETTINGS, ...input.settings },
+    protocol: input.protocol ?? "http_json",
+    config: input.config ?? {},
+    schemaVersion: SCHEMA_VERSION,
     createdAt: now,
     updatedAt: now,
   };
@@ -67,6 +72,30 @@ export async function updateAgentKey(agentId: string, apiKey: string): Promise<v
   const agent = await getAgent(agentId);
   if (!agent) return;
   agent.sealedKey = apiKey ? await sealAgentKey(apiKey, agentId) : "";
+  agent.updatedAt = Date.now();
+  await putAgent(agent);
+  await loadAgents();
+}
+
+/** Обновить имя/адрес/настройки/протокол агента (ключ не трогается). */
+export async function updateAgent(
+  agentId: string,
+  input: {
+    name: string;
+    address: string;
+    settings: Partial<typeof DEFAULT_AGENT_SETTINGS>;
+    protocol?: Protocol;
+    config?: AgentConfig;
+  },
+): Promise<void> {
+  const agent = await getAgent(agentId);
+  if (!agent) return;
+  agent.name = input.name;
+  agent.address = input.address;
+  agent.settings = { ...DEFAULT_AGENT_SETTINGS, ...input.settings };
+  agent.protocol = input.protocol ?? agent.protocol ?? "http_json";
+  agent.config = input.config ?? {};
+  agent.schemaVersion = SCHEMA_VERSION;
   agent.updatedAt = Date.now();
   await putAgent(agent);
   await loadAgents();
@@ -97,10 +126,21 @@ export async function createSession(agentId: string, title: string): Promise<Ses
   return session;
 }
 
+/** Переименовать диалог. */
+export async function renameSession(sessionId: string, title: string): Promise<void> {
+  const session = sessions.value.find((s) => s.id === sessionId);
+  if (!session) return;
+  session.title = title.trim() || "Новый диалог";
+  session.updatedAt = Date.now();
+  await putSession(session);
+  await loadSessions();
+}
+
 export async function appendMessage(
   sessionId: string,
   role: Message["role"],
   content: string,
+  kind?: Message["kind"],
 ): Promise<Message> {
   const message: Message = {
     id: newId("msg"),
@@ -108,6 +148,7 @@ export async function appendMessage(
     role,
     content,
     createdAt: Date.now(),
+    kind,
   };
   await putMessage(message);
 

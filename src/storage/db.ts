@@ -13,7 +13,7 @@
  */
 
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
-import type { Agent, Message, Session, UsageRecord } from "./types";
+import { normalizeAgent, type Agent, type Message, type Session, type UsageRecord } from "./types";
 
 const DB_NAME = "gena";
 const DB_VERSION = 2;
@@ -100,12 +100,14 @@ export async function putAgent(agent: Agent): Promise<void> {
 
 export async function getAgent(id: string): Promise<Agent | undefined> {
   const db = await getDb();
-  return db.get("agents", id);
+  const agent = await db.get("agents", id);
+  return agent ? normalizeAgent(agent) : undefined;
 }
 
 export async function listAgents(): Promise<Agent[]> {
   const db = await getDb();
-  return db.getAll("agents");
+  const all = await db.getAll("agents");
+  return all.map(normalizeAgent);
 }
 
 export async function deleteAgent(id: string): Promise<void> {

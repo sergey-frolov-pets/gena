@@ -66,9 +66,19 @@ export function describeError(error: unknown, t: TranslateFn = tDefault): string
       no_address: "errors.client.noAddress",
       not_json: "errors.client.notJson",
       no_reply: "errors.client.noReply",
+      ws_connect: "errors.ws.connect",
+      ws_closed: "errors.ws.closed",
+      ws_timeout: "errors.ws.timeout",
+      openai_empty: "errors.openai.empty",
     };
     if (error.code && byCode[error.code]) {
       return t(byCode[error.code] as LocaleKey);
+    }
+    if (error.code === "pico_error") {
+      return t("errors.ws.picoError", { detail: error.detail ?? error.message });
+    }
+    if (error.code === "openai_error") {
+      return t("errors.openai.error", { detail: error.detail ?? error.message });
     }
     // Сетевая ошибка: detail — сырой текст fetch, если он есть.
     return describeNetworkError(new Error(error.detail ?? error.message), t);

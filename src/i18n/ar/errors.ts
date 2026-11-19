@@ -18,4 +18,10 @@ export const errorsMessages = {
   "errors.client.noAddress": "لا يوجد عنوان للوكيل. املأه في «الاتصالات».",
   "errors.client.notJson": "أعاد الوكيل استجابة ليست JSON. تحقق من أن العنوان هو endpoint للوكيل.",
   "errors.client.noReply": "أجاب الوكيل دون حقل reply. تحقق من عقد الوكيل.",
+  "errors.ws.connect": "تعذّر الاتصال بالوكيل عبر WebSocket. تحقق من العنوان والرمز واستخدام wss://.",
+  "errors.ws.closed": "أُغلقت الاتصال بالوكيل قبل وصول رد.",
+  "errors.ws.timeout": "لم يرد الوكيل في الوقت المناسب.",
+  "errors.ws.picoError": "خطأ الوكيل: {detail}",
+  "errors.openai.empty": "أعاد الوكيل ردًا فارغًا أو غير متوقع.",
+  "errors.openai.error": "خطأ الوكيل: {detail}",
 } as const satisfies LocaleMessages;
