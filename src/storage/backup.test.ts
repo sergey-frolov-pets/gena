@@ -5,6 +5,9 @@ import {
   serializeBackup,
   BackupParseError,
   backupAgentToAgent,
+  mergeAgents,
+  mergeSessions,
+  mergeMessages,
 } from "./backup";
 import type { Agent, Message, Session } from "./types";
 
@@ -88,5 +91,55 @@ describe("backup", () => {
     const payload = buildBackup({ agents: [], sessions: [], messages: [] });
     payload.messages = [{ ...message, role: "bot" as Message["role"] }];
     expect(() => parseBackup(serializeBackup(payload))).toThrow(BackupParseError);
+  });
+});
+
+describe("merge-импорт", () => {
+  const backupAgent = {
+    id: "agent-1",
+    name: "From backup",
+    address: "https://y/chat",
+    settings: { contextSize: 20, callLimit: 0, llmModel: "m2" },
+    createdAt: 5,
+    updatedAt: 6,
+  };
+
+  it("сохраняет ключ существующего агента при обновлении", () => {
+    const result = mergeAgents([agent], [backupAgent]);
+    expect(result.updated).toBe(1);
+    expect(result.added).toBe(0);
+    expect(result.toWrite[0].sealedKey).toBe("enc:v1:AAAA.BBBB");
+    expect(result.toWrite[0].name).toBe("From backup");
+  });
+
+  it("добавляет нового агента с пустым ключом", () => {
+    const result = mergeAgents([], [backupAgent]);
+    expect(result.added).toBe(1);
+    expect(result.toWrite[0].sealedKey).toBe("");
+  });
+
+  it("не затирает существующие сессии по id", () => {
+    const result = mergeSessions([session], [{ ...session, title: "Другое" }]);
+    expect(result.skipped).toBe(1);
+    expect(result.added).toBe(0);
+    expect(result.toWrite).toHaveLength(0);
+  });
+
+  it("добавляет новые сессии", () => {
+    const result = mergeSessions([], [session]);
+    expect(result.added).toBe(1);
+    expect(result.toWrite).toHaveLength(1);
+  });
+
+  it("не затирает существующие сообщения по id", () => {
+    const result = mergeMessages([message], [{ ...message, content: "иное" }]);
+    expect(result.skipped).toBe(1);
+    expect(result.toWrite).toHaveLength(0);
+  });
+
+  it("добавляет новые сообщения", () => {
+    const result = mergeMessages([], [message]);
+    expect(result.added).toBe(1);
+    expect(result.toWrite[0].content).toBe("привет");
   });
 });

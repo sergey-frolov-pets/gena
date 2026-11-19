@@ -12,10 +12,20 @@ import {
   buildBackup,
   serializeBackup,
   parseBackup,
-  backupAgentToAgent,
+  mergeAgents,
+  mergeSessions,
+  mergeMessages,
 } from "@/storage/backup";
-import { listMessages, putAgent, putMessage, putSession } from "@/storage/db";
+import {
+  listMessages,
+  listAgents,
+  listSessions,
+  putAgent,
+  putMessage,
+  putSession,
+} from "@/storage/db";
 import { clearAll, clearExcept } from "@/storage/cleanup";
+import type { Message } from "@/storage/types";
 
 const error = ref("");
 const notice = ref("");
@@ -79,7 +89,7 @@ async function exportBackup(): Promise<void> {
   }
 }
 
-/** Импорт: добавить/перезаписать сессии из файла. Ключи не восстанавливаются. */
+/** Импорт: слить с текущими данными. Ключи существующих агентов сохраняются. */
 async function importBackup(event: Event): Promise<void> {
   error.value = "";
   notice.value = "";
@@ -90,17 +100,31 @@ async function importBackup(event: Event): Promise<void> {
     const text = await file.text();
     const payload = parseBackup(text);
 
-    for (const backupAgent of payload.agents) {
-      await putAgent(backupAgentToAgent(backupAgent));
+    const currentAgents = await listAgents();
+    const currentSessions = await listSessions();
+    const currentMessages: Message[] = [];
+    for (const session of currentSessions) {
+      currentMessages.push(...(await listMessages(session.id)));
     }
-    for (const session of payload.sessions) {
-      await putSession(session);
-    }
-    for (const message of payload.messages) {
-      await putMessage(message);
-    }
+
+    const agentsMerge = mergeAgents(currentAgents, payload.agents);
+    const sessionsMerge = mergeSessions(currentSessions, payload.sessions);
+    const messagesMerge = mergeMessages(currentMessages, payload.messages);
+
+    for (const agent of agentsMerge.toWrite) await putAgent(agent);
+    for (const session of sessionsMerge.toWrite) await putSession(session);
+    for (const message of messagesMerge.toWrite) await putMessage(message);
+
     await loadSessions();
-    notice.value = `Импортировано: ${payload.sessions.length} сессий, ${payload.messages.length} сообщений. Ключи агентов нужно ввести заново.`;
+
+    const skipped = sessionsMerge.skipped + messagesMerge.skipped;
+    const parts = [
+      `агентов: +${agentsMerge.added} / обновлено ${agentsMerge.updated}`,
+      `сессий: +${sessionsMerge.added}`,
+      `сообщений: +${messagesMerge.added}`,
+    ];
+    if (skipped > 0) parts.push(`пропущено конфликтов: ${skipped}`);
+    notice.value = `Импорт (слияние): ${parts.join(", ")}. Ключи существующих агентов сохранены; для новых агентов введите ключ.`;
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e);
   } finally {

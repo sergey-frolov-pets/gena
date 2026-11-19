@@ -200,3 +200,92 @@ export function backupAgentToAgent(backup: BackupAgent): Agent {
     updatedAt: backup.updatedAt,
   };
 }
+
+/**
+ * Слияние бэкапа с текущими данными (merge-импорт).
+ *
+ * Правила:
+ * - Агент с тем же id: сохраняем существующий sealedKey (ключ в файле не хранится),
+ *   остальные поля берём из бэкапа. Новый агент — sealedKey пустой.
+ * - Сессия/сообщение с тем же id: существующее НЕ затираем, бэкапная версия
+ *   считается конфликтом и пропускается.
+ * - Записи, которых нет локально, добавляются.
+ */
+
+export interface MergeInput<T> {
+  current: T[];
+  incoming: T[];
+}
+
+export interface MergeResult<T> {
+  /** Записи, которые нужно записать в БД (новые или обновлённые). */
+  toWrite: T[];
+  /** Сколько записей добавлено (не было локально). */
+  added: number;
+  /** Сколько записей обновлено (были локально, но обновлены). */
+  updated: number;
+  /** Сколько записей пропущено как конфликт (локальная версия сохранена). */
+  skipped: number;
+}
+
+/** Слить агентов: ключ существующих агентов сохраняется. */
+export function mergeAgents(current: Agent[], incoming: BackupAgent[]): MergeResult<Agent> {
+  const byId = new Map(current.map((a) => [a.id, a]));
+  const toWrite: Agent[] = [];
+  let added = 0;
+  let updated = 0;
+  let skipped = 0;
+
+  for (const backup of incoming) {
+    const existing = byId.get(backup.id);
+    const merged = backupAgentToAgent(backup);
+    if (existing) {
+      merged.sealedKey = existing.sealedKey;
+      toWrite.push(merged);
+      updated += 1;
+    } else {
+      toWrite.push(merged);
+      added += 1;
+    }
+  }
+
+  return { toWrite, added, updated, skipped };
+}
+
+/** Слить сессии: существующие по id не затираются. */
+export function mergeSessions(current: Session[], incoming: Session[]): MergeResult<Session> {
+  const ids = new Set(current.map((s) => s.id));
+  const toWrite: Session[] = [];
+  let added = 0;
+  let skipped = 0;
+
+  for (const session of incoming) {
+    if (ids.has(session.id)) {
+      skipped += 1;
+      continue;
+    }
+    toWrite.push({ ...session });
+    added += 1;
+  }
+
+  return { toWrite, added, updated: 0, skipped };
+}
+
+/** Слить сообщения: существующие по id не затираются. */
+export function mergeMessages(current: Message[], incoming: Message[]): MergeResult<Message> {
+  const ids = new Set(current.map((m) => m.id));
+  const toWrite: Message[] = [];
+  let added = 0;
+  let skipped = 0;
+
+  for (const message of incoming) {
+    if (ids.has(message.id)) {
+      skipped += 1;
+      continue;
+    }
+    toWrite.push({ ...message });
+    added += 1;
+  }
+
+  return { toWrite, added, updated: 0, skipped };
+}
