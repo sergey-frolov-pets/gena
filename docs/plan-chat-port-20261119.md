@@ -165,3 +165,52 @@
 - share-страница диалога (у gena нет серверной части);
 - документы/PDF/аудио во вложениях — сервер Pico принимает только изображения;
 - очередь сообщений (`queued`) — только если появится стриминг-очередь.
+
+
+---
+
+## Прогресс 19.11 (вечер)
+
+Сделано (коммиты `16907ff`, локально, `main` впереди origin на 3):
+
+- **Этап 1 — тултипы.** `src/lib/tooltip.ts` переписан: синглтон-слой `#tip-layer` в `body`
+  (`position: fixed`), долгий тап 400 мс + вибрация 12 мс, отмена по сдвигу > 10 px,
+  hover для мыши, автозакрытие 2.2 с, скрытие по scroll/resize, переворот top/bottom,
+  clamp 8 px, гашение следующего click после долгого тапа, `contextmenu` на `[data-tip]`
+  подавляется. Из `style.css` убран `[data-tip]::after`, добавлен `.tip-layer`
+  (+ `touch-action: manipulation`, `-webkit-touch-callout: none`, `user-select: none`).
+- **Этап 2 — сверка дизайна.** Пузырь `4px 10px` / radius 14; assistant `margin-inline-start: .75rem`;
+  сообщения `gap 10px`, `padding 8px 8px 0`; dock без бокового паддинга + градиентная маска
+  `::before`; кнопка отправки 36×36; пустое состояние по центру. Composer оставлен
+  «осознанно иначе»: паддинг `6px 6px 6px 10px` вместо `2px` — на тач-экране нужно поле
+  для пальца, у code2graph это десктопная IDE-панель.
+- **Этап 3.1 — sheet истории.** Backdrop + панель `inset-inline-end`, `min(86vw, 360px)`,
+  анимация `translateX(100%) → 0` 180 мс, закрытие по backdrop/крестику,
+  поиск по заголовку (плейсхолдер `chat.searchDialogs`).
+- **Этап 3.2 — операции над диалогом.** В `store.ts`: `pinSession`, `duplicateSession`
+  (копия с сообщениями), `removeSession`; `Session.pinned`; сортировка «закреплённые сверху,
+  затем `updatedAt` desc»; удаление с инлайн-подтверждением (без нативного `confirm`).
+- **Этап 3.4 — стартеры.** Центр пустого состояния + 3 кнопки (`chat.starters.1..3`),
+  клик подставляет текст в композер.
+- **Этап 3.5 — вложения (отправка).** Новый `src/lib/images.ts`: проверка типа/20 МБ,
+  downscale до 1600 px, JPEG q0.85 (PNG с прозрачностью остаётся PNG, если влезает
+  в 1.5 МБ), GIF не перекодируется; миниатюра ≤ 200 px — только она идёт в IndexedDB.
+  `Message.attachments`, `MessageAttachment`, `media` в `TransportRequest`/`AgentRequest`,
+  `payload.media` в pico-ws. В ChatView: скрепка (`accept="image/*" multiple`), drag&drop
+  на stage, paste, чипы-превью с удалением, лимит 5, сетка 1–4 в пузыре, лайтбокс (Esc/клик).
+  Кнопка скрыта, если протокол агента не `pico_ws`.
+- **i18n.** +18 ключей сразу во все 9 локалей (`chat.attach*`, `chat.pin/unpin/duplicate/
+  deleteDialog/deleteConfirm/confirm/cancel/close/searchDialogs`, `chat.starters.*`).
+- **Этап 4 (частично).** Мобильные тап-таргеты `.chat-panel__tool` 36×36,
+  `padding-bottom: env(safe-area-inset-bottom)` у dock.
+- **Этап 5 (частично).** `public/sw.js`: `CACHE = "gena-cache-v3"`.
+  Проверки: `vue-tsc` OK, тесты 85/85, build OK, `check_code.py` — 0 проблем.
+
+Осталось:
+
+- **3.5 приём:** `message.create.payload.attachments` (url `/pico/media/<ref>`, нужен
+  `Authorization`) → авторизованный `fetch` → blob-URL с кешем в памяти сессии + миниатюра.
+- **3.3:** regenerate ответа (`chat.regenerate` есть в словарях, кнопки нет).
+- **4:** `visualViewport` — dock не должен перекрываться клавиатурой.
+- **5:** ручной чек-лист на телефоне + деплой (Pages обновится только после `git push`).
+- Тест на `prepareImage` не написан: в jsdom нет canvas (нужен `@vitest/browser` или fake-canvas).
