@@ -10,9 +10,12 @@ import {
   agents,
   appendMessage,
   createSession,
+  duplicateSession,
   getAgentKey,
   loadMessages,
   messages,
+  pinSession,
+  removeSession,
   renameSession,
   sessions,
 } from "@/lib/store";
@@ -35,7 +38,8 @@ import {
   speechAvailable,
   toggleSpeech,
 } from "@/lib/speech";
-import type { Session } from "@/storage/types";
+import type { MessageAttachment, Session } from "@/storage/types";
+import { ImageError, prepareImage, type PreparedImage } from "@/lib/images";
 
 const { t } = useLocale();
 
@@ -65,6 +69,15 @@ const renaming = ref(false);
 const renameDraft = ref("");
 /** Что только что скопировали — для галочки «Скопировано». */
 const copiedId = ref("");
+/** Изображения, готовые к отправке (полный data-URL живёт только в памяти). */
+const pendingImages = ref<PreparedImage[]>([]);
+/** Локализованная ошибка подготовки вложения. */
+const attachError = ref("");
+/** Скрытый input[type=file] для кнопки-скрепки. */
+const fileInput = ref<HTMLInputElement | null>(null);
+/** Просмотр изображения на весь экран. */
+const lightbox = ref("");
+const MAX_IMAGES = 5;
 
 const agentSessions = computed<Session[]>(() =>
   sessions.value.filter((s) => !agentId.value || s.agentId === agentId.value),
@@ -72,9 +85,20 @@ const agentSessions = computed<Session[]>(() =>
 
 const filteredSessions = computed<Session[]>(() => {
   const query = historyQuery.value.trim().toLowerCase();
-  if (!query) return agentSessions.value;
-  return agentSessions.value.filter((s) => s.title.toLowerCase().includes(query));
+  const list = query
+    ? agentSessions.value.filter((s) => s.title.toLowerCase().includes(query))
+    : [...agentSessions.value];
+  // Закреплённые сверху, дальше — по времени обновления.
+  return list.sort((a, b) => {
+    const pinA = a.pinned ? 1 : 0;
+    const pinB = b.pinned ? 1 : 0;
+    if (pinA !== pinB) return pinB - pinA;
+    return b.updatedAt - a.updatedAt;
+  });
 });
+
+/** Диалог, у которого подтверждаем удаление. */
+const confirmDeleteId = ref("");
 
 const activeSession = computed<Session | undefined>(() =>
   sessions.value.find((s) => s.id === activeSessionId.value),
@@ -92,7 +116,15 @@ const limitLabel = computed(() => {
 });
 
 const canSend = computed(
-  () => Boolean(activeSession.value) && draft.value.trim().length > 0 && !busy.value,
+  () =>
+    Boolean(activeSession.value) &&
+    (draft.value.trim().length > 0 || pendingImages.value.length > 0) &&
+    !busy.value,
+);
+
+/** Вложения принимает только протокол Pico WS (`payload.media`). */
+const supportsImages = computed(
+  () => (activeAgent.value?.protocol ?? "http_json") === "pico_ws",
 );
 
 const dictationMessage = computed(() => {
@@ -159,7 +191,14 @@ async function send(): Promise<void> {
   error.value = "";
   notice.value = "";
   const text = draft.value.trim();
-  if (!text || busy.value) return;
+  const media = pendingImages.value.map((img) => img.dataUrl);
+  const attachments: MessageAttachment[] = pendingImages.value.map((img) => ({
+    kind: "image",
+    thumb: img.thumb,
+    width: img.width,
+    height: img.height,
+  }));
+  if ((!text && media.length === 0) || busy.value) return;
 
   const session = activeSession.value;
   if (!session) {
@@ -190,8 +229,9 @@ async function send(): Promise<void> {
   const controller = new AbortController();
   abortCtrl.value = controller;
   try {
-    await appendMessage(session.id, "user", text);
+    await appendMessage(session.id, "user", text, undefined, attachments);
     draft.value = "";
+    pendingImages.value = [];
 
     const key = await getAgentKey(agent);
     // В контекст идут только обычные текстовые сообщения (без мыслей/tool_calls).
@@ -203,6 +243,7 @@ async function send(): Promise<void> {
       key,
       {
         message: text,
+        media,
         sessionId: session.id,
         settings: agent.settings,
         history,
@@ -292,6 +333,94 @@ async function commitRename(): Promise<void> {
   renaming.value = false;
   if (!session) return;
   await renameSession(session.id, renameDraft.value.trim() || session.title);
+}
+
+async function togglePin(session: Session): Promise<void> {
+  await pinSession(session.id, !session.pinned);
+}
+
+async function duplicate(session: Session): Promise<void> {
+  const copy = await duplicateSession(session.id);
+  if (copy) await openSession(copy.id);
+}
+
+async function removeDialog(sessionId: string): Promise<void> {
+  confirmDeleteId.value = "";
+  await removeSession(sessionId);
+}
+
+function attachMessage(code: string): string {
+  if (code === "too_large") return t("chat.attachError.size");
+  return t("chat.attachError.type");
+}
+
+function pickImages(): void {
+  fileInput.value?.click();
+}
+
+async function addFiles(files: File[]): Promise<void> {
+  if (files.length === 0) return;
+  attachError.value = "";
+  for (const file of files) {
+    if (pendingImages.value.length >= MAX_IMAGES) {
+      attachError.value = t("chat.attachError.count");
+      break;
+    }
+    try {
+      const prepared = await prepareImage(file);
+      pendingImages.value = [...pendingImages.value, prepared];
+    } catch (e) {
+      attachError.value =
+        e instanceof ImageError ? attachMessage(e.code) : t("chat.attachError.type");
+    }
+  }
+  await autoGrow();
+}
+
+async function onFilesPicked(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement;
+  await addFiles(Array.from(input.files ?? []));
+  input.value = "";
+}
+
+function removeImage(index: number): void {
+  pendingImages.value = pendingImages.value.filter((_, i) => i !== index);
+  attachError.value = "";
+}
+
+function onPaste(event: ClipboardEvent): void {
+  const files = Array.from(event.clipboardData?.files ?? []).filter((f) =>
+    f.type.startsWith("image/"),
+  );
+  if (files.length === 0) return;
+  event.preventDefault();
+  void addFiles(files);
+}
+
+function onDrop(event: DragEvent): void {
+  const files = Array.from(event.dataTransfer?.files ?? []).filter((f) =>
+    f.type.startsWith("image/"),
+  );
+  if (files.length === 0) return;
+  void addFiles(files);
+}
+
+function openImage(src: string): void {
+  lightbox.value = src;
+}
+
+function onLightboxKey(event: KeyboardEvent): void {
+  if (event.key === "Escape") lightbox.value = "";
+}
+
+watch(lightbox, (open) => {
+  if (open) window.addEventListener("keydown", onLightboxKey, { once: true });
+});
+
+function useStarter(n: number): void {
+  draft.value = t(`chat.starters.${n}` as never);
+  void autoGrow();
+  composerEl.value?.focus();
 }
 
 function protocolLabel(): string {
@@ -400,14 +529,38 @@ function protocolLabel(): string {
     </div>
 
     <div class="chat-panel__stage">
-      <div v-if="historyOpen" class="chat-panel__history">
-        <input
-          v-model="historyQuery"
-          class="chat-panel__search"
-          type="search"
-          :placeholder="t('chat.dialogs')"
-          :aria-label="t('chat.dialogs')"
-        />
+      <div
+        v-if="historyOpen"
+        class="chat-panel__sheet-backdrop"
+        @click="historyOpen = false"
+      />
+      <aside
+        v-if="historyOpen"
+        class="chat-panel__sheet"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="t('chat.dialogs')"
+      >
+        <div class="chat-panel__sheet-head">
+          <input
+            v-model="historyQuery"
+            class="chat-panel__search"
+            type="search"
+            :placeholder="t('chat.searchDialogs')"
+            :aria-label="t('chat.searchDialogs')"
+          />
+          <button
+            type="button"
+            class="chat-panel__tool"
+            v-tip="t('chat.close')"
+            :aria-label="t('chat.close')"
+            @click="historyOpen = false"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
         <p v-if="filteredSessions.length === 0" class="chat-panel__muted">
           {{ t("chat.selectOrCreate") }}
         </p>
@@ -416,17 +569,79 @@ function protocolLabel(): string {
             v-for="s in filteredSessions"
             :key="s.id"
             class="chat-panel__session"
-            :class="{ 'is-active': s.id === activeSessionId }"
+            :class="{ 'is-active': s.id === activeSessionId, 'is-pinned': s.pinned }"
           >
             <button class="chat-panel__session-open" type="button" @click="openSession(s.id)">
               <span class="chat-panel__session-title">{{ s.title }}</span>
               <span class="chat-panel__session-count">{{ s.messageCount }}</span>
             </button>
+
+            <div v-if="confirmDeleteId !== s.id" class="chat-panel__session-actions">
+              <button
+                type="button"
+                class="chat-panel__action"
+                :class="{ 'is-on': s.pinned }"
+                v-tip="s.pinned ? t('chat.unpin') : t('chat.pin')"
+                :aria-label="s.pinned ? t('chat.unpin') : t('chat.pin')"
+                @click="togglePin(s)"
+              >
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M12 17v5" />
+                  <path d="M9 3h6l-1 6 3 3H7l3-3z" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                class="chat-panel__action"
+                v-tip="t('chat.duplicate')"
+                :aria-label="t('chat.duplicate')"
+                @click="duplicate(s)"
+              >
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="9" y="9" width="11" height="11" rx="2" />
+                  <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                class="chat-panel__action is-danger"
+                v-tip="t('chat.deleteDialog')"
+                :aria-label="t('chat.deleteDialog')"
+                @click="confirmDeleteId = s.id"
+              >
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" />
+                </svg>
+              </button>
+            </div>
+
+            <div v-else class="chat-panel__confirm">
+              <span class="chat-panel__confirm-text">
+                {{ t("chat.deleteConfirm", { title: s.title }) }}
+              </span>
+              <button
+                type="button"
+                class="chat-panel__link is-danger"
+                @click="removeDialog(s.id)"
+              >
+                {{ t("chat.confirm") }}
+              </button>
+              <button type="button" class="chat-panel__link" @click="confirmDeleteId = ''">
+                {{ t("chat.cancel") }}
+              </button>
+            </div>
           </li>
         </ul>
-      </div>
+      </aside>
 
-      <div ref="messagesEl" class="chat-panel__messages" role="log" aria-live="polite">
+      <div
+        ref="messagesEl"
+        class="chat-panel__messages"
+        role="log"
+        aria-live="polite"
+        @dragover.prevent
+        @drop.prevent="onDrop"
+      >
         <template v-for="m in messages" :key="m.id">
           <details v-if="m.kind === 'thought'" class="chat-panel__aux">
             <summary>{{ t("chat.thought") }}</summary>
@@ -438,7 +653,22 @@ function protocolLabel(): string {
           </details>
           <article v-else class="chat-panel__message" :class="`chat-panel__message--${m.role}`">
             <span class="chat-panel__role">{{ t(`chat.role.${m.role}` as never) }}</span>
-            <p class="chat-panel__content">{{ m.content }}</p>
+            <p v-if="m.content" class="chat-panel__content">{{ m.content }}</p>
+            <div
+              v-if="m.attachments?.length"
+              class="chat-panel__images"
+              :data-count="Math.min(m.attachments.length, 4)"
+            >
+              <button
+                v-for="(a, i) in m.attachments.slice(0, 4)"
+                :key="i"
+                type="button"
+                class="chat-panel__image"
+                @click="openImage(a.thumb)"
+              >
+                <img :src="a.thumb" alt="" loading="lazy" />
+              </button>
+            </div>
             <div class="chat-panel__message-actions">
               <button
                 type="button"
@@ -482,9 +712,25 @@ function protocolLabel(): string {
           <p class="chat-panel__content">{{ streamingText }}</p>
         </article>
 
-        <p v-if="messages.length === 0 && !typing && !streamingText" class="chat-panel__muted">
-          {{ t("chat.messagesEmpty") }}
-        </p>
+        <div
+          v-if="messages.length === 0 && !typing && !streamingText"
+          class="chat-panel__empty"
+        >
+          <p class="chat-panel__empty-text">{{ t("chat.messagesEmpty") }}</p>
+          <p class="chat-panel__empty-title">{{ t("chat.starters.title") }}</p>
+          <div class="chat-panel__starters">
+            <button
+              v-for="n in 3"
+              :key="n"
+              type="button"
+              class="chat-panel__starter"
+              :disabled="!activeSession"
+              @click="useStarter(n)"
+            >
+              {{ t(`chat.starters.${n}` as never) }}
+            </button>
+          </div>
+        </div>
         <p v-if="typing" class="chat-panel__thinking">{{ t("chat.typing") }}</p>
       </div>
     </div>
@@ -495,6 +741,7 @@ function protocolLabel(): string {
         {{ t("chat.dictateRecording") }}
       </p>
       <p v-if="dictationMessage" class="chat-panel__warning" role="alert">{{ dictationMessage }}</p>
+      <p v-if="attachError" class="chat-panel__warning" role="alert">{{ attachError }}</p>
       <p v-if="error" class="chat-panel__warning" role="alert">
         {{ error }}
         <button v-if="lastText" type="button" class="chat-panel__link" @click="retry">
@@ -504,7 +751,45 @@ function protocolLabel(): string {
       <p v-if="notice" class="chat-panel__notice" role="status">{{ notice }}</p>
 
       <form class="chat-panel__composer" @submit.prevent="send">
+        <div v-if="pendingImages.length > 0" class="chat-panel__chips">
+          <div v-for="(img, i) in pendingImages" :key="i" class="chat-panel__chip">
+            <img :src="img.thumb" alt="" />
+            <button
+              type="button"
+              class="chat-panel__chip-remove"
+              v-tip="t('chat.attachRemove')"
+              :aria-label="t('chat.attachRemove')"
+              @click="removeImage(i)"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+        <input
+          ref="fileInput"
+          class="chat-panel__file"
+          type="file"
+          accept="image/*"
+          multiple
+          @change="onFilesPicked"
+        />
         <div class="chat-panel__composer-box" :class="{ 'is-recording': dictationListening }">
+          <button
+            v-if="supportsImages"
+            type="button"
+            class="chat-panel__icon-btn"
+            v-tip="t('chat.attach')"
+            :aria-label="t('chat.attach')"
+            :disabled="!activeSession"
+            @click="pickImages"
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 12.5V7a4 4 0 0 0-4-4h-9a4 4 0 0 0-4 4v10a4 4 0 0 0 4 4h6" />
+              <path d="m3 16 4.5-4.5a2 2 0 0 1 2.8 0L15 16" />
+              <circle cx="8.5" cy="8.5" r="1.5" />
+              <path d="M18 15v6M15 18h6" />
+            </svg>
+          </button>
           <textarea
             ref="composerEl"
             v-model="draft"
@@ -515,6 +800,7 @@ function protocolLabel(): string {
             :aria-label="t('chat.composerPlaceholder')"
             :disabled="!activeSession"
             @keydown.enter.exact.prevent="send"
+            @paste="onPaste"
           />
           <button
             v-if="dictationAvailable"
@@ -561,12 +847,23 @@ function protocolLabel(): string {
         </div>
       </form>
     </div>
+
+    <div
+      v-if="lightbox"
+      class="chat-panel__lightbox"
+      role="dialog"
+      aria-modal="true"
+      @click="lightbox = ''"
+    >
+      <img :src="lightbox" alt="" />
+    </div>
   </section>
 </template>
 
 <style scoped>
 /* --- Каркас: как .ai-chat-panel ------------------------------------------- */
 .chat-panel {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -575,6 +872,7 @@ function protocolLabel(): string {
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--panel);
+  overflow: hidden;
 }
 
 .chat-panel__toolbar {
@@ -693,16 +991,53 @@ function protocolLabel(): string {
   flex-direction: column;
 }
 
-.chat-panel__history {
+.chat-panel__sheet-backdrop {
   position: absolute;
   inset: 0;
-  z-index: 5;
+  z-index: 30;
+  background: rgba(0, 0, 0, 0.45);
+  animation: gena-fade-in 160ms ease;
+}
+
+.chat-panel__sheet {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  z-index: 31;
   display: flex;
   flex-direction: column;
   gap: 6px;
+  width: min(86vw, 360px);
   padding: 10px;
-  overflow-y: auto;
+  border-inline-start: 1px solid var(--border);
   background: var(--panel);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.28);
+  overflow-y: auto;
+  animation: gena-sheet-in 180ms ease;
+}
+
+@keyframes gena-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes gena-sheet-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.chat-panel__sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .chat-panel__search {
@@ -716,6 +1051,69 @@ function protocolLabel(): string {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+.chat-panel__session {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.chat-panel__session-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.chat-panel__session:hover .chat-panel__session-actions,
+.chat-panel__session:focus-within .chat-panel__session-actions,
+.chat-panel__session.is-active .chat-panel__session-actions {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .chat-panel__session-actions {
+    opacity: 1;
+  }
+}
+
+.chat-panel__session.is-pinned .chat-panel__session-title {
+  font-weight: 600;
+}
+
+.chat-panel__session .chat-panel__action {
+  width: 28px;
+  height: 28px;
+}
+
+.chat-panel__action.is-danger:hover {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+
+.chat-panel__confirm {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px 8px;
+  padding: 4px 6px;
+  border: 1px solid var(--danger);
+  border-radius: 10px;
+}
+
+.chat-panel__confirm-text {
+  flex: 1 1 100%;
+  color: var(--danger);
+  font-size: 0.74rem;
+  line-height: 1.3;
+}
+
+.chat-panel__link.is-danger {
+  color: var(--danger);
 }
 
 .chat-panel__session-open {
@@ -761,7 +1159,7 @@ function protocolLabel(): string {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 12px;
+  padding: 8px 8px 0;
   overflow-y: auto;
 }
 
@@ -772,8 +1170,8 @@ function protocolLabel(): string {
   flex-direction: column;
   gap: 4px;
   max-width: min(100%, 36rem);
-  padding: 6px 12px 8px;
-  border-radius: 12px;
+  padding: 4px 10px;
+  border-radius: 14px;
 }
 
 .chat-panel__message--user {
@@ -785,6 +1183,7 @@ function protocolLabel(): string {
 
 .chat-panel__message--assistant {
   align-self: flex-start;
+  margin-inline-start: 0.75rem;
   margin-inline-end: 1.25rem;
   padding-inline: 0;
   background: transparent;
@@ -882,7 +1281,19 @@ function protocolLabel(): string {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 0 10px 10px;
+  margin-top: auto;
+  padding: 0 8px 8px;
+}
+
+/* Мягкая маска: сообщения «уходят» под композер, а не обрываются. */
+.chat-panel__dock::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: -18px;
+  height: 18px;
+  background: linear-gradient(to top, var(--panel), transparent);
+  pointer-events: none;
 }
 
 .chat-panel__composer {
@@ -977,8 +1388,8 @@ function protocolLabel(): string {
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   padding: 0;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -1059,13 +1470,152 @@ function protocolLabel(): string {
     border-inline: 0;
   }
   .chat-panel__messages {
-    padding: 10px;
+    padding: 6px 6px 0;
   }
   .chat-panel__message-actions {
     opacity: 1;
+  }
+  .chat-panel__tool {
+    width: 36px;
+    height: 36px;
+  }
+  .chat-panel__dock {
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
   }
   .chat-panel__message--user {
     margin-inline-start: 1rem;
   }
 }
+
+/* --- Пустое состояние: стартеры ------------------------------------------ */
+.chat-panel__empty {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 16px;
+  text-align: center;
+}
+
+.chat-panel__empty-text,
+.chat-panel__empty-title {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.chat-panel__empty-title {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.chat-panel__starters {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+
+.chat-panel__starter {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 0.8rem;
+}
+
+.chat-panel__starter:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+/* --- Вложения ------------------------------------------------------------ */
+.chat-panel__file {
+  display: none;
+}
+
+.chat-panel__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chat-panel__chip {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--panel-2);
+}
+
+.chat-panel__chip img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.chat-panel__chip-remove {
+  position: absolute;
+  top: 2px;
+  inset-inline-end: 2px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(13, 17, 23, 0.72);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.chat-panel__images {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  max-width: 20rem;
+}
+
+.chat-panel__images[data-count="1"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.chat-panel__image {
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--panel-2);
+  aspect-ratio: 4 / 3;
+}
+
+.chat-panel__image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.chat-panel__lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.82);
+}
+
+.chat-panel__lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 8px;
+  object-fit: contain;
+}
+
 </style>

@@ -104,42 +104,48 @@ label {
 }
 
 /* --- Подсказки для иконочных кнопок (v-tip) ---------------------------------
-   Нативный title на тач-устройствах не срабатывает, поэтому подсказку рисуем
-   псевдоэлементом: hover — на десктопе, .tip-open — после тапа (ставит
-   директива src/lib/tooltip.ts на 1.6 с). */
+   Слой живёт в body (ставит директива src/lib/tooltip.ts), поэтому подсказку
+   не режут `overflow`/`transform` предков. Показ: мышь — по наведению,
+   тач — по долгому нажатию 400 мс. */
 [data-tip] {
-  position: relative;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+  user-select: none;
 }
 
-[data-tip]::after {
-  content: attr(data-tip);
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 50%;
-  z-index: 60;
-  padding: 4px 9px;
+.tip-layer {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 9999;
+  max-width: min(60vw, 260px);
+  padding: 5px 9px;
   border-radius: 6px;
   background: #0d1117;
   color: #f2f5f7;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
   font-size: 12px;
   line-height: 1.35;
-  white-space: nowrap;
+  text-align: center;
+  overflow-wrap: anywhere;
   pointer-events: none;
   opacity: 0;
-  transform: translate(calc(-50% + var(--tip-shift, 0px)), -4px);
+  transform: translateY(-2px);
   transition: opacity 120ms ease, transform 120ms ease;
 }
 
-[data-tip]:hover::after,
-[data-tip]:focus-visible::after,
-[data-tip].tip-open::after {
+[data-theme="light"] .tip-layer {
+  background: #1f2328;
+  color: #ffffff;
+}
+
+.tip-layer.is-open {
   opacity: 1;
-  transform: translate(calc(-50% + var(--tip-shift, 0px)), 0);
+  transform: translateY(0);
 }
 
 @media (max-width: 640px) {
-  [data-tip]::after {
+  .tip-layer {
     font-size: 11px;
     padding: 4px 8px;
   }

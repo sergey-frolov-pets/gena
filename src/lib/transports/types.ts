@@ -13,6 +13,8 @@ export interface TransportRequest {
   apiKey: string;
   sessionId: string;
   message: string;
+  /** data-URL изображений (поддерживает только `pico_ws`). */
+  media?: string[];
   history: Message[];
   signal: AbortSignal;
   fetchImpl?: typeof fetch;

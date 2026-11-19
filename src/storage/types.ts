@@ -64,9 +64,20 @@ export interface Session {
   updatedAt: number;
   /** Число сообщений — для списка без загрузки всех сообщений. */
   messageCount: number;
+  /** Закреплённый диалог поднимается в начало списка. */
+  pinned?: boolean;
 }
 
 export type MessageRole = "user" | "assistant" | "system";
+
+/** Вложение сообщения. В историю кладём только миниатюру, не оригинал. */
+export interface MessageAttachment {
+  kind: "image";
+  /** data-URL миниатюры (≤ 200 px) — переживает перезагрузку. */
+  thumb: string;
+  width: number;
+  height: number;
+}
 
 /** Тип сообщения: мысли и вызовы инструментов в контекст модели НЕ попадают. */
 export type MessageKind = "text" | "thought" | "tool_calls";
@@ -85,6 +96,8 @@ export interface Message {
   model?: string;
   /** Расход токенов за ход (если сервер сообщил). */
   usage?: unknown;
+  /** Вложения (только изображения — их принимает сервер Pico). */
+  attachments?: MessageAttachment[];
 }
 
 /**

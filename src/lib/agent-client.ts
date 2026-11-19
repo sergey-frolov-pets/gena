@@ -12,6 +12,8 @@ import { trimHistory } from "./transports/history";
 
 export interface AgentRequest {
   message: string;
+  /** data-URL изображений; сервер Pico принимает только изображения. */
+  media?: string[];
   sessionId: string;
   settings: AgentSettings;
   /** Последние сообщения как контекст (обрезается по settings.contextSize). */
@@ -46,6 +48,7 @@ export async function sendToAgent(
       apiKey,
       sessionId: request.sessionId,
       message: request.message,
+      media: request.media,
       history: request.history,
       signal: opts.signal ?? new AbortController().signal,
       fetchImpl: opts.fetchImpl ?? fetch,

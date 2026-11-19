@@ -4,10 +4,18 @@
  */
 
 import { ref } from "vue";
-import type { Agent, AgentConfig, Message, Protocol, Session } from "@/storage/types";
+import type {
+  Agent,
+  AgentConfig,
+  Message,
+  MessageAttachment,
+  Protocol,
+  Session,
+} from "@/storage/types";
 import { DEFAULT_AGENT_SETTINGS, SCHEMA_VERSION } from "@/storage/types";
 import {
   deleteAgent,
+  deleteSession,
   getAgent,
   listAgents,
   listMessages,
@@ -136,11 +144,54 @@ export async function renameSession(sessionId: string, title: string): Promise<v
   await loadSessions();
 }
 
+/** Закрепить/открепить диалог. */
+export async function pinSession(sessionId: string, pinned: boolean): Promise<void> {
+  const session = sessions.value.find((s) => s.id === sessionId);
+  if (!session) return;
+  session.pinned = pinned;
+  await putSession(session);
+  await loadSessions();
+}
+
+/** Дублировать диалог вместе с сообщениями. */
+export async function duplicateSession(sessionId: string): Promise<Session | null> {
+  const source = sessions.value.find((s) => s.id === sessionId);
+  if (!source) return null;
+  const now = Date.now();
+  const copy: Session = {
+    id: newId("sess"),
+    agentId: source.agentId,
+    title: `${source.title} (2)`,
+    createdAt: now,
+    updatedAt: now,
+    messageCount: source.messageCount,
+    pinned: false,
+  };
+  await putSession(copy);
+  const sourceMessages = await listMessages(sessionId);
+  for (const message of sourceMessages) {
+    await putMessage({ ...message, id: newId("msg"), sessionId: copy.id });
+  }
+  await loadSessions();
+  return copy;
+}
+
+/** Удалить диалог вместе с сообщениями. */
+export async function removeSession(sessionId: string): Promise<void> {
+  await deleteSession(sessionId);
+  if (activeSessionId.value === sessionId) {
+    activeSessionId.value = null;
+    messages.value = [];
+  }
+  await loadSessions();
+}
+
 export async function appendMessage(
   sessionId: string,
   role: Message["role"],
   content: string,
   kind?: Message["kind"],
+  attachments?: MessageAttachment[],
 ): Promise<Message> {
   const message: Message = {
     id: newId("msg"),
@@ -149,6 +200,7 @@ export async function appendMessage(
     content,
     createdAt: Date.now(),
     kind,
+    ...(attachments && attachments.length > 0 ? { attachments } : {}),
   };
   await putMessage(message);
 

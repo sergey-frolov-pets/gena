@@ -168,7 +168,10 @@ export function makePicoTransport(ctor?: PicoSocketCtor): AgentTransport {
                 type: "message.send",
                 id: newId(),
                 timestamp: Date.now(),
-                payload: { content: req.message },
+                payload: {
+                  content: req.message,
+                  ...(req.media && req.media.length > 0 ? { media: req.media } : {}),
+                },
               });
               return;
             } catch (err) {
