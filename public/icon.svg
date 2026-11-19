@@ -1,6 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 937 937" width="937" height="937" role="img" aria-label="Gena">
-  <rect width="937" height="937" rx="210" fill="#0f1115"/>
-  <g transform="translate(0.000000,937.000000) scale(0.100000,-0.100000)" fill="#1F8A3B" stroke="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="55%" stop-color="#f1f5f2"/>
+      <stop offset="100%" stop-color="#dfe9e2"/>
+    </linearGradient>
+  </defs>
+  <rect width="937" height="937" rx="210" fill="url(#bg)"/>
+  <g transform="translate(0.000000,937.000000) scale(0.100000,-0.100000)" fill="#146B2C" stroke="none">
 <path d="M5815 8028 c-85 -16 -204 -80 -283 -153 -91 -85 -415 -461 -496 -576
 l-15 -23 -115 27 c-132 31 -291 57 -354 57 -110 0 -177 -41 -177 -109 0 -72
 75 -146 223 -220 58 -29 79 -51 50 -51 -7 0 -56 -20 -108 -44 l-94 -43 -61 27

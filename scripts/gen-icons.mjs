@@ -24,7 +24,7 @@ for (const t of targets) {
     const inner = Math.round(t.size * (1 - t.pad * 2));
     const innerBuf = await sharp(svg).resize(inner, inner).png().toBuffer();
     img = sharp({
-      create: { width: t.size, height: t.size, channels: 4, background: "#0f1115" },
+      create: { width: t.size, height: t.size, channels: 4, background: "#f1f5f2" },
     }).composite([{ input: innerBuf, gravity: "center" }]);
   }
   await img.png({ compressionLevel: 9 }).toFile(join(root, "public", t.file));
