@@ -63,4 +63,13 @@ export const chatMessages = {
   "chat.starters.3": "Escribe una respuesta breve",
   "chat.attachIncomingError": "No se pudo cargar la imagen del agente",
   "chat.error.noPrompt": "Nada que regenerar: el diálogo no tiene mensaje del usuario",
+  "chat.editMessage": "Editar mensaje",
+  "chat.edited": "editado · versiones anteriores",
+  "chat.queue.title": "En cola: {count}",
+  "chat.queue.attachment": "adjunto",
+  "chat.queue.sendNow": "Enviar ahora",
+  "chat.queue.edit": "Volver al campo de texto",
+  "chat.queue.remove": "Quitar de la cola",
+  "chat.error.emptyMessage": "El mensaje está vacío",
+  "chat.regenerateConfirm": "La respuesta y todos los mensajes siguientes se eliminarán. ¿Enviar el mensaje de nuevo?",
 } as const satisfies LocaleMessages;

@@ -47,4 +47,6 @@ export const connectionsMessages = {
   "connections.testing": "Checking…",
   "connections.testOk": "Connection OK",
   "connections.testFail": "Connection failed",
+  "connections.removeConfirmTitle": "Delete agent",
+  "connections.removeConfirmText": "Delete agent \"{name}\"? Its key and settings will be removed permanently; dialogs stay.",
 } as const satisfies LocaleMessages;

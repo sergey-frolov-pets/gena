@@ -63,4 +63,13 @@ export const chatMessages = {
   "chat.starters.3": "Schreibe eine kurze Antwort",
   "chat.attachIncomingError": "Bild vom Agenten konnte nicht geladen werden",
   "chat.error.noPrompt": "Nichts zu wiederholen: im Dialog gibt es keine Nutzernachricht",
+  "chat.editMessage": "Nachricht bearbeiten",
+  "chat.edited": "bearbeitet · frühere Versionen",
+  "chat.queue.title": "In der Warteschlange: {count}",
+  "chat.queue.attachment": "Anhang",
+  "chat.queue.sendNow": "Jetzt senden",
+  "chat.queue.edit": "Zurück ins Eingabefeld",
+  "chat.queue.remove": "Aus der Warteschlange entfernen",
+  "chat.error.emptyMessage": "Nachricht ist leer",
+  "chat.regenerateConfirm": "Die Antwort und alle folgenden Nachrichten werden gelöscht. Nachricht erneut senden?",
 } as const satisfies LocaleMessages;

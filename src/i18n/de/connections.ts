@@ -47,4 +47,6 @@ export const connectionsMessages = {
   "connections.testing": "Prüfe…",
   "connections.testOk": "Verbindung OK",
   "connections.testFail": "Verbindung fehlgeschlagen",
+  "connections.removeConfirmTitle": "Agent löschen",
+  "connections.removeConfirmText": "Agent „{name}“ löschen? Schlüssel und Einstellungen werden endgültig entfernt, Dialoge bleiben.",
 } as const satisfies LocaleMessages;

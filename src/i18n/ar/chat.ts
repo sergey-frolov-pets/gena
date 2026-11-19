@@ -63,4 +63,13 @@ export const chatMessages = {
   "chat.starters.3": "اكتب ردًا قصيرًا",
   "chat.attachIncomingError": "تعذّر تحميل الصورة من الوكيل",
   "chat.error.noPrompt": "لا يوجد ما يُعاد توليده: لا توجد رسالة من المستخدم في المحادثة",
+  "chat.editMessage": "تعديل الرسالة",
+  "chat.edited": "مُعدّلة · إصدارات سابقة",
+  "chat.queue.title": "في الانتظار: {count}",
+  "chat.queue.attachment": "مرفق",
+  "chat.queue.sendNow": "إرسال الآن",
+  "chat.queue.edit": "إعادة إلى حقل الإدخال",
+  "chat.queue.remove": "إزالة من الانتظار",
+  "chat.error.emptyMessage": "الرسالة فارغة",
+  "chat.regenerateConfirm": "سيُحذف الرد وكل الرسائل التالية. هل تريد إرسال الرسالة مرة أخرى؟",
 } as const satisfies LocaleMessages;

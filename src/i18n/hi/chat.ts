@@ -63,4 +63,13 @@ export const chatMessages = {
   "chat.starters.3": "छोटा उत्तर लिखें",
   "chat.attachIncomingError": "एजेंट से छवि लोड नहीं हो सकी",
   "chat.error.noPrompt": "दोबारा बनाने के लिए कुछ नहीं: बातचीत में उपयोगकर्ता का संदेश नहीं है",
+  "chat.editMessage": "संदेश संपादित करें",
+  "chat.edited": "संपादित · पिछले संस्करण",
+  "chat.queue.title": "कतार में: {count}",
+  "chat.queue.attachment": "अनुलग्नक",
+  "chat.queue.sendNow": "अभी भेजें",
+  "chat.queue.edit": "इनपुट फ़ील्ड में वापस",
+  "chat.queue.remove": "कतार से हटाएँ",
+  "chat.error.emptyMessage": "संदेश खाली है",
+  "chat.regenerateConfirm": "उत्तर और उसके बाद के सभी संदेश हट जाएँगे। संदेश फिर से भेजें?",
 } as const satisfies LocaleMessages;

@@ -63,4 +63,13 @@ export const chatMessages = {
   "chat.starters.3": "Draft a short reply",
   "chat.attachIncomingError": "Could not load the image from the agent",
   "chat.error.noPrompt": "Nothing to regenerate: the dialog has no user message",
+  "chat.editMessage": "Edit message",
+  "chat.edited": "edited · previous versions",
+  "chat.queue.title": "Queued: {count}",
+  "chat.queue.attachment": "attachment",
+  "chat.queue.sendNow": "Send now",
+  "chat.queue.edit": "Back to composer",
+  "chat.queue.remove": "Remove from queue",
+  "chat.error.emptyMessage": "Message is empty",
+  "chat.regenerateConfirm": "The reply and all following messages will be deleted. Send the message again?",
 } as const satisfies LocaleMessages;

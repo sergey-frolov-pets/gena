@@ -12,6 +12,7 @@ import { checkConnection } from "@/lib/connection-check";
 import { describeError } from "@/lib/errors";
 import { useLocale } from "@/i18n";
 import type { Agent, AgentConfig, Protocol } from "@/storage/types";
+import ConfirmModal from "@/components/ConfirmModal.vue";
 
 const { t } = useLocale();
 
@@ -26,6 +27,12 @@ const model = ref("");
 const systemPrompt = ref("");
 const error = ref("");
 const notice = ref("");
+
+/** Агент, у которого подтверждаем удаление. */
+const confirmRemoveId = ref("");
+const confirmRemoveAgent = computed(() =>
+  agents.value.find((agent) => agent.id === confirmRemoveId.value),
+);
 
 /** id редактируемого агента (null — режим создания). */
 const editingId = ref<string | null>(null);
@@ -178,6 +185,7 @@ async function saveKey(agentId: string): Promise<void> {
 }
 
 async function remove(agentId: string): Promise<void> {
+  confirmRemoveId.value = "";
   await removeAgent(agentId);
 }
 
@@ -299,7 +307,7 @@ function agentModel(agent: { settings: { llmModel: string }; config?: AgentConfi
               : t("connections.test")
           }}
         </button>
-        <button class="danger" @click="remove(agent.id)">{{ t("connections.remove") }}</button>
+        <button class="danger" @click="confirmRemoveId = agent.id">{{ t("connections.remove") }}</button>
       </div>
       <div class="muted">{{ agent.address }}</div>
       <div class="muted small">
@@ -330,6 +338,19 @@ function agentModel(agent: { settings: { llmModel: string }; config?: AgentConfi
         {{ testStates[agent.id].msg }}
       </p>
     </div>
+    <ConfirmModal
+      :open="Boolean(confirmRemoveAgent)"
+      :title="t('connections.removeConfirmTitle')"
+      :message="
+        confirmRemoveAgent
+          ? t('connections.removeConfirmText', { name: confirmRemoveAgent.name })
+          : ''
+      "
+      :confirm-label="t('connections.remove')"
+      :cancel-label="t('chat.cancel')"
+      @confirm="confirmRemoveAgent && remove(confirmRemoveAgent.id); confirmRemoveId = ''"
+      @cancel="confirmRemoveId = ''"
+    />
   </section>
 </template>
 

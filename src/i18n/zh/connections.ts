@@ -46,4 +46,6 @@ export const connectionsMessages = {
   "connections.testing": "检查中…",
   "connections.testOk": "连接正常",
   "connections.testFail": "连接失败",
+  "connections.removeConfirmTitle": "删除智能体",
+  "connections.removeConfirmText": "删除智能体“{name}”？其密钥和设置将被永久删除，对话将保留。",
 } as const satisfies LocaleMessages;

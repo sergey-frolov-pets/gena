@@ -47,4 +47,6 @@ export const connectionsMessages = {
   "connections.testing": "جارٍ الفحص…",
   "connections.testOk": "الاتصال يعمل",
   "connections.testFail": "فشل الاتصال",
+  "connections.removeConfirmTitle": "حذف الوكيل",
+  "connections.removeConfirmText": "حذف الوكيل «{name}»؟ سيُحذف مفتاحه وإعداداته نهائيًا، وتبقى المحادثات.",
 } as const satisfies LocaleMessages;

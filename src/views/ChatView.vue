@@ -12,6 +12,7 @@ import {
   createSession,
   deleteMessagesFrom,
   duplicateSession,
+  editMessage,
   getAgentKey,
   loadMessages,
   messages,
@@ -20,6 +21,7 @@ import {
   renameSession,
   sessions,
 } from "@/lib/store";
+import { newId } from "@/lib/id";
 import { sendToAgent, type TransportAttachment } from "@/lib/agent-client";
 import { describeError } from "@/lib/errors";
 import { canCall, getCallCount, recordCall } from "@/storage/usage";
@@ -98,6 +100,31 @@ const fileError = ref("");
 const MAX_IMAGES = 5;
 const MAX_DOCUMENTS = 5;
 
+/** Реплика, готовая к отправке: текст + вложения (в памяти, до отправки). */
+interface ComposerPayload {
+  text: string;
+  images: PreparedImage[];
+  docs: PreparedDocument[];
+}
+
+/** Реплика, ждущая ответа агента. */
+interface QueuedMessage extends ComposerPayload {
+  id: string;
+  /** false — текст уже поправлен в истории, дублировать сообщение не нужно. */
+  persist: boolean;
+  /** Диалог, в который реплика была написана: очередь переживает переключение. */
+  sessionId?: string;
+}
+
+/** Очередь при занятом агенте: можно отправить, изменить или убрать. */
+const queue = ref<QueuedMessage[]>([]);
+/** «Отправить сейчас»: прерываем текущий ход и шлём эту реплику. */
+const immediate = ref<QueuedMessage | null>(null);
+/** Сообщение, которое сейчас правим. */
+const editingId = ref("");
+const editingDraft = ref("");
+const editError = ref("");
+
 const agentSessions = computed<Session[]>(() =>
   sessions.value.filter((s) => !agentId.value || s.agentId === agentId.value),
 );
@@ -118,6 +145,11 @@ const filteredSessions = computed<Session[]>(() => {
 
 /** Диалог, у которого подтверждаем удаление. */
 const confirmDeleteId = ref("");
+/** Ответ, который подтверждаем перегенерировать вместе с хвостом. */
+const confirmRegenerateId = ref("");
+const confirmRegenerateMessage = computed<Message | undefined>(() =>
+  messages.value.find((m) => m.id === confirmRegenerateId.value),
+);
 const confirmDeleteSession = computed<Session | undefined>(() =>
   sessions.value.find((s) => s.id === confirmDeleteId.value),
 );
@@ -137,14 +169,17 @@ const limitLabel = computed(() => {
   return t("chat.usage", { used: usedToday.value, limit: callLimit.value });
 });
 
+/** Писать можно сразу: сессия создастся при первом «Отправить». */
 const canSend = computed(
   () =>
-    Boolean(activeSession.value) &&
+    agents.value.length > 0 &&
     (draft.value.trim().length > 0 ||
       pendingImages.value.length > 0 ||
-      pendingDocs.value.length > 0) &&
-    !busy.value,
+      pendingDocs.value.length > 0),
 );
+
+/** Композер активен, как только есть хотя бы один агент. */
+const composerDisabled = computed(() => agents.value.length === 0);
 
 /** Вложения принимает только протокол Pico WS (`payload.media`). */
 const supportsImages = computed(
@@ -192,17 +227,15 @@ async function autoGrow(): Promise<void> {
 }
 watch(draft, autoGrow);
 
-async function newSession(): Promise<void> {
+/** «Новый диалог» — просто чистый лист: запись в БД появится после первой отправки. */
+function newSession(): void {
   error.value = "";
   notice.value = "";
   stopDictation();
-  if (!agentId.value) {
-    error.value = t("chat.error.chooseAgent");
-    return;
-  }
-  const session = await createSession(agentId.value, t("chat.newDialogTitle"));
-  await loadMessages(session.id);
+  activeSessionId.value = null;
+  messages.value = [];
   historyOpen.value = false;
+  void nextTick(() => composerEl.value?.focus());
 }
 
 async function openSession(id: string): Promise<void> {
@@ -211,52 +244,163 @@ async function openSession(id: string): Promise<void> {
   historyOpen.value = false;
 }
 
+/** Последняя сессия выбранного агента — по времени обновления. */
+async function openLastSession(forAgent = agentId.value): Promise<void> {
+  const list = sessions.value.filter((s) => s.agentId === forAgent);
+  if (list.length === 0) {
+    activeSessionId.value = null;
+    messages.value = [];
+    return;
+  }
+  const last = [...list].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+  await loadMessages(last.id);
+}
+
+// Агент выбран (вручную или автоматически) — поднимаем его последний диалог.
+watch(agentId, async (id) => {
+  if (!id) return;
+  if (activeSession.value?.agentId === id) return;
+  await openLastSession(id);
+});
+
+// Один агент в списке — выбираем сразу, чтобы можно было писать без настройки.
+watch(
+  agents,
+  (list) => {
+    if (!agentId.value && list.length === 1) agentId.value = list[0].id;
+  },
+  { immediate: true },
+);
+
+/** Забрать содержимое композера в полезную нагрузку (поле очищается). */
+function takeComposer(): ComposerPayload | null {
+  const text = draft.value.trim();
+  const images = pendingImages.value;
+  const docs = pendingDocs.value;
+  if (!text && images.length === 0 && docs.length === 0) return null;
+  draft.value = "";
+  pendingImages.value = [];
+  pendingDocs.value = [];
+  attachError.value = "";
+  fileError.value = "";
+  void autoGrow();
+  return { text, images, docs };
+}
+
+function enqueue(payload: ComposerPayload, persist = true): void {
+  queue.value = [
+    ...queue.value,
+    { id: newId("q"), persist, sessionId: activeSessionId.value ?? undefined, ...payload },
+  ];
+}
+
 async function send(): Promise<void> {
   error.value = "";
   notice.value = "";
-  const text = draft.value.trim();
-  const docs = pendingDocs.value;
-  const media = pendingImages.value.map((img) => img.dataUrl);
+  const payload = takeComposer();
+  if (!payload) return;
+  // Агент занят — реплика встаёт в очередь, ответа не ждём.
+  if (busy.value) {
+    enqueue(payload);
+    return;
+  }
+  await dispatch(payload, true);
+}
+
+/**
+ * Отправить реплику: при необходимости создать сессию, показать сообщение
+ * в истории и сходить к агенту. `persist=false` — текст уже в истории
+ * (правка сообщения), дублировать его не нужно.
+ */
+async function dispatch(
+  payload: ComposerPayload,
+  persist: boolean,
+  sessionId?: string,
+): Promise<boolean> {
+  // Реплика из очереди возвращается в свой диалог, даже если открыт другой.
+  if (sessionId && sessionId !== activeSessionId.value) {
+    if (sessions.value.some((s) => s.id === sessionId)) await loadMessages(sessionId);
+  }
+  const text = payload.text;
+  let session = activeSession.value;
+  const targetAgentId = session?.agentId || agentId.value;
+  const agent = agents.value.find((a) => a.id === targetAgentId);
+  if (!agent) {
+    error.value = t("chat.error.chooseAgent");
+    return false;
+  }
+  if (!agent.sealedKey) {
+    error.value = t("chat.error.noKey");
+    return false;
+  }
+  if (!(await withinLimit(agent))) return false;
+
+  if (!session) {
+    const title = (text || t("chat.newDialogTitle")).split("\n")[0].slice(0, 60).trim();
+    session = await createSession(agent.id, title || t("chat.newDialogTitle"));
+    await loadMessages(session.id);
+  }
   const attachments: MessageAttachment[] = [
-    ...pendingImages.value.map((img) => ({
+    ...payload.images.map((img) => ({
       kind: "image" as const,
       thumb: img.thumb,
       width: img.width,
       height: img.height,
     })),
-    ...docs.map((doc) => ({
+    ...payload.docs.map((doc) => ({
       kind: "file" as const,
       name: doc.name,
       bytes: doc.bytes,
     })),
   ];
-  if ((!text && media.length === 0 && docs.length === 0) || busy.value) return;
-
-  const session = activeSession.value;
-  if (!session) {
-    error.value = t("chat.error.noSession");
-    return;
-  }
-  const agent = agents.value.find((a) => a.id === session.agentId);
-  if (!agent) {
-    error.value = t("chat.error.agentNotFound");
-    return;
-  }
-  if (!agent.sealedKey) {
-    error.value = t("chat.error.noKey");
-    return;
-  }
-  if (!(await withinLimit(agent))) return;
-
   // Полный текст документов уходит агенту, в истории остаются подпись и бейджи.
-  const outgoing = documentsToMessage(text, docs);
-  draft.value = "";
-  pendingImages.value = [];
-  pendingDocs.value = [];
-  fileError.value = "";
-  await appendMessage(session.id, "user", text, undefined, attachments);
-  await exchange(session, agent, outgoing, media);
+  const outgoing = documentsToMessage(text, payload.docs);
+  if (persist) {
+    await appendMessage(session.id, "user", text, undefined, attachments);
+  }
+  await exchange(session, agent, outgoing, payload.images.map((img) => img.dataUrl));
+  return true;
 }
+
+/** Отправить реплику из очереди немедленно: текущий ход прерывается. */
+function sendQueuedNow(id: string): void {
+  const item = queue.value.find((q) => q.id === id);
+  if (!item) return;
+  queue.value = queue.value.filter((q) => q.id !== id);
+  if (!busy.value) {
+    void dispatch(item, item.persist, item.sessionId);
+    return;
+  }
+  immediate.value = item;
+  stop();
+}
+
+function removeQueued(id: string): void {
+  queue.value = queue.value.filter((q) => q.id !== id);
+}
+
+/** Вернуть реплику из очереди в поле ввода — её можно поправить. */
+function editQueued(id: string): void {
+  const item = queue.value.find((q) => q.id === id);
+  if (!item) return;
+  removeQueued(id);
+  draft.value = item.text;
+  pendingImages.value = [...pendingImages.value, ...item.images];
+  pendingDocs.value = [...pendingDocs.value, ...item.docs];
+  void autoGrow();
+  void nextTick(() => composerEl.value?.focus());
+}
+
+/** Взять следующую реплику очереди и отправить. */
+async function drainQueue(): Promise<void> {
+  const head = queue.value[0];
+  if (!head) return;
+  queue.value = queue.value.slice(1);
+  const sent = await dispatch(head, head.persist, head.sessionId);
+  // Не ушло (нет ключа, лимит) — возвращаем в начало, чтобы не потерять.
+  if (!sent) queue.value = [head, ...queue.value];
+}
+
 
 /** Проверка дневного лимита вызовов; false — отправлять нельзя. */
 async function withinLimit(agent: Agent): Promise<boolean> {
@@ -298,6 +442,7 @@ async function exchange(
   lastText.value = text;
   busy.value = true;
   streamingText.value = "";
+  let failed = false;
   const controller = new AbortController();
   abortCtrl.value = controller;
   const limit = agent.settings.callLimit;
@@ -349,6 +494,7 @@ async function exchange(
       notice.value = t("chat.remaining", { remaining: Math.max(0, limit - usedToday.value) });
     }
   } catch (e) {
+    failed = true;
     error.value = describeError(e, t);
   } finally {
     busy.value = false;
@@ -357,6 +503,16 @@ async function exchange(
     streamingText.value = "";
     await nextTick();
     composerEl.value?.focus();
+    // «Отправить сейчас» важнее ошибки; иначе тянем следующую реплику очереди.
+    const next = immediate.value;
+    immediate.value = null;
+    if (next) {
+      void dispatch(next, next.persist, next.sessionId).then((sent) => {
+        if (!sent) queue.value = [next, ...queue.value];
+      });
+    } else if (!failed && queue.value.length > 0) {
+      void drainQueue();
+    }
   }
 }
 
@@ -365,7 +521,18 @@ async function exchange(
  * последнюю реплику пользователя заново. Вложения из истории не повторяются —
  * в IndexedDB лежит только миниатюра.
  */
-async function regenerate(m: Message): Promise<void> {
+function regenerate(m: Message): void {
+  if (busy.value) return;
+  const index = messages.value.findIndex((item) => item.id === m.id);
+  // Регенерация стирает хвост диалога — спрашиваем, если терять есть что.
+  if (index >= 0 && index < messages.value.length - 1) {
+    confirmRegenerateId.value = m.id;
+    return;
+  }
+  void runRegenerate(m);
+}
+
+async function runRegenerate(m: Message): Promise<void> {
   if (busy.value) return;
   const session = activeSession.value;
   const agent = activeAgent.value;
@@ -397,6 +564,45 @@ async function regenerate(m: Message): Promise<void> {
 
 function stop(): void {
   abortCtrl.value?.abort();
+}
+
+/** Открыть правку своего сообщения: прежний текст останется в истории версий. */
+function startEdit(m: Message): void {
+  if (busy.value) {
+    error.value = "";
+  }
+  editingId.value = m.id;
+  editingDraft.value = m.content;
+  editError.value = "";
+}
+
+function cancelEdit(): void {
+  editingId.value = "";
+  editingDraft.value = "";
+  editError.value = "";
+}
+
+/**
+ * Сохранить правку и послать агенту новую реплику. Прежние версии текста
+ * остаются в сообщении (`edits`), ответы агента не удаляются.
+ */
+async function commitEdit(m: Message): Promise<void> {
+  const text = editingDraft.value.trim();
+  if (!text) {
+    editError.value = t("chat.error.emptyMessage");
+    return;
+  }
+  const updated = await editMessage(m.id, text);
+  cancelEdit();
+  if (!updated) return;
+  error.value = "";
+  notice.value = "";
+  const payload: ComposerPayload = { text, images: [], docs: [] };
+  if (busy.value) {
+    enqueue(payload, false);
+    return;
+  }
+  await dispatch(payload, false);
 }
 
 async function retry(): Promise<void> {
@@ -639,7 +845,7 @@ function onRateChange(event: Event): void {
         @click="startRename"
       >
         <span class="chat-panel__title-text">
-          {{ activeSession?.title || t("chat.selectOrCreate") }}
+          {{ activeSession?.title || t("chat.newDialog") }}
         </span>
       </button>
       <template v-else>
@@ -845,7 +1051,31 @@ function onRateChange(event: Event): void {
           </details>
           <article v-else class="chat-panel__message" :class="`chat-panel__message--${m.role}`">
             <span class="chat-panel__role">{{ t(`chat.role.${m.role}` as never) }}</span>
-            <p v-if="m.content" class="chat-panel__content">{{ m.content }}</p>
+            <div v-if="editingId === m.id" class="chat-panel__edit">
+              <textarea
+                v-model="editingDraft"
+                class="chat-panel__edit-input"
+                rows="2"
+                :aria-label="t('chat.editMessage')"
+                @keydown.enter.ctrl.prevent="commitEdit(m)"
+                @keydown.enter.meta.prevent="commitEdit(m)"
+                @keydown.esc.prevent="cancelEdit"
+              />
+              <p v-if="editError" class="chat-panel__warning" role="alert">{{ editError }}</p>
+              <div class="chat-panel__edit-actions">
+                <button type="button" class="chat-panel__link" @click="cancelEdit">
+                  {{ t("chat.cancel") }}
+                </button>
+                <button type="button" class="chat-panel__link is-primary" @click="commitEdit(m)">
+                  {{ t("chat.send") }}
+                </button>
+              </div>
+            </div>
+            <p v-else-if="m.content" class="chat-panel__content">{{ m.content }}</p>
+            <details v-if="m.edits?.length" class="chat-panel__edits">
+              <summary>{{ t("chat.edited") }}</summary>
+              <p v-for="(v, i) in m.edits" :key="i" class="chat-panel__content">{{ v }}</p>
+            </details>
             <div
               v-if="imagesOf(m).length"
               class="chat-panel__images"
@@ -877,6 +1107,18 @@ function onRateChange(event: Event): void {
               </span>
             </div>
             <div class="chat-panel__message-actions">
+              <button
+                v-if="m.role === 'user' && !m.kind"
+                type="button"
+                class="chat-panel__action"
+                v-tip="t('chat.editMessage')"
+                :aria-label="t('chat.editMessage')"
+                @click="startEdit(m)"
+              >
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M4 20h4l10-10a2.8 2.8 0 1 0-4-4L4 16z" />
+                </svg>
+              </button>
               <button
                 type="button"
                 class="chat-panel__action"
@@ -944,7 +1186,7 @@ function onRateChange(event: Event): void {
               :key="n"
               type="button"
               class="chat-panel__starter"
-              :disabled="!activeSession"
+              :disabled="composerDisabled"
               @click="useStarter(n)"
             >
               {{ t(`chat.starters.${n}` as never) }}
@@ -970,6 +1212,53 @@ function onRateChange(event: Event): void {
         </button>
       </p>
       <p v-if="notice" class="chat-panel__notice" role="status">{{ notice }}</p>
+
+      <div v-if="queue.length > 0" class="chat-panel__queue">
+        <p class="chat-panel__queue-title">
+          {{ t("chat.queue.title", { count: queue.length }) }}
+        </p>
+        <ul class="chat-panel__queue-list">
+          <li v-for="q in queue" :key="q.id" class="chat-panel__queue-item">
+            <span class="chat-panel__queue-text">{{ q.text || t("chat.queue.attachment") }}</span>
+            <span class="chat-panel__queue-actions">
+              <button
+                type="button"
+                class="chat-panel__action"
+                v-tip="t('chat.queue.sendNow')"
+                :aria-label="t('chat.queue.sendNow')"
+                @click="sendQueuedNow(q.id)"
+              >
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M12 19V5" />
+                  <path d="m6 11 6-6 6 6" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                class="chat-panel__action"
+                v-tip="t('chat.queue.edit')"
+                :aria-label="t('chat.queue.edit')"
+                @click="editQueued(q.id)"
+              >
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M4 20h4l10-10a2.8 2.8 0 1 0-4-4L4 16z" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                class="chat-panel__action is-danger"
+                v-tip="t('chat.queue.remove')"
+                :aria-label="t('chat.queue.remove')"
+                @click="removeQueued(q.id)"
+              >
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                  <path d="M6 6l12 12M18 6L6 18" />
+                </svg>
+              </button>
+            </span>
+          </li>
+        </ul>
+      </div>
 
       <form class="chat-panel__composer" @submit.prevent="send">
         <div v-if="pendingImages.length > 0 || pendingDocs.length > 0" class="chat-panel__chips">
@@ -1018,7 +1307,7 @@ function onRateChange(event: Event): void {
             class="chat-panel__icon-btn"
             v-tip="t('chat.attach')"
             :aria-label="t('chat.attach')"
-            :disabled="!activeSession"
+            :disabled="composerDisabled"
             @click="pickImages"
           >
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -1036,7 +1325,7 @@ function onRateChange(event: Event): void {
             enterkeyhint="enter"
             :placeholder="t('chat.composerPlaceholder')"
             :aria-label="t('chat.composerPlaceholder')"
-            :disabled="!activeSession"
+            :disabled="composerDisabled"
             @keydown.enter.ctrl.prevent="send"
             @keydown.enter.meta.prevent="send"
             @paste="onPaste"
@@ -1049,7 +1338,7 @@ function onRateChange(event: Event): void {
             v-tip="dictationListening ? t('chat.dictateStop') : t('chat.dictate')"
             :aria-label="dictationListening ? t('chat.dictateStop') : t('chat.dictate')"
             :aria-pressed="dictationListening"
-            :disabled="!activeSession"
+            :disabled="composerDisabled"
             @click="onDictateToggle"
           >
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -1061,17 +1350,16 @@ function onRateChange(event: Event): void {
           <button
             v-if="busy"
             type="button"
-            class="chat-panel__send"
+            class="chat-panel__send is-stop"
             v-tip="t('chat.stop')"
             :aria-label="t('chat.stop')"
             @click="stop"
           >
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true">
               <rect x="7" y="7" width="10" height="10" rx="2" />
             </svg>
           </button>
           <button
-            v-else
             type="button"
             class="chat-panel__send is-primary"
             v-tip="t('chat.send')"
@@ -1108,6 +1396,19 @@ function onRateChange(event: Event): void {
       :cancel-label="t('chat.cancel')"
       @confirm="confirmDeleteSession && removeDialog(confirmDeleteSession.id)"
       @cancel="confirmDeleteId = ''"
+    />
+
+    <ConfirmModal
+      :open="Boolean(confirmRegenerateMessage)"
+      :title="t('chat.regenerate')"
+      :message="t('chat.regenerateConfirm')"
+      :confirm-label="t('chat.regenerate')"
+      :cancel-label="t('chat.cancel')"
+      @confirm="
+        confirmRegenerateMessage && runRegenerate(confirmRegenerateMessage);
+        confirmRegenerateId = ''
+      "
+      @cancel="confirmRegenerateId = ''"
     />
   </section>
 </template>
@@ -1576,15 +1877,15 @@ function onRateChange(event: Event): void {
 
 /* Подсказка должна укладываться в одну строку на телефоне. */
 .chat-panel__input::placeholder {
-  font-size: 0.78rem;
-  letter-spacing: -0.01em;
+  font-size: 0.72rem;
+  letter-spacing: -0.02em;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
 @media (max-width: 480px) {
   .chat-panel__input::placeholder {
-    font-size: 0.7rem;
+    font-size: 0.62rem;
   }
 }
 
@@ -1656,6 +1957,16 @@ function onRateChange(event: Event): void {
   cursor: not-allowed;
 }
 
+/* Стоп рядом с отправкой: маленький, чтобы не спорить с основной кнопкой. */
+.chat-panel__send.is-stop {
+  width: 30px;
+  height: 30px;
+  align-self: center;
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+  border-radius: 9px;
+  color: var(--danger);
+}
+
 .chat-panel__recording {
   display: flex;
   align-items: center;
@@ -1708,6 +2019,103 @@ function onRateChange(event: Event): void {
   font-size: inherit;
   text-decoration: underline;
   cursor: pointer;
+}
+
+/* --- Очередь реплик ------------------------------------------------------ */
+.chat-panel__queue {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel-2) 70%, transparent);
+}
+
+.chat-panel__queue-title {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.chat-panel__queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chat-panel__queue-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chat-panel__queue-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.78rem;
+  color: var(--text);
+}
+
+.chat-panel__queue-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 2px;
+}
+
+/* --- Правка своего сообщения -------------------------------------------- */
+.chat-panel__edit {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: min(100%, 34rem);
+}
+
+.chat-panel__edit-input {
+  width: 100%;
+  min-height: 42px;
+  padding: 6px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.4;
+  resize: vertical;
+}
+
+.chat-panel__edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.chat-panel__link.is-primary {
+  font-weight: 600;
+}
+
+.chat-panel__edits {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.chat-panel__edits summary {
+  cursor: pointer;
+}
+
+.chat-panel__edits .chat-panel__content {
+  margin-top: 4px;
+  padding-inline-start: 8px;
+  border-inline-start: 2px solid var(--border);
+  opacity: 0.75;
+  font-size: 0.8rem;
 }
 
 @media (max-width: 720px) {

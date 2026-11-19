@@ -47,4 +47,6 @@ export const connectionsMessages = {
   "connections.testing": "確認中…",
   "connections.testOk": "接続OK",
   "connections.testFail": "接続失敗",
+  "connections.removeConfirmTitle": "エージェントを削除",
+  "connections.removeConfirmText": "エージェント「{name}」を削除しますか？キーと設定は完全に削除されます。ダイアログは残ります。",
 } as const satisfies LocaleMessages;

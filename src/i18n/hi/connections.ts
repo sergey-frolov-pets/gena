@@ -47,4 +47,6 @@ export const connectionsMessages = {
   "connections.testing": "जाँच हो रही है…",
   "connections.testOk": "कनेक्शन ठीक है",
   "connections.testFail": "कनेक्शन विफल",
+  "connections.removeConfirmTitle": "एजेंट हटाएँ",
+  "connections.removeConfirmText": "एजेंट “{name}” हटाएँ? उसकी कुंजी और सेटिंग्स स्थायी रूप से हट जाएँगी; संवाद बने रहेंगे।",
 } as const satisfies LocaleMessages;

@@ -108,6 +108,10 @@ export interface Message {
   usage?: unknown;
   /** Вложения (только изображения — их принимает сервер Pico). */
   attachments?: MessageAttachment[];
+  /** Когда сообщение отредактировано (мс). */
+  editedAt?: number;
+  /** Прежние редакции текста, от старой к новой. */
+  edits?: string[];
 }
 
 /**

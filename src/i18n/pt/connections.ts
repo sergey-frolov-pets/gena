@@ -47,4 +47,6 @@ export const connectionsMessages = {
   "connections.testing": "Verificando…",
   "connections.testOk": "Conexão OK",
   "connections.testFail": "Falha na conexão",
+  "connections.removeConfirmTitle": "Excluir agente",
+  "connections.removeConfirmText": "Excluir o agente «{name}»? A chave e as configurações serão removidas permanentemente; os diálogos permanecem.",
 } as const satisfies LocaleMessages;

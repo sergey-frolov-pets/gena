@@ -63,4 +63,13 @@ export const chatMessages = {
   "chat.starters.3": "写一段简短回复",
   "chat.attachIncomingError": "无法加载代理发送的图片",
   "chat.error.noPrompt": "无法重新生成：对话中没有用户消息",
+  "chat.editMessage": "编辑消息",
+  "chat.edited": "已编辑 · 历史版本",
+  "chat.queue.title": "队列：{count}",
+  "chat.queue.attachment": "附件",
+  "chat.queue.sendNow": "立即发送",
+  "chat.queue.edit": "放回输入框",
+  "chat.queue.remove": "从队列中移除",
+  "chat.error.emptyMessage": "消息为空",
+  "chat.regenerateConfirm": "回复及其后的所有消息都将被删除。要重新发送这条消息吗？",
 } as const satisfies LocaleMessages;

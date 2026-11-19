@@ -63,4 +63,13 @@ export const chatMessages = {
   "chat.starters.3": "短い返信を書いて",
   "chat.attachIncomingError": "エージェントからの画像を読み込めませんでした",
   "chat.error.noPrompt": "再生成できません: 会話にユーザーのメッセージがありません",
+  "chat.editMessage": "メッセージを編集",
+  "chat.edited": "編集済み · 以前の版",
+  "chat.queue.title": "キュー: {count}",
+  "chat.queue.attachment": "添付ファイル",
+  "chat.queue.sendNow": "今すぐ送信",
+  "chat.queue.edit": "入力欄に戻す",
+  "chat.queue.remove": "キューから削除",
+  "chat.error.emptyMessage": "メッセージが空です",
+  "chat.regenerateConfirm": "返信とそれ以降のメッセージは削除されます。もう一度送信しますか？",
 } as const satisfies LocaleMessages;

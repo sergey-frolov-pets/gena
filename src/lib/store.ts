@@ -230,6 +230,29 @@ export async function appendMessage(
 }
 
 /**
+ * Отредактировать текст сообщения, сохранив прежние версии в `edits`.
+ * Возвращает обновлённое сообщение либо `null`, если текст не изменился.
+ */
+export async function editMessage(
+  messageId: string,
+  content: string,
+): Promise<Message | null> {
+  const message = messages.value.find((m) => m.id === messageId);
+  if (!message) return null;
+  const text = content.trim();
+  if (!text || text === message.content) return null;
+  const updated: Message = {
+    ...message,
+    content: text,
+    edits: [...(message.edits ?? []), message.content],
+    editedAt: Date.now(),
+  };
+  await putMessage(updated);
+  messages.value = messages.value.map((m) => (m.id === messageId ? updated : m));
+  return updated;
+}
+
+/**
  * Удалить сообщение и все следующие за ним в сессии.
  * Нужно для «Повторить ответ»: хвост диалога пересобирается заново.
  */

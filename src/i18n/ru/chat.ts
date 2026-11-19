@@ -63,4 +63,13 @@ export const chatMessages = {
   "chat.starters.3": "Напиши короткий ответ",
   "chat.attachIncomingError": "Не удалось загрузить изображение от агента",
   "chat.error.noPrompt": "Нечего повторять: в диалоге нет реплики пользователя",
+  "chat.editMessage": "Изменить сообщение",
+  "chat.edited": "изменено · прежние версии",
+  "chat.queue.title": "В очереди: {count}",
+  "chat.queue.attachment": "вложение",
+  "chat.queue.sendNow": "Отправить сейчас",
+  "chat.queue.edit": "Вернуть в поле ввода",
+  "chat.queue.remove": "Убрать из очереди",
+  "chat.error.emptyMessage": "Пустое сообщение",
+  "chat.regenerateConfirm": "Ответ и все следующие сообщения будут удалены. Отправить реплику заново?",
 } as const satisfies LocaleMessages;
