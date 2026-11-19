@@ -12,6 +12,10 @@ import type { Agent, AgentSettings, Message, Session } from "./types";
 export const BACKUP_FORMAT = "gena-backup";
 export const BACKUP_VERSION = 1;
 
+/** Текст-предупреждение, который кладётся в каждый экспорт. */
+export const BACKUP_NOTICE =
+  "Открытый бэкап Gena. Ключи агентов и пароли в этот файл не включены — после импорта ключ агента нужно ввести заново.";
+
 /** Агент в бэкапе — без sealedKey. */
 export interface BackupAgent {
   id: string;
@@ -26,6 +30,8 @@ export interface BackupPayload {
   format: typeof BACKUP_FORMAT;
   version: number;
   exportedAt: number;
+  /** Предупреждение для того, кто откроет файл: ключей и паролей тут нет. */
+  notice: string;
   agents: BackupAgent[];
   sessions: Session[];
   messages: Message[];
@@ -55,6 +61,7 @@ export function buildBackup(input: ExportInput, now: number = Date.now()): Backu
     format: BACKUP_FORMAT,
     version: BACKUP_VERSION,
     exportedAt: now,
+    notice: BACKUP_NOTICE,
     agents: input.agents.map(toBackupAgent),
     sessions: input.sessions.map((s) => ({ ...s })),
     messages: input.messages.map((m) => ({ ...m })),
@@ -174,6 +181,7 @@ export function parseBackup(text: string): BackupPayload {
     format: BACKUP_FORMAT,
     version: BACKUP_VERSION,
     exportedAt: asNumber(raw.exportedAt, "exportedAt"),
+    notice: typeof raw.notice === "string" ? raw.notice : BACKUP_NOTICE,
     agents: raw.agents.map(parseAgent),
     sessions: raw.sessions.map(parseSession),
     messages: raw.messages.map(parseMessage),

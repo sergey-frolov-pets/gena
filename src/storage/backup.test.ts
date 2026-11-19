@@ -46,6 +46,22 @@ describe("backup", () => {
     expect(payload.agents[0]).not.toHaveProperty("sealedKey");
   });
 
+  it("вкладывает предупреждение о ключах и паролях", () => {
+    const payload = buildBackup({ agents: [agent], sessions: [session], messages: [message] });
+    expect(payload.notice).toContain("Ключи агентов и пароли");
+    const json = serializeBackup(payload);
+    expect(json).toContain("notice");
+    expect(json).toContain("пароли");
+  });
+
+  it("восстанавливает notice при отсутствии в файле", () => {
+    const payload = buildBackup({ agents: [], sessions: [], messages: [] });
+    const raw = JSON.parse(serializeBackup(payload)) as Record<string, unknown>;
+    delete raw.notice;
+    const restored = parseBackup(JSON.stringify(raw));
+    expect(restored.notice).toContain("Ключи агентов и пароли");
+  });
+
   it("переживает roundtrip сериализации", () => {
     const payload = buildBackup({ agents: [agent], sessions: [session], messages: [message] });
     const restored = parseBackup(serializeBackup(payload));

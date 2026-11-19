@@ -73,7 +73,7 @@ async function exportBackup(): Promise<void> {
     a.click();
     URL.revokeObjectURL(url);
 
-    notice.value = `Экспортировано: ${targetSessions.length} сессий, ${allMessages.length} сообщений (без ключей)`;
+    notice.value = `Экспортировано: ${targetSessions.length} сессий, ${allMessages.length} сообщений. Ключи агентов и пароли в файл не попадают.`;
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e);
   }
@@ -177,8 +177,9 @@ async function cleanupAll(): Promise<void> {
     <div class="card">
       <h3>Бэкап истории</h3>
       <p class="muted small">
-        Экспорт — открытый JSON <strong>без ключей агентов</strong>. Только сессии, сообщения и
-        настройки агентов.
+        Экспорт — открытый JSON. В файл <strong>не попадают ключи агентов и пароли</strong>:
+        только сессии, сообщения и настройки агентов (адрес, модель, лимиты). Ключ агента после
+        импорта вводится заново.
       </p>
       <label class="check">
         <input v-model="onlySelectedForBackup" type="checkbox" />
