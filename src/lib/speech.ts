@@ -77,6 +77,7 @@ export function speak(id: string, text: string): void {
   synth.cancel();
   const utterance = new SpeechSynthesisUtterance(spoken);
   utterance.lang = speechTag(currentLanguageCode());
+  utterance.rate = speechRate.value;
   const voices = synth.getVoices();
   const matching = voices.find((voice) => voice.lang === utterance.lang);
   if (matching) utterance.voice = matching;
@@ -102,4 +103,35 @@ export function setAutoSpeak(value: boolean): void {
   autoSpeak.value = value;
   writeFlag(AUTO_KEY, value);
   if (!value) stopSpeaking();
+}
+
+// --- Скорость озвучки ------------------------------------------------------
+
+const RATE_KEY = "gena-speech-rate";
+/** Варианты скорости в интерфейсе; 1 — обычная. */
+export const SPEECH_RATES = [0.75, 1, 1.25, 1.5, 2] as const;
+const MIN_RATE = 0.5;
+const MAX_RATE = 2;
+
+function readRate(): number {
+  try {
+    const raw = Number(localStorage.getItem(RATE_KEY));
+    if (!Number.isFinite(raw) || raw <= 0) return 1;
+    return Math.min(MAX_RATE, Math.max(MIN_RATE, raw));
+  } catch {
+    return 1;
+  }
+}
+
+/** Скорость чтения ответов: 0.75×…2×, по умолчанию 1×. */
+export const speechRate = ref(readRate());
+
+export function setSpeechRate(value: number): void {
+  const next = Math.min(MAX_RATE, Math.max(MIN_RATE, value));
+  speechRate.value = next;
+  try {
+    localStorage.setItem(RATE_KEY, String(next));
+  } catch {
+    // Приватный режим — настройка просто не запомнится.
+  }
 }

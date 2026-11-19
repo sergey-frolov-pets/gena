@@ -131,6 +131,8 @@ onMounted(async () => {
 }
 
 .topbar {
+  /* Один размер для иконки бренда и иконочных кнопок навигации. */
+  --icon-btn-size: 32px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -148,13 +150,14 @@ onMounted(async () => {
 }
 
 .brand-icon {
-  /* Высота иконки = высоте иконочных кнопок шапки (18px svg + 2×6px padding + 2×1px border). */
-  width: 32px;
-  height: 32px;
+  /* Ровно высота иконочной кнопки: 32×32, рамка рисуется внутри (border-box). */
+  width: var(--icon-btn-size);
+  height: var(--icon-btn-size);
+  box-sizing: border-box;
   display: block;
   border-radius: 8px;
   background: transparent;
-  box-shadow: 0 0 0 1px var(--border);
+  box-shadow: inset 0 0 0 1px var(--border);
 }
 
 .topbar nav {
@@ -166,7 +169,9 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 6px 8px;
+  width: var(--icon-btn-size);
+  height: var(--icon-btn-size);
+  padding: 0;
   line-height: 0;
 }
 

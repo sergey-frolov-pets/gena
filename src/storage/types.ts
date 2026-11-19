@@ -72,11 +72,16 @@ export type MessageRole = "user" | "assistant" | "system";
 
 /** Вложение сообщения. В историю кладём только миниатюру, не оригинал. */
 export interface MessageAttachment {
-  kind: "image";
-  /** data-URL миниатюры (≤ 200 px) — переживает перезагрузку. */
-  thumb: string;
-  width: number;
-  height: number;
+  /** `image` — картинка, `file` — документ (в агенте он уже как текст). */
+  kind: "image" | "file";
+  /** data-URL миниатюры (≤ 200 px) — только у изображений. */
+  thumb?: string;
+  width?: number;
+  height?: number;
+  /** Имя файла-документа (только для `file`). */
+  name?: string;
+  /** Размер файла в байтах (только для `file`). */
+  bytes?: number;
   /**
    * Путь на сервере (`/pico/media/<ref>`) для входящих изображений —
    * полный размер догружается авторизованным `fetch` при просмотре.

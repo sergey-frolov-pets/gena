@@ -33,12 +33,23 @@ import {
 } from "@/lib/dictation";
 import {
   autoSpeak,
+  SPEECH_RATES,
   setAutoSpeak,
+  setSpeechRate,
   speak,
   speakingId,
   speechAvailable,
+  speechRate,
   toggleSpeech,
 } from "@/lib/speech";
+import {
+  DocumentError,
+  documentKindOf,
+  documentsToMessage,
+  formatBytes,
+  prepareDocument,
+  type PreparedDocument,
+} from "@/lib/documents";
 import type { Agent, Message, MessageAttachment, Session } from "@/storage/types";
 import { ImageError, prepareImage, type PreparedImage } from "@/lib/images";
 import { attachmentFromBlobUrl, fetchMediaBlob, getCachedMedia } from "@/lib/media";
@@ -79,7 +90,12 @@ const attachError = ref("");
 const fileInput = ref<HTMLInputElement | null>(null);
 /** Просмотр изображения на весь экран. */
 const lightbox = ref("");
+/** Документы, из которых уже извлечён текст (уходят в сообщении). */
+const pendingDocs = ref<PreparedDocument[]>([]);
+/** Ошибка чтения документа — отдельно от ошибок изображений. */
+const fileError = ref("");
 const MAX_IMAGES = 5;
+const MAX_DOCUMENTS = 5;
 
 const agentSessions = computed<Session[]>(() =>
   sessions.value.filter((s) => !agentId.value || s.agentId === agentId.value),
@@ -120,7 +136,9 @@ const limitLabel = computed(() => {
 const canSend = computed(
   () =>
     Boolean(activeSession.value) &&
-    (draft.value.trim().length > 0 || pendingImages.value.length > 0) &&
+    (draft.value.trim().length > 0 ||
+      pendingImages.value.length > 0 ||
+      pendingDocs.value.length > 0) &&
     !busy.value,
 );
 
@@ -193,14 +211,22 @@ async function send(): Promise<void> {
   error.value = "";
   notice.value = "";
   const text = draft.value.trim();
+  const docs = pendingDocs.value;
   const media = pendingImages.value.map((img) => img.dataUrl);
-  const attachments: MessageAttachment[] = pendingImages.value.map((img) => ({
-    kind: "image",
-    thumb: img.thumb,
-    width: img.width,
-    height: img.height,
-  }));
-  if ((!text && media.length === 0) || busy.value) return;
+  const attachments: MessageAttachment[] = [
+    ...pendingImages.value.map((img) => ({
+      kind: "image" as const,
+      thumb: img.thumb,
+      width: img.width,
+      height: img.height,
+    })),
+    ...docs.map((doc) => ({
+      kind: "file" as const,
+      name: doc.name,
+      bytes: doc.bytes,
+    })),
+  ];
+  if ((!text && media.length === 0 && docs.length === 0) || busy.value) return;
 
   const session = activeSession.value;
   if (!session) {
@@ -218,10 +244,14 @@ async function send(): Promise<void> {
   }
   if (!(await withinLimit(agent))) return;
 
+  // Полный текст документов уходит агенту, в истории остаются подпись и бейджи.
+  const outgoing = documentsToMessage(text, docs);
   draft.value = "";
   pendingImages.value = [];
+  pendingDocs.value = [];
+  fileError.value = "";
   await appendMessage(session.id, "user", text, undefined, attachments);
-  await exchange(session, agent, text, media);
+  await exchange(session, agent, outgoing, media);
 }
 
 /** Проверка дневного лимита вызовов; false — отправлять нельзя. */
@@ -431,17 +461,46 @@ function attachMessage(code: string): string {
   return t("chat.attachError.type");
 }
 
+function documentErrorMessage(error: unknown): string {
+  const code = error instanceof DocumentError ? error.code : "read";
+  return t(`chat.fileError.${code}` as never);
+}
+
 function pickImages(): void {
   fileInput.value?.click();
+}
+
+function removeDocument(index: number): void {
+  pendingDocs.value = pendingDocs.value.filter((_, i) => i !== index);
+  fileError.value = "";
 }
 
 async function addFiles(files: File[]): Promise<void> {
   if (files.length === 0) return;
   attachError.value = "";
+  fileError.value = "";
   for (const file of files) {
+    // Документ превращаем в текст: сервер Pico принимает в media только картинки.
+    if (documentKindOf(file)) {
+      if (pendingDocs.value.length >= MAX_DOCUMENTS) {
+        fileError.value = t("chat.attachError.count");
+        break;
+      }
+      try {
+        const prepared = await prepareDocument(file);
+        pendingDocs.value = [...pendingDocs.value, prepared];
+      } catch (e) {
+        fileError.value = documentErrorMessage(e);
+      }
+      continue;
+    }
     if (pendingImages.value.length >= MAX_IMAGES) {
       attachError.value = t("chat.attachError.count");
       break;
+    }
+    if (!supportsImages.value) {
+      attachError.value = t("chat.attachError.type");
+      continue;
     }
     try {
       const prepared = await prepareImage(file);
@@ -484,6 +543,7 @@ function onDrop(event: DragEvent): void {
 
 /** Полный размер: из кеша blob-URL либо догружаем с авторизацией. */
 async function openAttachment(attachment: MessageAttachment): Promise<void> {
+  if (!attachment.thumb && !attachment.refUrl) return;
   const agent = activeAgent.value;
   if (attachment.refUrl && agent?.address) {
     const cached = getCachedMedia(agent.address, attachment.refUrl);
@@ -499,7 +559,7 @@ async function openAttachment(attachment: MessageAttachment): Promise<void> {
       // Сервер недоступен — остаётся миниатюра.
     }
   }
-  lightbox.value = attachment.thumb;
+  lightbox.value = attachment.thumb ?? "";
 }
 
 function onLightboxKey(event: KeyboardEvent): void {
@@ -542,6 +602,24 @@ function useStarter(n: number): void {
 function protocolLabel(): string {
   const p = activeAgent.value?.protocol ?? "http_json";
   return t(("connections.protocol." + p) as never);
+}
+
+/** Что принимает файловый input: документы + (для Pico) изображения. */
+const DOC_ACCEPT = ".pdf,.docx,.xlsx,.txt,.md,.markdown,.csv,.tsv,.json,.log,.yml,.yaml";
+const DOC_ACCEPT_IMAGES = `image/*,${DOC_ACCEPT}`;
+
+/** Картинки и документы сообщения — для раздельной отрисовки в истории. */
+function imagesOf(message: Message): MessageAttachment[] {
+  return (message.attachments ?? []).filter((item) => item.kind === "image" && item.thumb);
+}
+
+function filesOf(message: Message): MessageAttachment[] {
+  return (message.attachments ?? []).filter((item) => item.kind === "file");
+}
+
+function onRateChange(event: Event): void {
+  const value = Number((event.target as HTMLSelectElement).value);
+  if (Number.isFinite(value)) setSpeechRate(value);
 }
 </script>
 
@@ -632,6 +710,16 @@ function protocolLabel(): string {
             <path d="M19 6a8 8 0 0 1 0 12" />
           </svg>
         </button>
+        <select
+          v-if="speechAvailable"
+          class="chat-panel__rate"
+          :value="speechRate"
+          v-tip="t('chat.speechRate')"
+          :aria-label="t('chat.speechRate')"
+          @change="onRateChange"
+        >
+          <option v-for="rate in SPEECH_RATES" :key="rate" :value="rate">{{ rate }}×</option>
+        </select>
       </template>
     </div>
 
@@ -771,12 +859,12 @@ function protocolLabel(): string {
             <span class="chat-panel__role">{{ t(`chat.role.${m.role}` as never) }}</span>
             <p v-if="m.content" class="chat-panel__content">{{ m.content }}</p>
             <div
-              v-if="m.attachments?.length"
+              v-if="imagesOf(m).length"
               class="chat-panel__images"
-              :data-count="Math.min(m.attachments.length, 4)"
+              :data-count="Math.min(imagesOf(m).length, 4)"
             >
               <button
-                v-for="(a, i) in m.attachments.slice(0, 4)"
+                v-for="(a, i) in imagesOf(m).slice(0, 4)"
                 :key="i"
                 type="button"
                 class="chat-panel__image"
@@ -784,6 +872,21 @@ function protocolLabel(): string {
               >
                 <img :src="a.thumb" alt="" loading="lazy" />
               </button>
+            </div>
+            <div v-if="filesOf(m).length" class="chat-panel__file-row">
+              <span
+                v-for="(a, i) in filesOf(m)"
+                :key="`file-${i}`"
+                class="chat-panel__file-badge"
+                :title="a.name"
+              >
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+                  <path d="M14 3v5h5" />
+                </svg>
+                <span class="chat-panel__file-name">{{ a.name }}</span>
+                <span v-if="a.bytes" class="chat-panel__file-size">{{ formatBytes(a.bytes) }}</span>
+              </span>
             </div>
             <div class="chat-panel__message-actions">
               <button
@@ -871,6 +974,7 @@ function protocolLabel(): string {
       </p>
       <p v-if="dictationMessage" class="chat-panel__warning" role="alert">{{ dictationMessage }}</p>
       <p v-if="attachError" class="chat-panel__warning" role="alert">{{ attachError }}</p>
+      <p v-if="fileError" class="chat-panel__warning" role="alert">{{ fileError }}</p>
       <p v-if="error" class="chat-panel__warning" role="alert">
         {{ error }}
         <button v-if="lastText" type="button" class="chat-panel__link" @click="retry">
@@ -880,7 +984,7 @@ function protocolLabel(): string {
       <p v-if="notice" class="chat-panel__notice" role="status">{{ notice }}</p>
 
       <form class="chat-panel__composer" @submit.prevent="send">
-        <div v-if="pendingImages.length > 0" class="chat-panel__chips">
+        <div v-if="pendingImages.length > 0 || pendingDocs.length > 0" class="chat-panel__chips">
           <div v-for="(img, i) in pendingImages" :key="i" class="chat-panel__chip">
             <img :src="img.thumb" alt="" />
             <button
@@ -893,18 +997,35 @@ function protocolLabel(): string {
               ×
             </button>
           </div>
+          <div
+            v-for="(doc, i) in pendingDocs"
+            :key="`doc-${i}`"
+            class="chat-panel__chip is-file"
+            :title="`${doc.name} · ${formatBytes(doc.bytes)}`"
+          >
+            <span class="chat-panel__chip-name">{{ doc.name }}</span>
+            <span class="chat-panel__chip-size">{{ formatBytes(doc.bytes) }}</span>
+            <button
+              type="button"
+              class="chat-panel__chip-remove"
+              v-tip="t('chat.attachRemove')"
+              :aria-label="t('chat.attachRemove')"
+              @click="removeDocument(i)"
+            >
+              ×
+            </button>
+          </div>
         </div>
         <input
           ref="fileInput"
           class="chat-panel__file"
           type="file"
-          accept="image/*"
+          :accept="supportsImages ? DOC_ACCEPT_IMAGES : DOC_ACCEPT"
           multiple
           @change="onFilesPicked"
         />
         <div class="chat-panel__composer-box" :class="{ 'is-recording': dictationListening }">
           <button
-            v-if="supportsImages"
             type="button"
             class="chat-panel__icon-btn"
             v-tip="t('chat.attach')"
@@ -924,11 +1045,12 @@ function protocolLabel(): string {
             v-model="draft"
             class="chat-panel__input"
             rows="1"
-            enterkeyhint="send"
+            enterkeyhint="enter"
             :placeholder="t('chat.composerPlaceholder')"
             :aria-label="t('chat.composerPlaceholder')"
             :disabled="!activeSession"
-            @keydown.enter.exact.prevent="send"
+            @keydown.enter.ctrl.prevent="send"
+            @keydown.enter.meta.prevent="send"
             @paste="onPaste"
           />
           <button
@@ -962,11 +1084,12 @@ function protocolLabel(): string {
           </button>
           <button
             v-else
-            type="submit"
+            type="button"
             class="chat-panel__send is-primary"
             v-tip="t('chat.send')"
             :aria-label="t('chat.send')"
             :disabled="!canSend"
+            @click="send"
           >
             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M4 12h15" />
@@ -1687,6 +1810,34 @@ function protocolLabel(): string {
   object-fit: cover;
 }
 
+/* Документ в чипе: имя + размер вместо миниатюры. */
+.chat-panel__chip.is-file {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  width: auto;
+  min-width: 120px;
+  max-width: 200px;
+  height: 56px;
+  padding: 6px 26px 6px 10px;
+}
+
+.chat-panel__chip-name {
+  display: block;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-panel__chip-size {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
 .chat-panel__chip-remove {
   position: absolute;
   top: 2px;
@@ -1746,5 +1897,50 @@ function protocolLabel(): string {
   border-radius: 8px;
   object-fit: contain;
 }
+/* Скорость озвучки: компактный select рядом с кнопкой динамика. */
+.chat-panel__rate {
+  flex: 0 0 auto;
+  width: auto;
+  height: 32px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 0.78rem;
+}
 
+/* Документы в истории сообщений: бейджи под текстом. */
+.chat-panel__file-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.chat-panel__file-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.chat-panel__file-name {
+  overflow: hidden;
+  max-width: 160px;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-panel__file-size {
+  flex: 0 0 auto;
+  opacity: 0.8;
+}
 </style>
