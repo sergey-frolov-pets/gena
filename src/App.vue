@@ -29,14 +29,78 @@ onMounted(async () => {
         <strong>{{ t("app.name") }}</strong>
       </div>
       <nav :aria-label="t('app.nav.main')">
-        <button :class="{ primary: tab === 'connections' }" @click="tab = 'connections'">
-          {{ t("app.nav.connections") }}
+        <button
+          type="button"
+          class="icon-btn"
+          :class="{ primary: tab === 'connections' }"
+          :aria-label="t('app.nav.connections')"
+          :title="t('app.nav.connections')"
+          :aria-pressed="tab === 'connections'"
+          @click="tab = 'connections'"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="18"
+            height="18"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M9 17H7a5 5 0 0 1 0-10h2" />
+            <path d="M15 7h2a5 5 0 0 1 0 10h-2" />
+            <path d="M8 12h8" />
+          </svg>
         </button>
-        <button :class="{ primary: tab === 'chat' }" @click="tab = 'chat'">
-          {{ t("app.nav.chat") }}
+        <button
+          type="button"
+          class="icon-btn"
+          :class="{ primary: tab === 'chat' }"
+          :aria-label="t('app.nav.chat')"
+          :title="t('app.nav.chat')"
+          :aria-pressed="tab === 'chat'"
+          @click="tab = 'chat'"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="18"
+            height="18"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9.5 9.5 0 0 1-3.4-.6L3 21l1.7-5a8.4 8.4 0 0 1-.7-3.4 8.4 8.4 0 0 1 8.4-8.4 8.4 8.4 0 0 1 8.6 8.3z" />
+          </svg>
         </button>
-        <button :class="{ primary: tab === 'sessions' }" @click="tab = 'sessions'">
-          {{ t("app.nav.sessions") }}
+        <button
+          type="button"
+          class="icon-btn"
+          :class="{ primary: tab === 'sessions' }"
+          :aria-label="t('app.nav.sessions')"
+          :title="t('app.nav.sessions')"
+          :aria-pressed="tab === 'sessions'"
+          @click="tab = 'sessions'"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="18"
+            height="18"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M4 5h16" />
+            <path d="M4 12h16" />
+            <path d="M4 19h10" />
+          </svg>
         </button>
       </nav>
       <LanguageSwitcher />
@@ -87,6 +151,14 @@ onMounted(async () => {
 .topbar nav {
   display: flex;
   gap: 8px;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 8px;
+  line-height: 0;
 }
 
 .content {

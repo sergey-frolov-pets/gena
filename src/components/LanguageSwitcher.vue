@@ -16,9 +16,24 @@ function onChange(event: Event): void {
 </script>
 
 <template>
-  <label class="lang">
-    <span class="muted small">{{ t("app.language") }}</span>
-    <select :value="locale" @change="onChange">
+  <label class="lang" :title="t('app.language')">
+    <svg
+      class="lang-icon"
+      viewBox="0 0 24 24"
+      width="18"
+      height="18"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18" />
+      <path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18z" />
+    </svg>
+    <select :value="locale" :aria-label="t('app.language')" @change="onChange">
       <option v-for="opt in options" :key="opt.code" :value="opt.code">{{ opt.label }}</option>
     </select>
   </label>
@@ -28,13 +43,15 @@ function onChange(event: Event): void {
 .lang {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   margin: 0;
+}
+.lang-icon {
+  flex: none;
 }
 .lang select {
   width: auto;
-}
-.small {
-  font-size: 12px;
+  padding: 6px 8px;
+  line-height: 1.2;
 }
 </style>
