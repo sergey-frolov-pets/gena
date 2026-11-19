@@ -60,7 +60,7 @@ onBeforeUnmount(() => {
     class="install-btn"
     type="button"
     :aria-label="t('app.install')"
-    :title="t('app.install')"
+    v-tip="t('app.install')"
     @click="install"
   >
     <svg

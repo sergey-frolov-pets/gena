@@ -11,7 +11,7 @@ const { t } = useLocale();
     class="theme-btn"
     type="button"
     :aria-label="t('app.theme.toggle')"
-    :title="t('app.theme.toggle')"
+    v-tip="t('app.theme.toggle')"
     @click="toggle"
   >
     <svg

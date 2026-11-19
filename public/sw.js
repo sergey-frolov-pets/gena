@@ -1,11 +1,12 @@
 /* Gena service worker: offline app shell + runtime cache for same-origin GET.
    Agent calls are cross-origin POST — they pass through untouched. */
-const CACHE = "gena-cache-v1";
+const CACHE = "gena-cache-v2";
 const CORE = [
   "./",
   "./index.html",
   "./manifest.webmanifest",
   "./icon.svg",
+  "./icon-dark.svg",
   "./icon-192.png",
   "./icon-512.png",
   "./fsvibe-logo.svg",
@@ -49,16 +50,23 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // Активы: отдаём из кэша, параллельно тихо обновляем из сети
+  // (stale-while-revalidate) — обновления иконки/сборки подхватываются
+  // на следующей загрузке, а не «залипают» навсегда.
   event.respondWith(
     caches.match(req).then((cached) => {
-      if (cached) return cached;
-      return fetch(req).then((res) => {
+      const network = fetch(req).then((res) => {
         if (res.ok) {
           const copy = res.clone();
           caches.open(CACHE).then((cache) => cache.put(req, copy));
         }
         return res;
       });
+      if (cached) {
+        network.catch(() => undefined);
+        return cached;
+      }
+      return network;
     }),
   );
 });

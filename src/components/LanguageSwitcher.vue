@@ -16,7 +16,7 @@ function onChange(event: Event): void {
 </script>
 
 <template>
-  <label class="lang" :title="t('app.language')">
+  <label class="lang" v-tip="t('app.language')">
     <svg
       class="lang-icon"
       viewBox="0 0 24 24"

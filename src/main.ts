@@ -1,8 +1,9 @@
 import { createApp } from "vue";
 import App from "./App.vue";
+import { vTip } from "./lib/tooltip";
 import "./style.css";
 
-createApp(App).mount("#app");
+createApp(App).directive("tip", vTip).mount("#app");
 
 if (import.meta.env.PROD && "serviceWorker" in navigator) {
   window.addEventListener("load", () => {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import ConnectionsView from "./views/ConnectionsView.vue";
 import ChatView from "./views/ChatView.vue";
 import SessionsView from "./views/SessionsView.vue";
@@ -8,12 +8,17 @@ import ThemeSwitcher from "./components/ThemeSwitcher.vue";
 import InstallButton from "./components/InstallButton.vue";
 import AppFooter from "./components/AppFooter.vue";
 import { loadAgents, loadSessions } from "./lib/store";
+import { useTheme } from "./lib/theme";
 import { useLocale } from "./i18n";
 
 type Tab = "connections" | "chat" | "sessions";
 const tab = ref<Tab>("connections");
 const { t } = useLocale();
-const brandIcon = `${import.meta.env.BASE_URL}icon.svg`;
+const { theme } = useTheme();
+/** Иконка бренда: на тёмной теме — тёмный фон и светло-зелёный логотип. */
+const brandIcon = computed(
+  () => `${import.meta.env.BASE_URL}icon${theme.value === "dark" ? "-dark" : ""}.svg?v=2`,
+);
 
 onMounted(async () => {
   await loadAgents();
@@ -34,7 +39,7 @@ onMounted(async () => {
           class="icon-btn"
           :class="{ primary: tab === 'connections' }"
           :aria-label="t('app.nav.connections')"
-          :title="t('app.nav.connections')"
+          v-tip="t('app.nav.connections')"
           :aria-pressed="tab === 'connections'"
           @click="tab = 'connections'"
         >
@@ -59,7 +64,7 @@ onMounted(async () => {
           class="icon-btn"
           :class="{ primary: tab === 'chat' }"
           :aria-label="t('app.nav.chat')"
-          :title="t('app.nav.chat')"
+          v-tip="t('app.nav.chat')"
           :aria-pressed="tab === 'chat'"
           @click="tab = 'chat'"
         >
@@ -82,7 +87,7 @@ onMounted(async () => {
           class="icon-btn"
           :class="{ primary: tab === 'sessions' }"
           :aria-label="t('app.nav.sessions')"
-          :title="t('app.nav.sessions')"
+          v-tip="t('app.nav.sessions')"
           :aria-pressed="tab === 'sessions'"
           @click="tab = 'sessions'"
         >
@@ -143,9 +148,12 @@ onMounted(async () => {
 }
 
 .brand-icon {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   display: block;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: 0 0 0 1px var(--border);
 }
 
 .topbar nav {
