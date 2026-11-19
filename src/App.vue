@@ -148,10 +148,11 @@ onMounted(async () => {
 }
 
 .brand-icon {
-  width: 24px;
-  height: 24px;
+  /* Высота иконки = высоте иконочных кнопок шапки (18px svg + 2×6px padding + 2×1px border). */
+  width: 32px;
+  height: 32px;
   display: block;
-  border-radius: 6px;
+  border-radius: 8px;
   background: transparent;
   box-shadow: 0 0 0 1px var(--border);
 }
