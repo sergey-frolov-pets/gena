@@ -5,12 +5,15 @@ import ChatView from "./views/ChatView.vue";
 import SessionsView from "./views/SessionsView.vue";
 import LanguageSwitcher from "./components/LanguageSwitcher.vue";
 import ThemeSwitcher from "./components/ThemeSwitcher.vue";
+import InstallButton from "./components/InstallButton.vue";
+import AppFooter from "./components/AppFooter.vue";
 import { loadAgents, loadSessions } from "./lib/store";
 import { useLocale } from "./i18n";
 
 type Tab = "connections" | "chat" | "sessions";
 const tab = ref<Tab>("connections");
 const { t } = useLocale();
+const brandIcon = `${import.meta.env.BASE_URL}icon.svg`;
 
 onMounted(async () => {
   await loadAgents();
@@ -22,7 +25,7 @@ onMounted(async () => {
   <div class="app">
     <header class="topbar">
       <div class="brand">
-        <img class="brand-icon" src="/icon.svg" alt="" aria-hidden="true" />
+        <img class="brand-icon" :src="brandIcon" alt="" aria-hidden="true" />
         <strong>{{ t("app.name") }}</strong>
       </div>
       <nav :aria-label="t('app.nav.main')">
@@ -38,6 +41,7 @@ onMounted(async () => {
       </nav>
       <LanguageSwitcher />
       <ThemeSwitcher />
+      <InstallButton />
     </header>
 
     <main class="content">
@@ -45,6 +49,8 @@ onMounted(async () => {
       <ChatView v-else-if="tab === 'chat'" />
       <SessionsView v-else />
     </main>
+
+    <AppFooter />
   </div>
 </template>
 

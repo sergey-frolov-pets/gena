@@ -11,4 +11,9 @@ export const appMessages = {
   "app.nav.chat": "चैट",
   "app.nav.sessions": "सत्र",
   "app.nav.main": "मुख्य नेविगेशन",
+  "app.install": "इंस्टॉल करें",
+  "app.footer.license": "लाइसेंस",
+  "app.footer.support": "परियोजना का समर्थन करें",
+  "app.footer.versionHint": "संस्करण",
+  "app.footer.links": "फ़ुटर लिंक",
 } as const satisfies LocaleMessages;

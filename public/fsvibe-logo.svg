@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16706 5100" role="img" aria-label="FSVibe">
+  <g fill="#595959">
+    <rect x="0" y="0" width="1015" height="5095"/>
+    <rect x="1" y="2" width="2028" height="1015"/>
+    <rect x="1" y="2034" width="2029" height="1016"/>
+    <rect x="2972" y="0" width="1021" height="3048"/>
+    <rect x="2974" y="4088" width="2037" height="1009"/>
+    <rect x="2974" y="2032" width="2037" height="1009"/>
+    <rect x="3992.5" y="2032" width="1016.5" height="3063"/>
+    <rect x="2972" y="0" width="2011" height="1015"/>
+    <rect x="6002" y="2047.5" width="1016" height="3046.4"/>
+  </g>
+  <g fill="#ed7d31">
+    <path d="M 8516,0 H 9556.2 L 7629,5093 h -1086 z"/>
+    <rect x="9675.6" y="2046.4" width="1016" height="3048.6"/>
+    <rect x="11704" y="2046.4" width="2024.2" height="3058"/>
+    <rect x="11704" y="0" width="1014" height="5095"/>
+    <rect x="14676" y="2032" width="2028" height="1523"/>
+    <rect x="14676" y="2032" width="1015" height="3048"/>
+    <rect x="14676" y="4084.4" width="2030" height="1015"/>
+  </g>
+</svg>

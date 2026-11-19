@@ -11,4 +11,9 @@ export const appMessages = {
   "app.nav.chat": "聊天",
   "app.nav.sessions": "会话",
   "app.nav.main": "主导航",
+  "app.install": "安装",
+  "app.footer.license": "许可证",
+  "app.footer.support": "支持项目",
+  "app.footer.versionHint": "版本",
+  "app.footer.links": "页脚链接",
 } as const satisfies LocaleMessages;
