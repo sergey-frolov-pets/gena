@@ -29,4 +29,8 @@ export const sessionsMessages = {
   "sessions.cleanup.needConfirm": "Bestätigungsfeld anhaken, um alles zu löschen",
   "sessions.cleanup.removedAll": "Alles gelöscht: {sessions} Sitzungen, {messages} Nachrichten.",
   "sessions.cleanup.agentsKept": "Agenten bleiben bei der Bereinigung erhalten.",
+  "sessions.confirm": "Löschen",
+  "sessions.cancel": "Abbrechen",
+  "sessions.cleanup.confirmAllText": "Alle Sitzungen und Nachrichten werden dauerhaft gelöscht. Agenten bleiben erhalten.",
+  "sessions.cleanup.confirmExceptText": "Nur die {keep} ausgewählten Sitzungen bleiben erhalten. Alle anderen Sitzungen und Nachrichten werden dauerhaft gelöscht.",
 } as const satisfies LocaleMessages;

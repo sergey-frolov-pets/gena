@@ -27,4 +27,8 @@ export const sessionsMessages = {
   "sessions.cleanup.needConfirm": "请勾选确认框以删除全部",
   "sessions.cleanup.removedAll": "已全部删除：{sessions} 个会话，{messages} 条消息。",
   "sessions.cleanup.agentsKept": "清理时会保留智能体。",
+  "sessions.confirm": "删除",
+  "sessions.cancel": "取消",
+  "sessions.cleanup.confirmAllText": "所有会话和消息将被永久删除，智能体保留。",
+  "sessions.cleanup.confirmExceptText": "仅保留所选的 {keep} 个会话，其余会话和消息将被永久删除。",
 } as const satisfies LocaleMessages;

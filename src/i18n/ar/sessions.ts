@@ -27,4 +27,8 @@ export const sessionsMessages = {
   "sessions.cleanup.needConfirm": "حدّد مربع التأكيد لحذف كل شيء",
   "sessions.cleanup.removedAll": "تم حذف كل شيء: {sessions} جلسة، {messages} رسالة.",
   "sessions.cleanup.agentsKept": "يُحتفظ بالوكلاء أثناء التنظيف.",
+  "sessions.confirm": "حذف",
+  "sessions.cancel": "إلغاء",
+  "sessions.cleanup.confirmAllText": "ستُحذف جميع الجلسات والرسائل نهائيًا. يتم الاحتفاظ بالوكلاء.",
+  "sessions.cleanup.confirmExceptText": "ستبقى الجلسات المحددة فقط ({keep}). وستُحذف بقية الجلسات والرسائل نهائيًا.",
 } as const satisfies LocaleMessages;

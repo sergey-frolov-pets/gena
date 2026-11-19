@@ -27,4 +27,8 @@ export const sessionsMessages = {
   "sessions.cleanup.needConfirm": "सब हटाने के लिए पुष्टि बॉक्स चुनें",
   "sessions.cleanup.removedAll": "सब हटा दिया: {sessions} सत्र, {messages} संदेश।",
   "sessions.cleanup.agentsKept": "सफ़ाई के दौरान एजेंट सुरक्षित रहते हैं।",
+  "sessions.confirm": "हटाएँ",
+  "sessions.cancel": "रद्द करें",
+  "sessions.cleanup.confirmAllText": "सभी सत्र और संदेश स्थायी रूप से हटा दिए जाएँगे। एजेंट सुरक्षित रहेंगे।",
+  "sessions.cleanup.confirmExceptText": "केवल चुने गए {keep} सत्र बचेंगे। बाकी सभी सत्र और संदेश स्थायी रूप से हटा दिए जाएँगे।",
 } as const satisfies LocaleMessages;

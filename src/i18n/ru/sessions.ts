@@ -29,4 +29,8 @@ export const sessionsMessages = {
   "sessions.cleanup.needConfirm": "Отметьте подтверждение, чтобы удалить всё",
   "sessions.cleanup.removedAll": "Удалено всё: {sessions} сессий, {messages} сообщений.",
   "sessions.cleanup.agentsKept": "Агенты при очистке сохраняются.",
+  "sessions.confirm": "Удалить",
+  "sessions.cancel": "Отмена",
+  "sessions.cleanup.confirmAllText": "Все сессии и сообщения будут удалены безвозвратно. Агенты сохранятся.",
+  "sessions.cleanup.confirmExceptText": "Останутся только {keep} отмеченных сессий. Остальные сессии и сообщения будут удалены безвозвратно.",
 } as const satisfies LocaleMessages;

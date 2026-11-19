@@ -27,13 +27,29 @@ import {
 import { clearAll, clearExcept } from "@/storage/cleanup";
 import { useLocale } from "@/i18n";
 import type { Message, Session } from "@/storage/types";
+import ConfirmModal from "@/components/ConfirmModal.vue";
 
 const { t, locale } = useLocale();
 
 const error = ref("");
 const notice = ref("");
 const onlySelectedForBackup = ref(false);
-const confirmClearAll = ref(false);
+
+/** Какое подтверждение сейчас показано в модалке. */
+type CleanupMode = "" | "all" | "except";
+const confirmMode = ref<CleanupMode>("");
+
+const confirmTitle = computed(() =>
+  confirmMode.value === "all"
+    ? t("sessions.cleanup.deleteAll")
+    : t("sessions.cleanup.exceptSelected", { count: selectedSessionIds.value.size }),
+);
+
+const confirmMessage = computed(() =>
+  confirmMode.value === "all"
+    ? t("sessions.cleanup.confirmAllText")
+    : t("sessions.cleanup.confirmExceptText", { keep: selectedSessionIds.value.size }),
+);
 
 const allSelected = computed(
   () => sessions.value.length > 0 && selectedSessionIds.value.size === sessions.value.length,
@@ -177,21 +193,27 @@ async function cleanupExceptSelected(): Promise<void> {
 async function cleanupAll(): Promise<void> {
   error.value = "";
   notice.value = "";
-  if (!confirmClearAll.value) {
-    error.value = t("sessions.cleanup.needConfirm");
-    return;
-  }
   try {
     const result = await clearAll(false);
     await loadSessions();
     clearSessionSelection();
-    confirmClearAll.value = false;
     notice.value = t("sessions.cleanup.removedAll", {
       sessions: result.removedSessions,
       messages: result.removedMessages,
     });
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e);
+  }
+}
+
+/** Подтверждение в модалке: выполняем выбранную очистку. */
+async function runConfirmedCleanup(): Promise<void> {
+  const mode = confirmMode.value;
+  confirmMode.value = "";
+  if (mode === "all") {
+    await cleanupAll();
+  } else if (mode === "except") {
+    await cleanupExceptSelected();
   }
 }
 </script>
@@ -262,22 +284,30 @@ async function cleanupAll(): Promise<void> {
     <div class="card danger-zone">
       <h3>{{ t("sessions.cleanup.title") }}</h3>
       <div class="actions">
-        <button @click="cleanupExceptSelected">
+        <button :disabled="sessions.length === 0" @click="confirmMode = 'except'">
           {{ t("sessions.cleanup.exceptSelected", { count: selectedSessionIds.size }) }}
         </button>
       </div>
       <div class="actions">
-        <label class="check">
-          <input v-model="confirmClearAll" type="checkbox" />
-          <span>{{ t("sessions.cleanup.confirmAll") }}</span>
-        </label>
-        <button class="danger" @click="cleanupAll">{{ t("sessions.cleanup.deleteAll") }}</button>
+        <button class="danger" :disabled="sessions.length === 0" @click="confirmMode = 'all'">
+          {{ t("sessions.cleanup.deleteAll") }}
+        </button>
       </div>
       <p class="muted small">{{ t("sessions.cleanup.agentsKept") }}</p>
     </div>
 
     <p v-if="error" class="error">{{ error }}</p>
     <p v-if="notice" class="ok">{{ notice }}</p>
+
+    <ConfirmModal
+      :open="confirmMode !== ''"
+      :title="confirmTitle"
+      :message="confirmMessage"
+      :confirm-label="t('sessions.confirm')"
+      :cancel-label="t('sessions.cancel')"
+      @confirm="runConfirmedCleanup"
+      @cancel="confirmMode = ''"
+    />
   </section>
 </template>
 

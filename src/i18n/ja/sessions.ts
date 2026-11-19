@@ -28,4 +28,8 @@ export const sessionsMessages = {
   "sessions.cleanup.needConfirm": "すべて削除するには確認にチェックを入れてください",
   "sessions.cleanup.removedAll": "すべて削除しました: {sessions} セッション、{messages} メッセージ。",
   "sessions.cleanup.agentsKept": "クリーンアップ時もエージェントは保持されます。",
+  "sessions.confirm": "削除",
+  "sessions.cancel": "キャンセル",
+  "sessions.cleanup.confirmAllText": "すべてのセッションとメッセージが完全に削除されます。エージェントは保持されます。",
+  "sessions.cleanup.confirmExceptText": "選択した {keep} 件のセッションのみ残ります。それ以外のセッションとメッセージは完全に削除されます。",
 } as const satisfies LocaleMessages;

@@ -28,4 +28,8 @@ export const sessionsMessages = {
   "sessions.cleanup.needConfirm": "Marque a confirmação para excluir tudo",
   "sessions.cleanup.removedAll": "Tudo excluído: {sessions} sessões, {messages} mensagens.",
   "sessions.cleanup.agentsKept": "Os agentes são mantidos durante a limpeza.",
+  "sessions.confirm": "Excluir",
+  "sessions.cancel": "Cancelar",
+  "sessions.cleanup.confirmAllText": "Todas as sessões e mensagens serão excluídas permanentemente. Os agentes são mantidos.",
+  "sessions.cleanup.confirmExceptText": "Apenas as {keep} sessões selecionadas permanecerão. As demais sessões e mensagens serão excluídas permanentemente.",
 } as const satisfies LocaleMessages;

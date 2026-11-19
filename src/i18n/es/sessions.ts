@@ -29,4 +29,8 @@ export const sessionsMessages = {
   "sessions.cleanup.needConfirm": "Marca la casilla de confirmación para eliminar todo",
   "sessions.cleanup.removedAll": "Eliminado todo: {sessions} sesiones, {messages} mensajes.",
   "sessions.cleanup.agentsKept": "Los agentes se conservan durante la limpieza.",
+  "sessions.confirm": "Eliminar",
+  "sessions.cancel": "Cancelar",
+  "sessions.cleanup.confirmAllText": "Todas las sesiones y mensajes se eliminarán de forma permanente. Los agentes se conservan.",
+  "sessions.cleanup.confirmExceptText": "Solo quedarán las {keep} sesiones seleccionadas. El resto de sesiones y mensajes se eliminará de forma permanente.",
 } as const satisfies LocaleMessages;

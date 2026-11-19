@@ -53,6 +53,7 @@ import {
 import type { Agent, Message, MessageAttachment, Session } from "@/storage/types";
 import { ImageError, prepareImage, type PreparedImage } from "@/lib/images";
 import { attachmentFromBlobUrl, fetchMediaBlob, getCachedMedia } from "@/lib/media";
+import ConfirmModal from "@/components/ConfirmModal.vue";
 
 const { t } = useLocale();
 
@@ -117,6 +118,9 @@ const filteredSessions = computed<Session[]>(() => {
 
 /** Диалог, у которого подтверждаем удаление. */
 const confirmDeleteId = ref("");
+const confirmDeleteSession = computed<Session | undefined>(() =>
+  sessions.value.find((s) => s.id === confirmDeleteId.value),
+);
 
 const activeSession = computed<Session | undefined>(() =>
   sessions.value.find((s) => s.id === activeSessionId.value),
@@ -780,7 +784,7 @@ function onRateChange(event: Event): void {
               <span class="chat-panel__session-count">{{ s.messageCount }}</span>
             </button>
 
-            <div v-if="confirmDeleteId !== s.id" class="chat-panel__session-actions">
+            <div class="chat-panel__session-actions">
               <button
                 type="button"
                 class="chat-panel__action"
@@ -816,22 +820,6 @@ function onRateChange(event: Event): void {
                 <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" />
                 </svg>
-              </button>
-            </div>
-
-            <div v-else class="chat-panel__confirm">
-              <span class="chat-panel__confirm-text">
-                {{ t("chat.deleteConfirm", { title: s.title }) }}
-              </span>
-              <button
-                type="button"
-                class="chat-panel__link is-danger"
-                @click="removeDialog(s.id)"
-              >
-                {{ t("chat.confirm") }}
-              </button>
-              <button type="button" class="chat-panel__link" @click="confirmDeleteId = ''">
-                {{ t("chat.cancel") }}
               </button>
             </div>
           </li>
@@ -1109,6 +1097,18 @@ function onRateChange(event: Event): void {
     >
       <img :src="lightbox" alt="" />
     </div>
+
+    <ConfirmModal
+      :open="Boolean(confirmDeleteSession)"
+      :title="t('chat.deleteDialog')"
+      :message="
+        confirmDeleteSession ? t('chat.deleteConfirm', { title: confirmDeleteSession.title }) : ''
+      "
+      :confirm-label="t('chat.confirm')"
+      :cancel-label="t('chat.cancel')"
+      @confirm="confirmDeleteSession && removeDialog(confirmDeleteSession.id)"
+      @cancel="confirmDeleteId = ''"
+    />
   </section>
 </template>
 
@@ -1345,25 +1345,6 @@ function onRateChange(event: Event): void {
   background: color-mix(in srgb, var(--danger) 14%, transparent);
 }
 
-.chat-panel__confirm {
-  display: flex;
-  flex: 0 0 auto;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 2px 8px;
-  padding: 4px 6px;
-  border: 1px solid var(--danger);
-  border-radius: 10px;
-}
-
-.chat-panel__confirm-text {
-  flex: 1 1 100%;
-  color: var(--danger);
-  font-size: 0.74rem;
-  line-height: 1.3;
-}
-
 .chat-panel__link.is-danger {
   color: var(--danger);
 }
@@ -1591,6 +1572,20 @@ function onRateChange(event: Event): void {
 
 .chat-panel__input:focus {
   outline: none;
+}
+
+/* Подсказка должна укладываться в одну строку на телефоне. */
+.chat-panel__input::placeholder {
+  font-size: 0.78rem;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 480px) {
+  .chat-panel__input::placeholder {
+    font-size: 0.7rem;
+  }
 }
 
 .chat-panel__icon-btn {
