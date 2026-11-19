@@ -1,19 +1,22 @@
 /**
  * Слой IndexedDB поверх `idb`.
  *
- * База `gena`, версия 1. Сторы:
+ * База `gena`, версия 2. Сторы:
  *   agents   (keyPath id)                       — подключения к агентам
  *   sessions (keyPath id, index by-agent, by-updated) — диалоги
  *   messages (keyPath id, index by-session)     — сообщения
+ *   usage    (keyPath agentId)                  — счётчик вызовов агента за сутки
  *
  * Все функции тонкие; бизнес-логика (шифрование, бэкап, очистка) — выше.
+ * Миграция v1 → v2 идемпотентна: существующие данные не трогаются,
+ * добавляется только стор `usage`.
  */
 
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
-import type { Agent, Message, Session } from "./types";
+import type { Agent, Message, Session, UsageRecord } from "./types";
 
 const DB_NAME = "gena";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 interface GenaDB extends DBSchema {
   agents: {
@@ -36,6 +39,10 @@ interface GenaDB extends DBSchema {
       "by-session-created": [string, number];
     };
   };
+  usage: {
+    key: string;
+    value: UsageRecord;
+  };
 }
 
 let dbPromise: Promise<IDBPDatabase<GenaDB>> | null = null;
@@ -56,6 +63,9 @@ export function getDb(): Promise<IDBPDatabase<GenaDB>> {
           const store = db.createObjectStore("messages", { keyPath: "id" });
           store.createIndex("by-session", "sessionId");
           store.createIndex("by-session-created", ["sessionId", "createdAt"]);
+        }
+        if (!db.objectStoreNames.contains("usage")) {
+          db.createObjectStore("usage", { keyPath: "agentId" });
         }
       },
     });
@@ -163,4 +173,21 @@ export async function deleteMessagesBySession(sessionId: string): Promise<void> 
     await store.delete(key);
   }
   await tx.done;
+}
+
+// ---------- Usage (счётчик вызовов агента за сутки) ----------
+
+export async function getUsage(agentId: string): Promise<UsageRecord | undefined> {
+  const db = await getDb();
+  return db.get("usage", agentId);
+}
+
+export async function putUsage(record: UsageRecord): Promise<void> {
+  const db = await getDb();
+  await db.put("usage", record);
+}
+
+export async function deleteUsage(agentId: string): Promise<void> {
+  const db = await getDb();
+  await db.delete("usage", agentId);
 }

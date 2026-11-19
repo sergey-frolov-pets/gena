@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import {
   agents,
   appendMessage,
@@ -11,12 +11,17 @@ import {
   sessions,
 } from "@/lib/store";
 import { sendToAgent } from "@/lib/agent-client";
+import { describeError } from "@/lib/errors";
+import { canCall, getCallCount, recordCall } from "@/storage/usage";
 import type { Session } from "@/storage/types";
 
 const agentId = ref("");
 const draft = ref("");
 const busy = ref(false);
 const error = ref("");
+const notice = ref("");
+/** Сколько вызовов сделано сегодня у выбранного агента. */
+const usedToday = ref(0);
 
 const agentSessions = computed<Session[]>(() =>
   sessions.value.filter((s) => !agentId.value || s.agentId === agentId.value),
@@ -26,8 +31,31 @@ const activeSession = computed<Session | undefined>(() =>
   sessions.value.find((s) => s.id === activeSessionId.value),
 );
 
+const activeAgent = computed(() =>
+  agents.value.find((a) => a.id === (activeSession.value?.agentId ?? agentId.value)),
+);
+
+const callLimit = computed(() => activeAgent.value?.settings.callLimit ?? 0);
+
+const limitLabel = computed(() => {
+  if (callLimit.value <= 0) return "";
+  return `${usedToday.value} / ${callLimit.value} вызовов сегодня`;
+});
+
+async function refreshUsage(): Promise<void> {
+  const agent = activeAgent.value;
+  if (!agent) {
+    usedToday.value = 0;
+    return;
+  }
+  usedToday.value = await getCallCount(agent.id);
+}
+
+watch([agentId, activeSessionId, agents], refreshUsage, { immediate: true });
+
 async function newSession(): Promise<void> {
   error.value = "";
+  notice.value = "";
   if (!agentId.value) {
     error.value = "Выберите агента";
     return;
@@ -42,6 +70,7 @@ async function openSession(id: string): Promise<void> {
 
 async function send(): Promise<void> {
   error.value = "";
+  notice.value = "";
   const text = draft.value.trim();
   if (!text || busy.value) return;
 
@@ -53,6 +82,20 @@ async function send(): Promise<void> {
   const agent = agents.value.find((a) => a.id === session.agentId);
   if (!agent) {
     error.value = "Агент сессии не найден";
+    return;
+  }
+
+  // Предупреждение о незаданном ключе — до отправки.
+  if (!agent.sealedKey) {
+    error.value = "У агента не задан ключ. Введите его в разделе «Подключения».";
+    return;
+  }
+
+  // Дневной лимит вызовов.
+  const limit = agent.settings.callLimit;
+  if (limit > 0 && !(await canCall(agent.id, limit))) {
+    error.value = `Дневной лимит ${limit} вызовов исчерпан. Счётчик обнулится завтра (UTC).`;
+    await refreshUsage();
     return;
   }
 
@@ -70,8 +113,13 @@ async function send(): Promise<void> {
       history,
     });
     await appendMessage(session.id, "assistant", response.reply);
+    await recordCall(agent.id);
+    await refreshUsage();
+    if (limit > 0) {
+      notice.value = `Осталось вызовов сегодня: ${Math.max(0, limit - usedToday.value)}`;
+    }
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e);
+    error.value = describeError(e);
   } finally {
     busy.value = false;
   }
@@ -107,6 +155,7 @@ async function send(): Promise<void> {
     <div class="main">
       <h3 v-if="activeSession">{{ activeSession.title }}</h3>
       <h3 v-else class="muted">Выберите или создайте диалог</h3>
+      <p v-if="limitLabel" class="muted small usage">{{ limitLabel }}</p>
 
       <div class="messages">
         <div v-for="m in messages" :key="m.id" class="msg" :class="m.role">
@@ -129,6 +178,7 @@ async function send(): Promise<void> {
         </button>
       </form>
       <p v-if="error" class="error">{{ error }}</p>
+      <p v-if="notice" class="ok">{{ notice }}</p>
     </div>
   </section>
 </template>
@@ -171,6 +221,9 @@ async function send(): Promise<void> {
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+.usage {
+  margin: 0 0 8px;
 }
 .messages {
   flex: 1;

@@ -10,6 +10,8 @@ Serverless messenger SPA. Собирается статикой и деплои�
 ## Что умеет
 
 - **Подключения к агентам** — адрес (URL endpoint), ключ (Bearer), настройки (размер контекста, лимит вызовов в сутки, LLM-модель).
+- **Дневной лимит вызовов** — счётчик на агента в IndexedDB (стор `usage`, UTC-день), блокировка отправки при исчерпании, индикатор «N / M вызовов сегодня».
+- **Понятные ошибки** — 401/403/404/429/5xx, CORS/сеть, не-JSON, приватный режим → человекочитаемый текст вместо сырого статуса.
 - **Чат** — отправка `POST {message, sessionId, settings, history}` → `{reply}`, история в IndexedDB.
 - **Шифрование ключей** — device seed в localStorage → HKDF-SHA256 → AES-GCM-256. Конверт `enc:v1:<iv>.<cipher>`, привязка к `agentId` через `additionalData`. Смена версии сборки ключи не ломает.
 - **Бэкап истории** — экспорт/импорт открытого JSON **без ключей агентов** (только сессии, сообщения, настройки агента).
@@ -25,7 +27,7 @@ Vue 3 + Vite + TypeScript, `idb` для IndexedDB, WebCrypto для шифров
 npm install
 npm run dev        # dev-сервер
 npm run typecheck  # vue-tsc
-npm test           # vitest (крипто, бэкап, очистка)
+npm test           # vitest (крипто, бэкап, очистка, лимиты, ошибки, клиент)
 npm run build      # production-сборка в dist/
 ```
 

@@ -47,6 +47,18 @@ export interface Message {
   createdAt: number;
 }
 
+/**
+ * Счётчик вызовов агента за календарный день (UTC).
+ * Ключ в сторе `usage` — agentId. При смене дня счётчик сбрасывается.
+ */
+export interface UsageRecord {
+  agentId: string;
+  /** День в формате YYYY-MM-DD (UTC). */
+  day: string;
+  /** Сколько вызовов сделано в этот день. */
+  count: number;
+}
+
 export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   contextSize: 20,
   callLimit: 0,
