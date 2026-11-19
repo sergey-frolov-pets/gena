@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { agents, createAgent, removeAgent, updateAgentKey } from "@/lib/store";
+import { describeError } from "@/lib/errors";
 
 const name = ref("");
 const address = ref("");
@@ -40,7 +41,7 @@ async function submit(): Promise<void> {
     llmModel.value = "";
     notice.value = "Агент добавлен";
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e);
+    error.value = describeError(e);
   }
 }
 
@@ -52,7 +53,7 @@ async function saveKey(agentId: string): Promise<void> {
     keyDrafts.value[agentId] = "";
     notice.value = "Ключ обновлён";
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e);
+    error.value = describeError(e);
   }
 }
 
