@@ -25,6 +25,7 @@ import { newId } from "@/lib/id";
 import { sendToAgent, type TransportAttachment } from "@/lib/agent-client";
 import { describeError } from "@/lib/errors";
 import { canCall, getCallCount, recordCall } from "@/storage/usage";
+import { listMessages } from "@/storage/db";
 import { useLocale } from "@/i18n";
 import {
   dictationAvailable,
@@ -73,6 +74,8 @@ const lastText = ref("");
 const abortCtrl = ref<AbortController | null>(null);
 /** Накопленный текст стриминга. */
 const streamingText = ref("");
+/** Сессия, к которой относится текущий стрим (чтобы не показывать его в другом диалоге). */
+const streamSessionId = ref<string | null>(null);
 /** Контейнер сообщений — для автоскролла. */
 const messagesEl = ref<HTMLElement | null>(null);
 /** Поле ввода — чтобы вернуть фокус после отправки. */
@@ -127,6 +130,14 @@ const editError = ref("");
 
 const agentSessions = computed<Session[]>(() =>
   sessions.value.filter((s) => !agentId.value || s.agentId === agentId.value),
+);
+
+/** Индикаторы хода показываем только в том диалоге, где идёт ответ. */
+const liveStreaming = computed(() =>
+  streamSessionId.value === activeSessionId.value ? streamingText.value : "",
+);
+const liveTyping = computed(
+  () => typing.value && streamSessionId.value === activeSessionId.value,
 );
 
 const filteredSessions = computed<Session[]>(() => {
@@ -244,6 +255,25 @@ async function openSession(id: string): Promise<void> {
   historyOpen.value = false;
 }
 
+/** Последний агент запоминается, чтобы после перезагрузки открыть его диалог. */
+const AGENT_STORAGE_KEY = "gena.chat.agent";
+
+function rememberAgent(id: string): void {
+  try {
+    localStorage.setItem(AGENT_STORAGE_KEY, id);
+  } catch {
+    // Приватный режим или отключённое хранилище — не критично.
+  }
+}
+
+function savedAgentId(): string {
+  try {
+    return localStorage.getItem(AGENT_STORAGE_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
 /** Последняя сессия выбранного агента — по времени обновления. */
 async function openLastSession(forAgent = agentId.value): Promise<void> {
   const list = sessions.value.filter((s) => s.agentId === forAgent);
@@ -259,15 +289,20 @@ async function openLastSession(forAgent = agentId.value): Promise<void> {
 // Агент выбран (вручную или автоматически) — поднимаем его последний диалог.
 watch(agentId, async (id) => {
   if (!id) return;
+  rememberAgent(id);
   if (activeSession.value?.agentId === id) return;
   await openLastSession(id);
 });
 
 // Один агент в списке — выбираем сразу, чтобы можно было писать без настройки.
+// Несколько — поднимаем агента, с которым работали в прошлый раз.
 watch(
   agents,
   (list) => {
-    if (!agentId.value && list.length === 1) agentId.value = list[0].id;
+    if (agentId.value || list.length === 0) return;
+    const saved = savedAgentId();
+    const preferred = list.find((a) => a.id === saved) ?? (list.length === 1 ? list[0] : null);
+    if (preferred) agentId.value = preferred.id;
   },
   { immediate: true },
 );
@@ -297,6 +332,11 @@ function enqueue(payload: ComposerPayload, persist = true): void {
 async function send(): Promise<void> {
   error.value = "";
   notice.value = "";
+  // Без выбранного агента реплику отправлять некуда — поле не очищаем.
+  if (!activeAgent.value) {
+    error.value = t("chat.error.chooseAgent");
+    return;
+  }
   const payload = takeComposer();
   if (!payload) return;
   // Агент занят — реплика встаёт в очередь, ответа не ждём.
@@ -304,7 +344,11 @@ async function send(): Promise<void> {
     enqueue(payload);
     return;
   }
-  await dispatch(payload, true);
+  try {
+    await dispatch(payload, true);
+  } catch (e) {
+    error.value = describeError(e, t);
+  }
 }
 
 /**
@@ -317,12 +361,11 @@ async function dispatch(
   persist: boolean,
   sessionId?: string,
 ): Promise<boolean> {
-  // Реплика из очереди возвращается в свой диалог, даже если открыт другой.
-  if (sessionId && sessionId !== activeSessionId.value) {
-    if (sessions.value.some((s) => s.id === sessionId)) await loadMessages(sessionId);
-  }
   const text = payload.text;
-  let session = activeSession.value;
+  // Реплика из очереди адресована своему диалогу — открытый не переключаем.
+  let session =
+    (sessionId ? sessions.value.find((s) => s.id === sessionId) : undefined) ??
+    activeSession.value;
   const targetAgentId = session?.agentId || agentId.value;
   const agent = agents.value.find((a) => a.id === targetAgentId);
   if (!agent) {
@@ -358,7 +401,11 @@ async function dispatch(
   if (persist) {
     await appendMessage(session.id, "user", text, undefined, attachments);
   }
-  await exchange(session, agent, outgoing, payload.images.map((img) => img.dataUrl));
+  const visible = session.id === activeSessionId.value;
+  const history = (
+    visible ? messages.value : await listMessages(session.id)
+  ).filter((m) => m.role !== "system" && (m.kind === undefined || m.kind === "text"));
+  await exchange(session, agent, outgoing, payload.images.map((img) => img.dataUrl), history);
   return true;
 }
 
@@ -379,11 +426,25 @@ function removeQueued(id: string): void {
   queue.value = queue.value.filter((q) => q.id !== id);
 }
 
+/** Название другого диалога для реплики в очереди (для текущего — пусто). */
+function queueSessionTitle(id?: string): string {
+  if (!id || id === activeSessionId.value) return "";
+  return sessions.value.find((s) => s.id === id)?.title ?? "";
+}
+
 /** Вернуть реплику из очереди в поле ввода — её можно поправить. */
-function editQueued(id: string): void {
+async function editQueued(id: string): Promise<void> {
   const item = queue.value.find((q) => q.id === id);
   if (!item) return;
   removeQueued(id);
+  // Правка — в том диалоге, куда реплика адресована.
+  if (
+    item.sessionId &&
+    item.sessionId !== activeSessionId.value &&
+    sessions.value.some((s) => s.id === item.sessionId)
+  ) {
+    await loadMessages(item.sessionId);
+  }
   draft.value = item.text;
   pendingImages.value = [...pendingImages.value, ...item.images];
   pendingDocs.value = [...pendingDocs.value, ...item.docs];
@@ -437,21 +498,21 @@ async function exchange(
   agent: Agent,
   text: string,
   media: string[],
+  history: Message[],
 ): Promise<void> {
   stopDictation();
   lastText.value = text;
   busy.value = true;
-  streamingText.value = "";
+  streamSessionId.value = session.id;
+  if (session.id === activeSessionId.value) streamingText.value = "";
   let failed = false;
   const controller = new AbortController();
   abortCtrl.value = controller;
   const limit = agent.settings.callLimit;
+  // Стрим рисуем только в том диалоге, к которому он относится.
+  const shown = () => session.id === activeSessionId.value;
   try {
     const key = await getAgentKey(agent);
-    // В контекст идут только обычные текстовые сообщения (без мыслей/tool_calls).
-    const history = messages.value.filter(
-      (m) => m.role !== "system" && (m.kind === undefined || m.kind === "text"),
-    );
     const response = await sendToAgent(
       agent,
       key,
@@ -466,10 +527,10 @@ async function exchange(
         signal: controller.signal,
         events: {
           onTyping: (on) => {
-            typing.value = on;
+            if (shown()) typing.value = on;
           },
           onDelta: (_id, chunk) => {
-            streamingText.value += chunk;
+            if (shown()) streamingText.value += chunk;
           },
           onMessage: async (m) => {
             await appendMessage(session.id, "assistant", m.content, m.kind);
@@ -501,8 +562,9 @@ async function exchange(
     typing.value = false;
     abortCtrl.value = null;
     streamingText.value = "";
+    streamSessionId.value = null;
     await nextTick();
-    composerEl.value?.focus();
+    if (session.id === activeSessionId.value) composerEl.value?.focus();
     // «Отправить сейчас» важнее ошибки; иначе тянем следующую реплику очереди.
     const next = immediate.value;
     immediate.value = null;
@@ -559,7 +621,10 @@ async function runRegenerate(m: Message): Promise<void> {
   notice.value = "";
   if (!(await withinLimit(agent))) return;
   await deleteMessagesFrom(session.id, m.createdAt);
-  await exchange(session, agent, prompt, []);
+  const history = messages.value.filter(
+    (item) => item.role !== "system" && (item.kind === undefined || item.kind === "text"),
+  );
+  await exchange(session, agent, prompt, [], history);
 }
 
 function stop(): void {
@@ -1169,13 +1234,16 @@ function onRateChange(event: Event): void {
           </article>
         </template>
 
-        <article v-if="streamingText" class="chat-panel__message chat-panel__message--assistant">
+        <article
+          v-if="liveStreaming"
+          class="chat-panel__message chat-panel__message--assistant"
+        >
           <span class="chat-panel__role">{{ t("chat.role.assistant") }}</span>
-          <p class="chat-panel__content">{{ streamingText }}</p>
+          <p class="chat-panel__content">{{ liveStreaming }}</p>
         </article>
 
         <div
-          v-if="messages.length === 0 && !typing && !streamingText"
+          v-if="messages.length === 0 && !liveTyping && !liveStreaming"
           class="chat-panel__empty"
         >
           <p class="chat-panel__empty-text">{{ t("chat.messagesEmpty") }}</p>
@@ -1193,7 +1261,7 @@ function onRateChange(event: Event): void {
             </button>
           </div>
         </div>
-        <p v-if="typing" class="chat-panel__thinking">{{ t("chat.typing") }}</p>
+        <p v-if="liveTyping" class="chat-panel__thinking">{{ t("chat.typing") }}</p>
       </div>
     </div>
 
@@ -1219,7 +1287,11 @@ function onRateChange(event: Event): void {
         </p>
         <ul class="chat-panel__queue-list">
           <li v-for="q in queue" :key="q.id" class="chat-panel__queue-item">
-            <span class="chat-panel__queue-text">{{ q.text || t("chat.queue.attachment") }}</span>
+            <span class="chat-panel__queue-text">
+              <template v-if="queueSessionTitle(q.sessionId)"
+                >{{ queueSessionTitle(q.sessionId) }}: </template
+              >{{ q.text || t("chat.queue.attachment") }}
+            </span>
             <span class="chat-panel__queue-actions">
               <button
                 type="button"
@@ -1348,7 +1420,7 @@ function onRateChange(event: Event): void {
             </svg>
           </button>
           <button
-            v-if="busy"
+            v-if="busy && streamSessionId === activeSessionId"
             type="button"
             class="chat-panel__send is-stop"
             v-tip="t('chat.stop')"

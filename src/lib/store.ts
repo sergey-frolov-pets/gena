@@ -3,7 +3,7 @@
  * Тонкая обёртка над storage-слоем; UI читает отсюда.
  */
 
-import { ref } from "vue";
+import { ref, toRaw } from "vue";
 import type {
   Agent,
   AgentConfig,
@@ -151,7 +151,7 @@ export async function renameSession(sessionId: string, title: string): Promise<v
   if (!session) return;
   session.title = title.trim() || "Новый диалог";
   session.updatedAt = Date.now();
-  await putSession(session);
+  await putSession(toRaw(session));
   await loadSessions();
 }
 
@@ -160,7 +160,7 @@ export async function pinSession(sessionId: string, pinned: boolean): Promise<vo
   const session = sessions.value.find((s) => s.id === sessionId);
   if (!session) return;
   session.pinned = pinned;
-  await putSession(session);
+  await putSession(toRaw(session));
   await loadSessions();
 }
 
@@ -219,7 +219,8 @@ export async function appendMessage(
   if (session) {
     session.messageCount += 1;
     session.updatedAt = message.createdAt;
-    await putSession(session);
+    // `sessions` хранит реактивные прокси: IndexedDB не умеет их клонировать.
+    await putSession(toRaw(session));
     await loadSessions();
   }
 
@@ -271,7 +272,7 @@ export async function deleteMessagesFrom(
   if (session) {
     session.messageCount = Math.max(0, session.messageCount - doomed.length);
     session.updatedAt = Date.now();
-    await putSession(session);
+    await putSession(toRaw(session));
     await loadSessions();
   }
 

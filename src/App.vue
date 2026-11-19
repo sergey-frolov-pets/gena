@@ -12,7 +12,7 @@ import { useTheme } from "./lib/theme";
 import { useLocale } from "./i18n";
 
 type Tab = "connections" | "chat" | "sessions";
-const tab = ref<Tab>("connections");
+const tab = ref<Tab>("chat");
 const { t } = useLocale();
 const { theme } = useTheme();
 /** Иконка бренда: на тёмной теме — тёмный фон и светло-зелёный логотип. */
@@ -113,7 +113,7 @@ onMounted(async () => {
       <InstallButton />
     </header>
 
-    <main class="content">
+    <main class="content" :class="{ 'content--flush': tab === 'chat' }">
       <ConnectionsView v-if="tab === 'connections'" />
       <ChatView v-else-if="tab === 'chat'" />
       <SessionsView v-else />
@@ -181,5 +181,22 @@ onMounted(async () => {
   max-width: 960px;
   width: 100%;
   margin: 0 auto;
+}
+
+/* Чат — без внешних отступов: панель занимает всю область. */
+.content--flush {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  max-width: none;
+}
+
+.content--flush :deep(.chat-panel) {
+  flex: 1 1 auto;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
 }
 </style>
