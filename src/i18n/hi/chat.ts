@@ -56,4 +56,6 @@ export const chatMessages = {
   "chat.starters.1": "हमारे संवाद का सारांश",
   "chat.starters.2": "हमने क्या तय किया?",
   "chat.starters.3": "छोटा उत्तर लिखें",
+  "chat.attachIncomingError": "एजेंट से छवि लोड नहीं हो सकी",
+  "chat.error.noPrompt": "दोबारा बनाने के लिए कुछ नहीं: बातचीत में उपयोगकर्ता का संदेश नहीं है",
 } as const satisfies LocaleMessages;

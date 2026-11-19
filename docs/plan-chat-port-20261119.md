@@ -208,9 +208,24 @@
 
 Осталось:
 
-- **3.5 приём:** `message.create.payload.attachments` (url `/pico/media/<ref>`, нужен
-  `Authorization`) → авторизованный `fetch` → blob-URL с кешем в памяти сессии + миниатюра.
-- **3.3:** regenerate ответа (`chat.regenerate` есть в словарях, кнопки нет).
-- **4:** `visualViewport` — dock не должен перекрываться клавиатурой.
-- **5:** ручной чек-лист на телефоне + деплой (Pages обновится только после `git push`).
-- Тест на `prepareImage` не написан: в jsdom нет canvas (нужен `@vitest/browser` или fake-canvas).
+- **3.5 приём — ✅ СДЕЛАНО (19.11, вечер).** `src/lib/media.ts`: `parseIncomingAttachments`
+  (только `type: "image"`, пустые url отбрасываются), `absoluteMediaUrl` (ws/wss → http/https),
+  `fetchMediaBlob` (авторизованный `fetch` + кеш blob-URL в памяти), `attachmentFromBlobUrl`
+  (миниатюра через `makeThumb`). В `pico-ws` вложения финального `message.create` отдаются
+  в `TransportReply.attachments`; в ChatView они скачиваются в `collectIncoming` и попадают
+  в сообщение как `MessageAttachment` с `refUrl` — после перезагрузки полный размер
+  догружается по требованию в лайтбоксе (`openAttachment`).
+- **3.3 regenerate — ✅ СДЕЛАНО.** Кнопка «Повторить ответ» на последнем ответе агента:
+  `deleteMessagesFrom` (новые `deleteMessage` в `db.ts` и `deleteMessagesFrom` в `store.ts`)
+  срезает ответ и хвост, затем повторная отправка последней реплики пользователя.
+  Отправка и приём вынесены в общий `exchange()`.
+- **4 visualViewport — ✅ СДЕЛАНО.** `syncViewport()` пишет `--app-vvh` из `visualViewport.height`,
+  высота `.chat-panel` считается от неё (клавиатура ужимает панель, dock не уезжает под неё);
+  слушатели снимаются в `onUnmounted`.
+- **P1.2 валидация настроек — ✅ СДЕЛАНО.** `toCount()` в `storage/types.ts` (целое ≥ 0, мусор → 0),
+  `normalizeSettings()` в `store.ts` применяется и к созданию, и к редактированию агента.
+- **P2.2 экспорт одного диалога — ✅ СДЕЛАНО.** `saveBackup()` в `SessionsView.vue` + кнопка
+  «Экспорт» в строке каждого диалога.
+- **5:** ручной чек-лист на телефоне (долгий тап, sheet, клавиатура) — после деплоя.
+- Тест на `prepareImage`/`makeThumb` не написан: в jsdom нет canvas (нужен `@vitest/browser`).
+

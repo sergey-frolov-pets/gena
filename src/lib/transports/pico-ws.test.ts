@@ -132,6 +132,34 @@ describe("pico-ws transport", () => {
     expect(onTyping).toHaveBeenCalledWith(false);
   });
 
+  it("вложения финального сообщения → attachments в ответе (только изображения)", async () => {
+    const transport = makePicoTransport(ctor);
+    const p = transport.send(req(), {});
+    const ws = FakeWebSocket.instances.at(-1)!;
+    ws.emit("open");
+    await tick();
+
+    ws.emit("message", {
+      data: JSON.stringify({
+        type: "message.create",
+        payload: {
+          content: "вот фото",
+          message_id: "m3",
+          attachments: [
+            { type: "image", url: "/pico/media/r1", content_type: "image/jpeg" },
+            { type: "file", url: "/pico/media/r2", filename: "doc.pdf" },
+          ],
+        },
+      }),
+    });
+    ws.emit("message", { data: JSON.stringify({ type: "typing.stop" }) });
+
+    await expect(p).resolves.toEqual({
+      reply: "вот фото",
+      attachments: [{ url: "/pico/media/r1", filename: undefined, contentType: "image/jpeg" }],
+    });
+  });
+
   it("error-кадр → pico_error с кодом", async () => {
     const transport = makePicoTransport(ctor);
     const p = transport.send(req(), {});

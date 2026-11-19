@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeAgent, SCHEMA_VERSION, type Agent } from "./types";
+import { normalizeAgent, SCHEMA_VERSION, type Agent, toCount } from "./types";
 
 function baseAgent(overrides: Partial<Agent> = {}): Agent {
   return {
@@ -40,5 +40,17 @@ describe("normalizeAgent", () => {
     normalizeAgent(raw);
     expect(raw.protocol).toBeUndefined();
     expect(raw.config).toBeUndefined();
+  });
+});
+
+describe("toCount", () => {
+  it("отрицательные, дробные и мусор → целое ≥ 0", () => {
+    expect(toCount(-5)).toBe(0);
+    expect(toCount("12.7")).toBe(13);
+    expect(toCount(" 8 ")).toBe(8);
+    expect(toCount("abc")).toBe(0);
+    expect(toCount(undefined)).toBe(0);
+    expect(toCount(NaN)).toBe(0);
+    expect(toCount(Infinity)).toBe(0);
   });
 });

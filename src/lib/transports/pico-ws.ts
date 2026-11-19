@@ -10,9 +10,16 @@
 
 import { newId } from "@/lib/id";
 import type { PicoConfig } from "@/storage/types";
+import { parseIncomingAttachments } from "@/lib/media";
 import { AgentClientError } from "./client-error";
 import { PicoConnection, type PicoFrame, type PicoSocketCtor } from "./pico-connection";
-import type { AgentTransport, TransportEvents, TransportRequest } from "./types";
+import type {
+  AgentTransport,
+  TransportAttachment,
+  TransportEvents,
+  TransportRequest,
+  TransportReply,
+} from "./types";
 
 const HARD_TIMEOUT_MS = 120_000;
 const SILENCE_TIMEOUT_MS = 3_000;
@@ -49,7 +56,7 @@ export function makePicoTransport(ctor?: PicoSocketCtor): AgentTransport {
   };
 
   return {
-    async send(req: TransportRequest, ev: TransportEvents): Promise<{ reply: string }> {
+    async send(req: TransportRequest, ev: TransportEvents): Promise<TransportReply> {
       const agent = req.agent;
       if (!agent.address) {
         throw new AgentClientError("agent address is not set", undefined, "no_address");
@@ -61,14 +68,22 @@ export function makePicoTransport(ctor?: PicoSocketCtor): AgentTransport {
       const url = buildWsUrl(agent.address, req.sessionId);
       const conn = new PicoConnection(socketCtor);
 
-      return new Promise<{ reply: string }>((resolve, reject) => {
+      return new Promise<TransportReply>((resolve, reject) => {
         let reply: string | null = null;
+        /** Вложения финального сообщения — из `message.create.payload.attachments`. */
+        let replyAttachments: TransportAttachment[] = [];
         let settled = false;
         let silenceTimer: ReturnType<typeof setTimeout> | null = null;
 
         const hardTimer = setTimeout(() => {
           finish(reject, new AgentClientError("no response from agent", undefined, "ws_timeout"));
         }, HARD_TIMEOUT_MS);
+
+        function withAttachments(): TransportReply {
+          return replyAttachments.length > 0
+            ? { reply: reply ?? "", attachments: replyAttachments }
+            : { reply: reply ?? "" };
+        }
 
         function clearTimers(): void {
           clearTimeout(hardTimer);
@@ -93,7 +108,7 @@ export function makePicoTransport(ctor?: PicoSocketCtor): AgentTransport {
           }
           silenceTimer = setTimeout(() => {
             if (reply !== null) {
-              finish(resolve, { reply });
+              finish(resolve, withAttachments());
             }
           }, SILENCE_TIMEOUT_MS);
         }
@@ -117,7 +132,7 @@ export function makePicoTransport(ctor?: PicoSocketCtor): AgentTransport {
             if (type === "typing.stop") {
               ev.onTyping?.(false);
               if (reply !== null) {
-                finish(resolve, { reply });
+                finish(resolve, withAttachments());
               }
               return;
             }
@@ -141,6 +156,7 @@ export function makePicoTransport(ctor?: PicoSocketCtor): AgentTransport {
                 return;
               }
               reply = content;
+              replyAttachments = parseIncomingAttachments(payload.attachments);
               resetSilence();
             }
           },
@@ -149,7 +165,7 @@ export function makePicoTransport(ctor?: PicoSocketCtor): AgentTransport {
               return;
             }
             if (reply !== null) {
-              finish(resolve, { reply });
+              finish(resolve, withAttachments());
               return;
             }
             finish(reject, new AgentClientError("connection closed", undefined, "ws_closed"));

@@ -56,4 +56,6 @@ export const chatMessages = {
   "chat.starters.1": "会話を要約して",
   "chat.starters.2": "何を決めた？",
   "chat.starters.3": "短い返信を書いて",
+  "chat.attachIncomingError": "エージェントからの画像を読み込めませんでした",
+  "chat.error.noPrompt": "再生成できません: 会話にユーザーのメッセージがありません",
 } as const satisfies LocaleMessages;

@@ -12,9 +12,10 @@ import type {
   Protocol,
   Session,
 } from "@/storage/types";
-import { DEFAULT_AGENT_SETTINGS, SCHEMA_VERSION } from "@/storage/types";
+import { DEFAULT_AGENT_SETTINGS, SCHEMA_VERSION, toCount } from "@/storage/types";
 import {
   deleteAgent,
+  deleteMessage,
   deleteSession,
   getAgent,
   listAgents,
@@ -26,6 +27,16 @@ import {
 } from "@/storage/db";
 import { openAgentKey, sealAgentKey } from "@/crypto/agent-key-cipher";
 import { newId } from "@/lib/id";
+
+/** Настройки из формы: лимиты — целые ≥ 0, модель — без пробелов по краям. */
+function normalizeSettings(input: Partial<typeof DEFAULT_AGENT_SETTINGS>) {
+  const merged = { ...DEFAULT_AGENT_SETTINGS, ...input };
+  return {
+    contextSize: toCount(merged.contextSize),
+    callLimit: toCount(merged.callLimit),
+    llmModel: String(merged.llmModel ?? "").trim(),
+  };
+}
 
 export const agents = ref<Agent[]>([]);
 export const sessions = ref<Session[]>([]);
@@ -63,7 +74,7 @@ export async function createAgent(input: {
     name: input.name,
     address: input.address,
     sealedKey,
-    settings: { ...DEFAULT_AGENT_SETTINGS, ...input.settings },
+    settings: normalizeSettings(input.settings),
     protocol: input.protocol ?? "http_json",
     config: input.config ?? {},
     schemaVersion: SCHEMA_VERSION,
@@ -100,7 +111,7 @@ export async function updateAgent(
   if (!agent) return;
   agent.name = input.name;
   agent.address = input.address;
-  agent.settings = { ...DEFAULT_AGENT_SETTINGS, ...input.settings };
+  agent.settings = normalizeSettings(input.settings);
   agent.protocol = input.protocol ?? agent.protocol ?? "http_json";
   agent.config = input.config ?? {};
   agent.schemaVersion = SCHEMA_VERSION;
@@ -216,6 +227,36 @@ export async function appendMessage(
     messages.value = [...messages.value, message];
   }
   return message;
+}
+
+/**
+ * Удалить сообщение и все следующие за ним в сессии.
+ * Нужно для «Повторить ответ»: хвост диалога пересобирается заново.
+ */
+export async function deleteMessagesFrom(
+  sessionId: string,
+  createdAt: number,
+): Promise<void> {
+  const doomed = messages.value.filter(
+    (m) => m.sessionId === sessionId && m.createdAt >= createdAt,
+  );
+  for (const message of doomed) {
+    await deleteMessage(message.id);
+  }
+
+  const session = sessions.value.find((s) => s.id === sessionId);
+  if (session) {
+    session.messageCount = Math.max(0, session.messageCount - doomed.length);
+    session.updatedAt = Date.now();
+    await putSession(session);
+    await loadSessions();
+  }
+
+  if (activeSessionId.value === sessionId) {
+    messages.value = messages.value.filter(
+      (m) => !(m.sessionId === sessionId && m.createdAt >= createdAt),
+    );
+  }
 }
 
 export function toggleSessionSelected(id: string): void {

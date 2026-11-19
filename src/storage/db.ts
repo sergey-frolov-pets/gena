@@ -166,6 +166,11 @@ export async function listMessages(sessionId: string): Promise<Message[]> {
   ));
 }
 
+export async function deleteMessage(id: string): Promise<void> {
+  const db = await getDb();
+  await db.delete("messages", id);
+}
+
 export async function deleteMessagesBySession(sessionId: string): Promise<void> {
   const db = await getDb();
   const tx = db.transaction("messages", "readwrite");

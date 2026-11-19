@@ -56,4 +56,6 @@ export const chatMessages = {
   "chat.starters.1": "Summarize our dialog",
   "chat.starters.2": "What did we decide?",
   "chat.starters.3": "Draft a short reply",
+  "chat.attachIncomingError": "Could not load the image from the agent",
+  "chat.error.noPrompt": "Nothing to regenerate: the dialog has no user message",
 } as const satisfies LocaleMessages;

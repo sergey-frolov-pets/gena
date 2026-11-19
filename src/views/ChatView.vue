@@ -4,12 +4,13 @@
  * (toolbar → stage с пузырями → dock с композером), данные и транспорт — Gena.
  * Голос: диктовка (Web Speech) и озвучка ответов (Speech Synthesis).
  */
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   activeSessionId,
   agents,
   appendMessage,
   createSession,
+  deleteMessagesFrom,
   duplicateSession,
   getAgentKey,
   loadMessages,
@@ -19,7 +20,7 @@ import {
   renameSession,
   sessions,
 } from "@/lib/store";
-import { sendToAgent } from "@/lib/agent-client";
+import { sendToAgent, type TransportAttachment } from "@/lib/agent-client";
 import { describeError } from "@/lib/errors";
 import { canCall, getCallCount, recordCall } from "@/storage/usage";
 import { useLocale } from "@/i18n";
@@ -38,8 +39,9 @@ import {
   speechAvailable,
   toggleSpeech,
 } from "@/lib/speech";
-import type { MessageAttachment, Session } from "@/storage/types";
+import type { Agent, Message, MessageAttachment, Session } from "@/storage/types";
 import { ImageError, prepareImage, type PreparedImage } from "@/lib/images";
+import { attachmentFromBlobUrl, fetchMediaBlob, getCachedMedia } from "@/lib/media";
 
 const { t } = useLocale();
 
@@ -214,25 +216,58 @@ async function send(): Promise<void> {
     error.value = t("chat.error.noKey");
     return;
   }
+  if (!(await withinLimit(agent))) return;
 
+  draft.value = "";
+  pendingImages.value = [];
+  await appendMessage(session.id, "user", text, undefined, attachments);
+  await exchange(session, agent, text, media);
+}
+
+/** Проверка дневного лимита вызовов; false — отправлять нельзя. */
+async function withinLimit(agent: Agent): Promise<boolean> {
   const limit = agent.settings.callLimit;
-  if (limit > 0 && !(await canCall(agent.id, limit))) {
-    error.value = t("chat.error.limitReached", { limit });
-    await refreshUsage();
-    return;
-  }
+  if (limit <= 0) return true;
+  if (await canCall(agent.id, limit)) return true;
+  error.value = t("chat.error.limitReached", { limit });
+  await refreshUsage();
+  return false;
+}
 
+/** Скачать входящие изображения и превратить их в миниатюры для истории. */
+async function collectIncoming(
+  agent: Agent,
+  key: string,
+  list: TransportAttachment[],
+): Promise<MessageAttachment[]> {
+  if (list.length === 0) return [];
+  const result: MessageAttachment[] = [];
+  for (const item of list) {
+    try {
+      const blobUrl = await fetchMediaBlob(agent.address, key, item.url);
+      result.push(await attachmentFromBlobUrl(blobUrl, item.url));
+    } catch {
+      attachError.value = t("chat.attachIncomingError");
+    }
+  }
+  return result;
+}
+
+/** Один ход: отправка реплики агенту, приём ответа и его вложений. */
+async function exchange(
+  session: Session,
+  agent: Agent,
+  text: string,
+  media: string[],
+): Promise<void> {
   stopDictation();
   lastText.value = text;
   busy.value = true;
   streamingText.value = "";
   const controller = new AbortController();
   abortCtrl.value = controller;
+  const limit = agent.settings.callLimit;
   try {
-    await appendMessage(session.id, "user", text, undefined, attachments);
-    draft.value = "";
-    pendingImages.value = [];
-
     const key = await getAgentKey(agent);
     // В контекст идут только обычные текстовые сообщения (без мыслей/tool_calls).
     const history = messages.value.filter(
@@ -263,7 +298,14 @@ async function send(): Promise<void> {
         },
       },
     );
-    const reply = await appendMessage(session.id, "assistant", response.reply);
+    const incoming = await collectIncoming(agent, key, response.attachments ?? []);
+    const reply = await appendMessage(
+      session.id,
+      "assistant",
+      response.reply,
+      undefined,
+      incoming,
+    );
     await recordCall(agent.id);
     await refreshUsage();
     if (autoSpeak.value && response.reply.trim()) {
@@ -282,6 +324,41 @@ async function send(): Promise<void> {
     await nextTick();
     composerEl.value?.focus();
   }
+}
+
+/**
+ * «Повторить ответ»: удаляет ответ и всё, что после него, и отправляет
+ * последнюю реплику пользователя заново. Вложения из истории не повторяются —
+ * в IndexedDB лежит только миниатюра.
+ */
+async function regenerate(m: Message): Promise<void> {
+  if (busy.value) return;
+  const session = activeSession.value;
+  const agent = activeAgent.value;
+  if (!session || !agent) return;
+  if (!agent.sealedKey) {
+    error.value = t("chat.error.noKey");
+    return;
+  }
+
+  const index = messages.value.findIndex((item) => item.id === m.id);
+  let prompt = "";
+  for (let i = index - 1; i >= 0; i--) {
+    if (messages.value[i].role === "user") {
+      prompt = messages.value[i].content;
+      break;
+    }
+  }
+  if (!prompt) {
+    error.value = t("chat.error.noPrompt");
+    return;
+  }
+
+  error.value = "";
+  notice.value = "";
+  if (!(await withinLimit(agent))) return;
+  await deleteMessagesFrom(session.id, m.createdAt);
+  await exchange(session, agent, prompt, []);
 }
 
 function stop(): void {
@@ -405,8 +482,24 @@ function onDrop(event: DragEvent): void {
   void addFiles(files);
 }
 
-function openImage(src: string): void {
-  lightbox.value = src;
+/** Полный размер: из кеша blob-URL либо догружаем с авторизацией. */
+async function openAttachment(attachment: MessageAttachment): Promise<void> {
+  const agent = activeAgent.value;
+  if (attachment.refUrl && agent?.address) {
+    const cached = getCachedMedia(agent.address, attachment.refUrl);
+    if (cached) {
+      lightbox.value = cached;
+      return;
+    }
+    try {
+      const key = await getAgentKey(agent);
+      lightbox.value = await fetchMediaBlob(agent.address, key, attachment.refUrl);
+      return;
+    } catch {
+      // Сервер недоступен — остаётся миниатюра.
+    }
+  }
+  lightbox.value = attachment.thumb;
 }
 
 function onLightboxKey(event: KeyboardEvent): void {
@@ -415,6 +508,29 @@ function onLightboxKey(event: KeyboardEvent): void {
 
 watch(lightbox, (open) => {
   if (open) window.addEventListener("keydown", onLightboxKey, { once: true });
+});
+
+/** Высота видимой области: на мобильном клавиатура ужимает `visualViewport`. */
+function syncViewport(): void {
+  const viewport = window.visualViewport;
+  const height = viewport?.height ?? window.innerHeight;
+  document.documentElement.style.setProperty("--app-vvh", `${Math.round(height)}px`);
+  void scrollToBottom();
+}
+
+onMounted(() => {
+  syncViewport();
+  window.visualViewport?.addEventListener("resize", syncViewport);
+  window.visualViewport?.addEventListener("scroll", syncViewport);
+  window.addEventListener("resize", syncViewport);
+});
+
+onUnmounted(() => {
+  window.visualViewport?.removeEventListener("resize", syncViewport);
+  window.visualViewport?.removeEventListener("scroll", syncViewport);
+  window.removeEventListener("resize", syncViewport);
+  document.documentElement.style.removeProperty("--app-vvh");
+  abortCtrl.value?.abort();
 });
 
 function useStarter(n: number): void {
@@ -642,7 +758,7 @@ function protocolLabel(): string {
         @dragover.prevent
         @drop.prevent="onDrop"
       >
-        <template v-for="m in messages" :key="m.id">
+        <template v-for="(m, index) in messages" :key="m.id">
           <details v-if="m.kind === 'thought'" class="chat-panel__aux">
             <summary>{{ t("chat.thought") }}</summary>
             <div class="chat-panel__content">{{ m.content }}</div>
@@ -664,7 +780,7 @@ function protocolLabel(): string {
                 :key="i"
                 type="button"
                 class="chat-panel__image"
-                @click="openImage(a.thumb)"
+                @click="openAttachment(a)"
               >
                 <img :src="a.thumb" alt="" loading="lazy" />
               </button>
@@ -701,6 +817,19 @@ function protocolLabel(): string {
                 <svg v-else viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="M11 5 6 9H3v6h3l5 4z" />
                   <path d="M16 9a4 4 0 0 1 0 6" />
+                </svg>
+              </button>
+              <button
+                v-if="m.role === 'assistant' && index === messages.length - 1 && !busy"
+                type="button"
+                class="chat-panel__action"
+                v-tip="t('chat.regenerate')"
+                :aria-label="t('chat.regenerate')"
+                @click="regenerate(m)"
+              >
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M20 12a8 8 0 1 1-2.34-5.66" />
+                  <path d="M20 4v5h-5" />
                 </svg>
               </button>
             </div>
@@ -867,7 +996,7 @@ function protocolLabel(): string {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  height: calc(100vh - 132px);
+  height: calc(var(--app-vvh, 100vh) - 132px);
   min-height: 0;
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -1465,7 +1594,7 @@ function protocolLabel(): string {
 
 @media (max-width: 720px) {
   .chat-panel {
-    height: calc(100vh - 118px);
+    height: calc(var(--app-vvh, 100vh) - 118px);
     border-radius: 0;
     border-inline: 0;
   }

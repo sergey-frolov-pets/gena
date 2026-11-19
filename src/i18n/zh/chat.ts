@@ -56,4 +56,6 @@ export const chatMessages = {
   "chat.starters.1": "总结我们的对话",
   "chat.starters.2": "我们定了什么？",
   "chat.starters.3": "写一段简短回复",
+  "chat.attachIncomingError": "无法加载代理发送的图片",
+  "chat.error.noPrompt": "无法重新生成：对话中没有用户消息",
 } as const satisfies LocaleMessages;

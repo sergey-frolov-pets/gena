@@ -56,4 +56,6 @@ export const chatMessages = {
   "chat.starters.1": "لخّص محادثتنا",
   "chat.starters.2": "ماذا قررنا؟",
   "chat.starters.3": "اكتب ردًا قصيرًا",
+  "chat.attachIncomingError": "تعذّر تحميل الصورة من الوكيل",
+  "chat.error.noPrompt": "لا يوجد ما يُعاد توليده: لا توجد رسالة من المستخدم في المحادثة",
 } as const satisfies LocaleMessages;

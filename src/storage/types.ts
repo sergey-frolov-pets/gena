@@ -77,6 +77,11 @@ export interface MessageAttachment {
   thumb: string;
   width: number;
   height: number;
+  /**
+   * Путь на сервере (`/pico/media/<ref>`) для входящих изображений —
+   * полный размер догружается авторизованным `fetch` при просмотре.
+   */
+  refUrl?: string;
 }
 
 /** Тип сообщения: мысли и вызовы инструментов в контекст модели НЕ попадают. */
@@ -110,6 +115,16 @@ export interface UsageRecord {
   day: string;
   /** Сколько вызовов сделано в этот день. */
   count: number;
+}
+
+/**
+ * Привести число из формы к целому ≥ 0.
+ * Пустая строка, мусор и `NaN` → 0; дробное округляется.
+ */
+export function toCount(value: unknown): number {
+  const n = typeof value === "number" ? value : Number(String(value ?? "").replace(",", "."));
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.round(n));
 }
 
 export const DEFAULT_AGENT_SETTINGS: AgentSettings = {

@@ -26,7 +26,7 @@ import {
 } from "@/storage/db";
 import { clearAll, clearExcept } from "@/storage/cleanup";
 import { useLocale } from "@/i18n";
-import type { Message } from "@/storage/types";
+import type { Message, Session } from "@/storage/types";
 
 const { t, locale } = useLocale();
 
@@ -55,7 +55,34 @@ function formatDate(value: number): string {
   return new Date(value).toLocaleString(locale.value);
 }
 
-/** Экспорт: открытый JSON, без ключей агентов. */
+/** Собрать и скачать бэкап указанных диалогов: открытый JSON, без ключей агентов. */
+async function saveBackup(targetSessions: Session[]): Promise<{ sessions: number; messages: number }> {
+  const targetIds = new Set(targetSessions.map((s) => s.id));
+  const allMessages: Message[] = [];
+  for (const session of targetSessions) {
+    const msgs = await listMessages(session.id);
+    allMessages.push(...msgs.filter((m) => targetIds.has(m.sessionId)));
+  }
+
+  const agentIds = new Set(targetSessions.map((s) => s.agentId));
+  const payload = buildBackup({
+    agents: agents.value.filter((a) => agentIds.has(a.id)),
+    sessions: targetSessions,
+    messages: allMessages,
+  });
+
+  const blob = new Blob([serializeBackup(payload)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const stamp = new Date().toISOString().slice(0, 10);
+  a.href = url;
+  a.download = `gena-backup-${stamp}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+
+  return { sessions: targetSessions.length, messages: allMessages.length };
+}
+
 async function exportBackup(): Promise<void> {
   error.value = "";
   notice.value = "";
@@ -63,43 +90,25 @@ async function exportBackup(): Promise<void> {
     const targetSessions = onlySelectedForBackup.value
       ? sessions.value.filter((s) => selectedSessionIds.value.has(s.id))
       : sessions.value;
-
-    const targetIds = new Set(targetSessions.map((s) => s.id));
-    const allMessages = [];
-    for (const session of targetSessions) {
-      const msgs = await listMessages(session.id);
-      allMessages.push(...msgs.filter((m) => targetIds.has(m.sessionId)));
-    }
-
-    const agentIds = new Set(targetSessions.map((s) => s.agentId));
-    const targetAgents = agents.value.filter((a) => agentIds.has(a.id));
-
-    const payload = buildBackup({
-      agents: targetAgents,
-      sessions: targetSessions,
-      messages: allMessages,
-    });
-    const json = serializeBackup(payload);
-
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    const stamp = new Date().toISOString().slice(0, 10);
-    a.href = url;
-    a.download = `gena-backup-${stamp}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-
-    notice.value = t("sessions.backup.exported", {
-      sessions: targetSessions.length,
-      messages: allMessages.length,
-    });
+    const counts = await saveBackup(targetSessions);
+    notice.value = t("sessions.backup.exported", counts);
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e);
   }
 }
 
-/** Импорт: слить с текущими данными. Ключи существующих агентов сохраняются. */
+/** Экспорт одного диалога (P2.2). */
+async function exportSession(session: Session): Promise<void> {
+  error.value = "";
+  notice.value = "";
+  try {
+    const counts = await saveBackup([session]);
+    notice.value = t("sessions.backup.exported", counts);
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e);
+  }
+}
+
 async function importBackup(event: Event): Promise<void> {
   error.value = "";
   notice.value = "";
@@ -222,6 +231,15 @@ async function cleanupAll(): Promise<void> {
             </span>
           </span>
         </label>
+        <button
+          type="button"
+          class="link"
+          :aria-label="t('sessions.backup.export')"
+          :title="t('sessions.backup.export')"
+          @click="exportSession(s)"
+        >
+          {{ t("sessions.backup.export") }}
+        </button>
       </li>
     </ul>
 
@@ -276,8 +294,20 @@ async function cleanupAll(): Promise<void> {
   margin: 0 0 20px;
 }
 .list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 8px 0;
   border-bottom: 1px solid var(--border);
+}
+.list .link {
+  flex: 0 0 auto;
+  background: none;
+  border: 0;
+  padding: 4px 6px;
+  color: var(--accent);
+  cursor: pointer;
 }
 .check {
   display: flex;

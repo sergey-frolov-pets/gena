@@ -20,6 +20,19 @@ export interface TransportRequest {
   fetchImpl?: typeof fetch;
 }
 
+/** Вложение, пришедшее от агента (Pico: только изображения, путь на сервере). */
+export interface TransportAttachment {
+  url: string;
+  filename?: string;
+  contentType?: string;
+}
+
+/** Итог хода: текст ответа и вложения финального сообщения. */
+export interface TransportReply {
+  reply: string;
+  attachments?: TransportAttachment[];
+}
+
 /** Событие промежуточного сообщения (мысль / вызовы инструментов / стрим). */
 export interface TransportMessage {
   id: string;
@@ -38,7 +51,7 @@ export interface TransportEvents {
 }
 
 export interface AgentTransport {
-  send(req: TransportRequest, ev: TransportEvents): Promise<{ reply: string }>;
+  send(req: TransportRequest, ev: TransportEvents): Promise<TransportReply>;
   /** Освободить ресурсы (закрыть WebSocket и т.п.). */
   dispose?(): void;
 }

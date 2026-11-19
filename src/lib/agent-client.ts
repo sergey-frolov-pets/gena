@@ -8,6 +8,7 @@
 
 import type { Agent, AgentSettings, Message } from "@/storage/types";
 import { getTransport, type TransportEvents } from "./transports";
+import type { TransportAttachment } from "./transports/types";
 import { trimHistory } from "./transports/history";
 
 export interface AgentRequest {
@@ -22,9 +23,12 @@ export interface AgentRequest {
 
 export interface AgentResponse {
   reply: string;
+  /** Вложения финального сообщения (Pico: изображения по пути `/pico/media/...`). */
+  attachments?: TransportAttachment[];
 }
 
 export { AgentClientError, type AgentClientErrorCode } from "./transports";
+export type { TransportAttachment } from "./transports/types";
 export { trimHistory };
 
 export interface SendOptions {

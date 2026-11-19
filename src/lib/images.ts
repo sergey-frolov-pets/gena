@@ -154,3 +154,28 @@ export async function prepareImage(file: File): Promise<PreparedImage> {
     URL.revokeObjectURL(url);
   }
 }
+
+export interface Thumb {
+  /** data-URL миниатюры (≤ 200 px) — переживает перезагрузку. */
+  thumb: string;
+  width: number;
+  height: number;
+}
+
+/**
+ * Миниатюра из уже загруженного изображения (`blob:` URL или data-URL).
+ * Нужна для входящих вложений: оригинал с сервера не кладём в IndexedDB.
+ */
+export async function makeThumb(source: string): Promise<Thumb> {
+  const img = await loadImageElement(source);
+  const width = img.naturalWidth || img.width;
+  const height = img.naturalHeight || img.height;
+  if (!width || !height) throw new ImageError("decode");
+  const box = fit(width, height, THUMB_SIDE);
+  const mime = source.startsWith("data:image/jpeg") ? "image/jpeg" : "image/png";
+  return {
+    thumb: draw(img, box.w, box.h).toDataURL(mime, THUMB_QUALITY),
+    width,
+    height,
+  };
+}

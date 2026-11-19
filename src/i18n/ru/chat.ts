@@ -56,4 +56,6 @@ export const chatMessages = {
   "chat.starters.1": "Перескажи наш диалог",
   "chat.starters.2": "Что мы решили?",
   "chat.starters.3": "Напиши короткий ответ",
+  "chat.attachIncomingError": "Не удалось загрузить изображение от агента",
+  "chat.error.noPrompt": "Нечего повторять: в диалоге нет реплики пользователя",
 } as const satisfies LocaleMessages;
