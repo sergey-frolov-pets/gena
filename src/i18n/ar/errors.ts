@@ -1,0 +1,21 @@
+import type { LocaleMessages } from "../types";
+
+export const errorsMessages = {
+  "errors.status.400": "رفض الوكيل الطلب (400). تحقق من صيغة الرسالة وإعدادات الوكيل.",
+  "errors.status.401": "مفتاح الوكيل غير صحيح (401/403). تحقق منه في «الاتصالات».",
+  "errors.status.404": "لم يُعثر على وكيل بهذا العنوان (404). تحقق من URL endpoint.",
+  "errors.status.408": "لم يستجب الوكيل في الوقت المحدد (408). حاول مرة أخرى.",
+  "errors.status.413": "الطلب كبير جدًا (413). قلّل حجم السياق في إعدادات الوكيل.",
+  "errors.status.429": "حد للطلبات لدى الوكيل (429). انتظر وحاول لاحقًا.",
+  "errors.status.5xx": "الوكيل غير متاح مؤقتًا ({status}). حاول لاحقًا.",
+  "errors.status.other": "أجاب الوكيل بخطأ {status}.",
+  "errors.network.cors": "حجب المتصفح الطلب (CORS). يجب أن يسمح الوكيل بأصل هذا الموقع.",
+  "errors.network.unreachable": "الوكيل غير متاح: لا شبكة أو العنوان لا يستجيب (قد يكون CORS).",
+  "errors.network.aborted": "أُلغي الطلب أو انتهت مهلته. حاول مرة أخرى.",
+  "errors.network.other": "تعذّر الاتصال بالوكيل: {raw}",
+  "errors.cipher.missingSeed": "المتصفح لا يحفظ البيانات (الوضع الخاص) — لا يمكن حفظ المفتاح بأمان.",
+  "errors.cipher.decryptFailed": "تعذّر فك تشفير مفتاح الوكيل. أدخل المفتاح من جديد في «الاتصالات».",
+  "errors.client.noAddress": "لا يوجد عنوان للوكيل. املأه في «الاتصالات».",
+  "errors.client.notJson": "أعاد الوكيل استجابة ليست JSON. تحقق من أن العنوان هو endpoint للوكيل.",
+  "errors.client.noReply": "أجاب الوكيل دون حقل reply. تحقق من عقد الوكيل.",
+} as const satisfies LocaleMessages;

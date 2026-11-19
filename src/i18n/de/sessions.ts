@@ -1,0 +1,32 @@
+import type { LocaleMessages } from "../types";
+
+export const sessionsMessages = {
+  "sessions.title": "Sitzungen & Daten",
+  "sessions.selectAll": "Alle auswählen",
+  "sessions.deselectAll": "Auswahl aufheben",
+  "sessions.selected": "Ausgewählt: {count} von {total}",
+  "sessions.empty": "Keine Sitzungen.",
+  "sessions.item": "· {agent} · {count} Nachr. · {date}",
+  "sessions.backup.title": "Verlaufs-Backup",
+  "sessions.backup.intro":
+    "Der Export ist offenes JSON. Die Datei enthält keine Agentenschlüssel und Passwörter: nur Sitzungen, Nachrichten und Agenteneinstellungen (Adresse, Modell, Limits). Nach dem Import muss der Agentenschlüssel erneut eingegeben werden.",
+  "sessions.backup.onlySelected": "Nur ausgewählte Sitzungen exportieren",
+  "sessions.backup.export": "In Datei exportieren",
+  "sessions.backup.import": "Aus Datei importieren",
+  "sessions.backup.exported":
+    "Exportiert: {sessions} Sitzungen, {messages} Nachrichten. Schlüssel und Passwörter sind nicht enthalten.",
+  "sessions.backup.imported":
+    "Import (Zusammenführung): {parts}. Schlüssel bestehender Agenten bleiben erhalten; für neue Agenten Schlüssel eingeben.",
+  "sessions.backup.importedAgents": "Agenten: +{added} / aktualisiert {updated}",
+  "sessions.backup.importedSessions": "Sitzungen: +{added}",
+  "sessions.backup.importedMessages": "Nachrichten: +{added}",
+  "sessions.backup.importedSkipped": "übersprungene Konflikte: {count}",
+  "sessions.cleanup.title": "IndexedDB-Bereinigung",
+  "sessions.cleanup.exceptSelected": "Alles außer den ausgewählten löschen ({count})",
+  "sessions.cleanup.removed": "Gelöscht: {sessions} Sitzungen, {messages} Nachrichten. {kept} behalten.",
+  "sessions.cleanup.confirmAll": "Ich bestätige das Löschen aller Sitzungen",
+  "sessions.cleanup.deleteAll": "Alle Sitzungen löschen",
+  "sessions.cleanup.needConfirm": "Bestätigungsfeld anhaken, um alles zu löschen",
+  "sessions.cleanup.removedAll": "Alles gelöscht: {sessions} Sitzungen, {messages} Nachrichten.",
+  "sessions.cleanup.agentsKept": "Agenten bleiben bei der Bereinigung erhalten.",
+} as const satisfies LocaleMessages;

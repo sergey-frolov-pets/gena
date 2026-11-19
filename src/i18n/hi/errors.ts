@@ -1,0 +1,21 @@
+import type { LocaleMessages } from "../types";
+
+export const errorsMessages = {
+  "errors.status.400": "एजेंट ने अनुरोध अस्वीकार किया (400)। संदेश प्रारूप और सेटिंग्स जाँचें।",
+  "errors.status.401": "एजेंट कुंजी गलत है (401/403)। «कनेक्शन» में जाँचें।",
+  "errors.status.404": "इस पते पर एजेंट नहीं मिला (404)। URL endpoint जाँचें।",
+  "errors.status.408": "एजेंट ने समय पर उत्तर नहीं दिया (408)। फिर से प्रयास करें।",
+  "errors.status.413": "अनुरोध बहुत बड़ा है (413)। एजेंट सेटिंग्स में कॉन्टेक्स्ट आकार घटाएँ।",
+  "errors.status.429": "एजेंट की ओर से दर सीमा (429)। कुछ देर बाद प्रयास करें।",
+  "errors.status.5xx": "एजेंट अस्थायी रूप से अनुपलब्ध है ({status})। बाद में प्रयास करें।",
+  "errors.status.other": "एजेंट ने त्रुटि {status} लौटाई।",
+  "errors.network.cors": "ब्राउज़र ने अनुरोध रोका (CORS)। एजेंट को इस साइट का ओरिजिन अनुमत करना होगा।",
+  "errors.network.unreachable": "एजेंट उपलब्ध नहीं: नेटवर्क नहीं या पता उत्तर नहीं दे रहा (संभवतः CORS)।",
+  "errors.network.aborted": "अनुरोध रद्द हुआ या समय समाप्त। फिर से प्रयास करें।",
+  "errors.network.other": "एजेंट से संपर्क नहीं हो सका: {raw}",
+  "errors.cipher.missingSeed": "ब्राउज़र डेटा नहीं रखता (निजी मोड) — कुंजी सुरक्षित रूप से सहेजी नहीं जा सकती।",
+  "errors.cipher.decryptFailed": "एजेंट कुंजी डिक्रिप्ट नहीं हो सकी। «कनेक्शन» में कुंजी फिर से डालें।",
+  "errors.client.noAddress": "एजेंट का पता सेट नहीं है। इसे «कनेक्शन» में भरें।",
+  "errors.client.notJson": "एजेंट ने JSON के अलावा कुछ लौटाया। जाँचें कि पता एजेंट का endpoint है।",
+  "errors.client.noReply": "एजेंट के उत्तर में reply फ़ील्ड नहीं है। एजेंट अनुबंध जाँचें।",
+} as const satisfies LocaleMessages;

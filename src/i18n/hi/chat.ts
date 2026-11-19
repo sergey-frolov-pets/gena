@@ -1,0 +1,23 @@
+import type { LocaleMessages } from "../types";
+
+export const chatMessages = {
+  "chat.agent": "एजेंट",
+  "chat.selectAgent": "— चुनें —",
+  "chat.newDialog": "नया संवाद",
+  "chat.dialogs": "संवाद",
+  "chat.selectOrCreate": "संवाद चुनें या बनाएँ",
+  "chat.messagesEmpty": "अभी कोई संदेश नहीं है।",
+  "chat.composerPlaceholder": "संदेश… (भेजने के लिए Enter)",
+  "chat.send": "भेजें",
+  "chat.usage": "आज {used} / {limit} कॉल",
+  "chat.remaining": "आज शेष कॉल: {remaining}",
+  "chat.error.chooseAgent": "एजेंट चुनें",
+  "chat.error.noSession": "पहले सत्र बनाएँ या खोलें",
+  "chat.error.agentNotFound": "सत्र का एजेंट नहीं मिला",
+  "chat.error.noKey": "इस एजेंट की कुंजी सेट नहीं है। इसे «कनेक्शन» में डालें।",
+  "chat.error.limitReached": "प्रति दिन {limit} कॉल की सीमा पूरी हो गई। काउंटर कल (UTC) रीसेट होगा।",
+  "chat.newDialogTitle": "नया संवाद",
+  "chat.role.user": "उपयोगकर्ता",
+  "chat.role.assistant": "सहायक",
+  "chat.role.system": "सिस्टम",
+} as const satisfies LocaleMessages;

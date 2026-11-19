@@ -1,0 +1,21 @@
+import type { LocaleMessages } from "../types";
+
+export const errorsMessages = {
+  "errors.status.400": "Der Agent hat die Anfrage abgelehnt (400). Nachrichtenformat und Einstellungen prüfen.",
+  "errors.status.401": "Falscher Agentenschlüssel (401/403). Unter „Verbindungen“ prüfen.",
+  "errors.status.404": "Unter dieser Adresse wurde kein Agent gefunden (404). URL-Endpunkt prüfen.",
+  "errors.status.408": "Der Agent hat nicht rechtzeitig geantwortet (408). Erneut versuchen.",
+  "errors.status.413": "Anfrage zu groß (413). Kontextgröße in den Agenteneinstellungen verringern.",
+  "errors.status.429": "Ratenlimit auf Agentenseite (429). Warten und später erneut versuchen.",
+  "errors.status.5xx": "Der Agent ist vorübergehend nicht verfügbar ({status}). Später erneut versuchen.",
+  "errors.status.other": "Der Agent antwortete mit Fehler {status}.",
+  "errors.network.cors": "Der Browser hat die Anfrage blockiert (CORS). Der Agent muss die Herkunft dieser Seite erlauben.",
+  "errors.network.unreachable": "Der Agent ist nicht erreichbar: kein Netzwerk oder die Adresse antwortet nicht (möglicherweise CORS).",
+  "errors.network.aborted": "Die Anfrage wurde abgebrochen oder ist abgelaufen. Erneut versuchen.",
+  "errors.network.other": "Der Agent konnte nicht erreicht werden: {raw}",
+  "errors.cipher.missingSeed": "Der Browser speichert keine Daten (privater Modus) — der Schlüssel kann nicht sicher gespeichert werden.",
+  "errors.cipher.decryptFailed": "Der Agentenschlüssel konnte nicht entschlüsselt werden. Schlüssel unter „Verbindungen“ erneut eingeben.",
+  "errors.client.noAddress": "Der Agent hat keine Adresse. Unter „Verbindungen“ ausfüllen.",
+  "errors.client.notJson": "Der Agent hat kein JSON zurückgegeben. Prüfen, ob die Adresse ein Agenten-Endpunkt ist.",
+  "errors.client.noReply": "Der Agent antwortete ohne reply-Feld. Agentenvertrag prüfen.",
+} as const satisfies LocaleMessages;

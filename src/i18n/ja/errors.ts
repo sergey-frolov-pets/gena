@@ -1,0 +1,21 @@
+import type { LocaleMessages } from "../types";
+
+export const errorsMessages = {
+  "errors.status.400": "エージェントがリクエストを拒否しました（400）。メッセージ形式と設定を確認してください。",
+  "errors.status.401": "エージェントのキーが正しくありません（401/403）。「接続」で確認してください。",
+  "errors.status.404": "このアドレスにエージェントが見つかりません（404）。URL endpoint を確認してください。",
+  "errors.status.408": "エージェントが時間内に応答しませんでした（408）。もう一度お試しください。",
+  "errors.status.413": "リクエストが大きすぎます（413）。エージェント設定のコンテキストサイズを減らしてください。",
+  "errors.status.429": "エージェント側のレート制限（429）。しばらく待ってからお試しください。",
+  "errors.status.5xx": "エージェントは一時的に利用できません（{status}）。後でもう一度お試しください。",
+  "errors.status.other": "エージェントがエラー {status} を返しました。",
+  "errors.network.cors": "ブラウザがリクエストをブロックしました（CORS）。エージェントがこのサイトのオリジンを許可する必要があります。",
+  "errors.network.unreachable": "エージェントに接続できません: ネットワークがないか、アドレスが応答しません（CORS の可能性）。",
+  "errors.network.aborted": "リクエストが中断されたかタイムアウトしました。もう一度お試しください。",
+  "errors.network.other": "エージェントに接続できませんでした: {raw}",
+  "errors.cipher.missingSeed": "ブラウザがデータを保存しません（プライベートモード）— キーを安全に保存できません。",
+  "errors.cipher.decryptFailed": "エージェントのキーを復号できませんでした。「接続」でキーを再入力してください。",
+  "errors.client.noAddress": "エージェントにアドレスがありません。「接続」で入力してください。",
+  "errors.client.notJson": "エージェントが JSON 以外を返しました。アドレスがエージェントの endpoint か確認してください。",
+  "errors.client.noReply": "エージェントの応答に reply フィールドがありません。契約を確認してください。",
+} as const satisfies LocaleMessages;

@@ -1,0 +1,30 @@
+import type { LocaleMessages } from "../types";
+
+export const sessionsMessages = {
+  "sessions.title": "सत्र और डेटा",
+  "sessions.selectAll": "सभी चुनें",
+  "sessions.deselectAll": "चयन हटाएँ",
+  "sessions.selected": "चुने गए: {count} / {total}",
+  "sessions.empty": "कोई सत्र नहीं।",
+  "sessions.item": "· {agent} · {count} संदेश · {date}",
+  "sessions.backup.title": "इतिहास का बैकअप",
+  "sessions.backup.intro":
+    "निर्यात खुला JSON है। फ़ाइल में एजेंट कुंजियाँ और पासवर्ड नहीं होते: केवल सत्र, संदेश और एजेंट सेटिंग्स (पता, मॉडल, सीमाएँ)। आयात के बाद कुंजी फिर से डालनी होती है।",
+  "sessions.backup.onlySelected": "केवल चुने गए सत्र निर्यात करें",
+  "sessions.backup.export": "फ़ाइल में निर्यात करें",
+  "sessions.backup.import": "फ़ाइल से आयात करें",
+  "sessions.backup.exported": "निर्यात: {sessions} सत्र, {messages} संदेश। कुंजियाँ और पासवर्ड शामिल नहीं हैं।",
+  "sessions.backup.imported": "आयात (मर्ज): {parts}। मौजूदा एजेंट की कुंजियाँ सुरक्षित हैं; नए एजेंट के लिए कुंजी डालें।",
+  "sessions.backup.importedAgents": "एजेंट: +{added} / अपडेट {updated}",
+  "sessions.backup.importedSessions": "सत्र: +{added}",
+  "sessions.backup.importedMessages": "संदेश: +{added}",
+  "sessions.backup.importedSkipped": "छोड़े गए टकराव: {count}",
+  "sessions.cleanup.title": "IndexedDB सफ़ाई",
+  "sessions.cleanup.exceptSelected": "चुने गए के अलावा सब हटाएँ ({count})",
+  "sessions.cleanup.removed": "हटाए गए: {sessions} सत्र, {messages} संदेश। {kept} सुरक्षित।",
+  "sessions.cleanup.confirmAll": "मैं सभी सत्र हटाने की पुष्टि करता/करती हूँ",
+  "sessions.cleanup.deleteAll": "सभी सत्र हटाएँ",
+  "sessions.cleanup.needConfirm": "सब हटाने के लिए पुष्टि बॉक्स चुनें",
+  "sessions.cleanup.removedAll": "सब हटा दिया: {sessions} सत्र, {messages} संदेश।",
+  "sessions.cleanup.agentsKept": "सफ़ाई के दौरान एजेंट सुरक्षित रहते हैं।",
+} as const satisfies LocaleMessages;

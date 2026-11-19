@@ -1,0 +1,28 @@
+import type { LocaleMessages } from "../types";
+
+export const connectionsMessages = {
+  "connections.title": "智能体连接",
+  "connections.intro": "智能体密钥以加密形式保存在浏览器中（AES-GCM，密钥保留在本设备）。密钥不会写入备份。",
+  "connections.newAgent": "新建智能体",
+  "connections.field.name": "名称",
+  "connections.field.namePlaceholder": "我的智能体",
+  "connections.field.address": "地址（URL endpoint）",
+  "connections.field.addressPlaceholder": "https://agent.example.com/chat",
+  "connections.field.key": "密钥（Bearer token）",
+  "connections.field.keyPlaceholder": "密钥",
+  "connections.field.contextSize": "上下文大小（消息数）",
+  "connections.field.callLimit": "每日调用上限（0 — 不限）",
+  "connections.field.llmModel": "LLM 模型",
+  "connections.field.llmModelPlaceholder": "例如 gpt-4o-mini",
+  "connections.add": "添加",
+  "connections.added": "已添加智能体",
+  "connections.missingFields": "请填写智能体名称和地址",
+  "connections.list": "智能体列表",
+  "connections.empty": "还没有智能体。",
+  "connections.remove": "删除",
+  "connections.summary": "上下文：{contextSize} · 每日上限：{callLimit} · 模型：{model}",
+  "connections.keySaved": "密钥已保存 — 输入新密钥以替换",
+  "connections.keyMissing": "未设置密钥",
+  "connections.saveKey": "保存密钥",
+  "connections.keyUpdated": "密钥已更新",
+} as const satisfies LocaleMessages;

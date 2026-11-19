@@ -1,0 +1,32 @@
+import type { LocaleMessages } from "../types";
+
+export const sessionsMessages = {
+  "sessions.title": "Sesiones y datos",
+  "sessions.selectAll": "Seleccionar todo",
+  "sessions.deselectAll": "Deseleccionar todo",
+  "sessions.selected": "Seleccionadas: {count} de {total}",
+  "sessions.empty": "No hay sesiones.",
+  "sessions.item": "· {agent} · {count} mens. · {date}",
+  "sessions.backup.title": "Copia de seguridad del historial",
+  "sessions.backup.intro":
+    "La exportación es JSON abierto. El archivo no incluye claves de agentes ni contraseñas: solo sesiones, mensajes y ajustes de los agentes (dirección, modelo, límites). Tras importar, la clave del agente debe introducirse de nuevo.",
+  "sessions.backup.onlySelected": "Exportar solo las sesiones seleccionadas",
+  "sessions.backup.export": "Exportar a archivo",
+  "sessions.backup.import": "Importar desde archivo",
+  "sessions.backup.exported":
+    "Exportado: {sessions} sesiones, {messages} mensajes. Las claves de agentes y contraseñas no se incluyen.",
+  "sessions.backup.imported":
+    "Importación (fusión): {parts}. Se conservan las claves de los agentes existentes; introduce claves para los nuevos.",
+  "sessions.backup.importedAgents": "agentes: +{added} / actualizados {updated}",
+  "sessions.backup.importedSessions": "sesiones: +{added}",
+  "sessions.backup.importedMessages": "mensajes: +{added}",
+  "sessions.backup.importedSkipped": "conflictos omitidos: {count}",
+  "sessions.cleanup.title": "Limpieza de IndexedDB",
+  "sessions.cleanup.exceptSelected": "Eliminar todo excepto las seleccionadas ({count})",
+  "sessions.cleanup.removed": "Eliminado: {sessions} sesiones, {messages} mensajes. Conservadas {kept}.",
+  "sessions.cleanup.confirmAll": "Confirmo eliminar todas las sesiones",
+  "sessions.cleanup.deleteAll": "Eliminar todas las sesiones",
+  "sessions.cleanup.needConfirm": "Marca la casilla de confirmación para eliminar todo",
+  "sessions.cleanup.removedAll": "Eliminado todo: {sessions} sesiones, {messages} mensajes.",
+  "sessions.cleanup.agentsKept": "Los agentes se conservan durante la limpieza.",
+} as const satisfies LocaleMessages;

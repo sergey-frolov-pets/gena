@@ -2,53 +2,87 @@
 
 [![License: Prosperity 3.0.0](https://img.shields.io/badge/license-Prosperity%203.0.0-blue.svg)](LICENSE)
 [![Deploy](https://github.com/sergey-frolov-pets/gena/actions/workflows/deploy.yml/badge.svg)](https://github.com/sergey-frolov-pets/gena/actions/workflows/deploy.yml)
+[![CI](https://github.com/sergey-frolov-pets/gena/actions/workflows/ci.yml/badge.svg)](https://github.com/sergey-frolov-pets/gena/actions/workflows/ci.yml)
 
-Serverless messenger SPA. Собирается статикой и деплоится на GitHub Pages — без бэкенда, всё состояние в браузере.
+**English** · [Русский](README.ru.md)
 
-**Живая версия:** https://sergey-frolov-pets.github.io/gena/
+Serverless messenger SPA for AI agents. Built as a static site and deployed to GitHub Pages — no backend, all state lives in the browser.
 
-## Что умеет
+**Live:** https://sergey-frolov-pets.github.io/gena/
 
-- **Подключения к агентам** — адрес (URL endpoint), ключ (Bearer), настройки (размер контекста, лимит вызовов в сутки, LLM-модель).
-- **Дневной лимит вызовов** — счётчик на агента в IndexedDB (стор `usage`, UTC-день), блокировка отправки при исчерпании, индикатор «N / M вызовов сегодня».
-- **Понятные ошибки** — 401/403/404/429/5xx, CORS/сеть, не-JSON, приватный режим → человекочитаемый текст вместо сырого статуса.
-- **Чат** — отправка `POST {message, sessionId, settings, history}` → `{reply}`, история в IndexedDB.
-- **Шифрование ключей** — device seed в localStorage → HKDF-SHA256 → AES-GCM-256. Конверт `enc:v1:<iv>.<cipher>`, привязка к `agentId` через `additionalData`. Смена версии сборки ключи не ломает.
-- **Бэкап истории** — экспорт/импорт открытого JSON **без ключей агентов** (только сессии, сообщения, настройки агента).
-- **Очистка IndexedDB** — «удалить всё, кроме отмеченных» + «удалить все». Агенты при очистке сохраняются.
+## Features
 
-## Стек
+- **Agent connections** — address (URL endpoint), key (Bearer), settings (context size, daily call limit, LLM model).
+- **Daily call limit** — per-agent counter in IndexedDB (`usage` store, UTC day), send is blocked when exhausted, "N / M calls today" indicator.
+- **Readable errors** — 401/403/404/429/5xx, CORS/network, non-JSON, private mode → human text instead of a raw status code.
+- **9 UI languages** — English, Russian, Spanish, Chinese, Japanese, Hindi, Portuguese, German, Arabic (RTL). English is the default; the choice is persisted in `localStorage`.
+- **Chat** — sends `POST {message, sessionId, settings, history}` → `{reply}`, history stored in IndexedDB.
+- **Key encryption** — device seed in `localStorage` → HKDF-SHA256 → AES-GCM-256. Envelope `enc:v1:<iv>.<cipher>`, bound to `agentId` via `additionalData`. Rebuilding the app does not break keys.
+- **History backup** — export/import plain JSON **without agent keys** (sessions, messages, agent settings only). Import merges: existing agents keep their keys, conflicts are skipped.
+- **IndexedDB cleanup** — "delete all except selected" + "delete all". Agents are preserved.
 
-Vue 3 + Vite + TypeScript, `idb` для IndexedDB, WebCrypto для шифрования.
+## Stack
 
-## Разработка
+Vue 3 + Vite + TypeScript, `idb` for IndexedDB, WebCrypto for encryption.
+
+## Development
 
 ```bash
 npm install
-npm run dev        # dev-сервер
+npm run dev        # dev server
 npm run typecheck  # vue-tsc
-npm test           # vitest (крипто, бэкап, очистка, лимиты, ошибки, клиент)
-npm run build      # production-сборка в dist/
+npm test           # vitest (crypto, backup, cleanup, usage limits, errors, client, i18n)
+npm run build      # production build into dist/
 ```
 
-## Деплой на GitHub Pages
+## Deploy to GitHub Pages
 
-Workflow `.github/workflows/deploy.yml` собирает и публикует `dist/` при пуше в `main`.
-`base` в `vite.config.ts` вычисляется из `GITHUB_REPOSITORY` (или задайте `VITE_BASE`).
-SPA-роутинг: `dist/404.html` копируется из `index.html`.
+Workflow `.github/workflows/deploy.yml` builds and publishes `dist/` on push to `main`.
+`base` in `vite.config.ts` is derived from `GITHUB_REPOSITORY` (or set `VITE_BASE`).
+SPA routing: `dist/404.html` is copied from `index.html`.
 
-## Модель данных (IndexedDB `gena`, v1)
+## Data model (IndexedDB `gena`, v2)
 
-- `agents` — `{id, name, address, sealedKey, settings, createdAt, updatedAt}`
-- `sessions` — `{id, agentId, title, createdAt, updatedAt, messageCount}` (индексы `by-agent`, `by-updated`)
-- `messages` — `{id, sessionId, role, content, createdAt}` (индексы `by-session`, `by-session-created`)
+| Store | Key | Contents |
+|---|---|---|
+| `agents` | `id` | name, address, sealed key, settings (contextSize, callLimit, llmModel) |
+| `sessions` | `id` | agentId, title, messageCount, createdAt, updatedAt |
+| `messages` | `id` | sessionId, role, content, createdAt |
+| `usage` | `agentId` | date (UTC day), count |
 
-## Безопасность
+## Internationalization
 
-- Ключ агента хранится **только зашифрованным**; в бэкап не попадает ни в каком виде.
-- Если localStorage недоступен (приватный режим), ключ не сохраняется (ошибка `missing_seed`) — чтобы не писать секрет в открытом виде.
-- AES-GCM даёт целостность: подмена шифротекста или чужой `agentId` → ошибка расшифровки.
+Translations live in `src/i18n/<locale>/` (one file per UI area: `app`, `chat`, `connections`, `sessions`, `errors`).
+English (`src/i18n/en/`) is the source of truth: every other locale must cover all its keys.
+`src/lib/errors.ts` returns keys, the UI translates them with the `t()` function from `useLocale()`.
 
-## Лицензия
+## Agent contract
 
-[The Prosperity Public License 3.0.0](LICENSE) — бесплатно для некоммерческого использования, коммерческое — 30-дневный пробный период. Полный текст в файле `LICENSE`.
+Request:
+
+```json
+{
+  "message": "string",
+  "sessionId": "string",
+  "settings": { "contextSize": 20, "callLimit": 0, "llmModel": "gpt-4o-mini" },
+  "history": [{ "role": "user", "content": "..." }]
+}
+```
+
+Response:
+
+```json
+{ "reply": "string" }
+```
+
+The agent must allow CORS for the site origin.
+
+## Security
+
+- The agent key is stored **only encrypted**; it never appears in a backup.
+- If `localStorage` is unavailable (private mode), the key is not saved (`missing_seed`) — so the secret is never written in plain text.
+- AES-GCM provides integrity: tampering with the ciphertext or using a foreign `agentId` fails decryption.
+
+## License
+
+Prosperity Public License 3.0.0 — free for non-commercial use, commercial use has a 30-day trial. Full text in [LICENSE](LICENSE).

@@ -19,13 +19,24 @@ export interface AgentResponse {
   reply: string;
 }
 
+/**
+ * Код ошибки клиента. UI переводит код в текст через i18n,
+ * поэтому сообщение не зависит от языка.
+ */
+export type AgentClientErrorCode = "no_address" | "network" | "not_json" | "no_reply";
+
 export class AgentClientError extends Error {
   readonly status?: number;
+  readonly code?: AgentClientErrorCode;
+  /** Сырой текст сетевой ошибки — подставляется в переведённый шаблон. */
+  readonly detail?: string;
 
-  constructor(message: string, status?: number) {
+  constructor(message: string, status?: number, code?: AgentClientErrorCode, detail?: string) {
     super(message);
     this.name = "AgentClientError";
     this.status = status;
+    this.code = code;
+    this.detail = detail;
   }
 }
 
@@ -44,7 +55,7 @@ export async function sendToAgent(
   fetchImpl: typeof fetch = fetch,
 ): Promise<AgentResponse> {
   if (!agent.address) {
-    throw new AgentClientError("у агента не задан адрес");
+    throw new AgentClientError("agent address is not set", undefined, "no_address");
   }
 
   const body = {
@@ -68,24 +79,23 @@ export async function sendToAgent(
       body: JSON.stringify(body),
     });
   } catch (error) {
-    throw new AgentClientError(
-      `не удалось связаться с агентом: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new AgentClientError(`could not reach the agent: ${detail}`, undefined, "network", detail);
   }
 
   if (!response.ok) {
-    throw new AgentClientError(`агент ответил ${response.status}`, response.status);
+    throw new AgentClientError(`agent responded ${response.status}`, response.status);
   }
 
   let data: unknown;
   try {
     data = await response.json();
   } catch {
-    throw new AgentClientError("агент вернул не-JSON ответ");
+    throw new AgentClientError("agent returned a non-JSON response", undefined, "not_json");
   }
 
   if (typeof data !== "object" || data === null || typeof (data as { reply?: unknown }).reply !== "string") {
-    throw new AgentClientError("в ответе агента нет поля reply");
+    throw new AgentClientError("agent response has no reply field", undefined, "no_reply");
   }
 
   return { reply: (data as { reply: string }).reply };

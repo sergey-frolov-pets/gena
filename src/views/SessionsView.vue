@@ -25,7 +25,10 @@ import {
   putSession,
 } from "@/storage/db";
 import { clearAll, clearExcept } from "@/storage/cleanup";
+import { useLocale } from "@/i18n";
 import type { Message } from "@/storage/types";
+
+const { t, locale } = useLocale();
 
 const error = ref("");
 const notice = ref("");
@@ -46,6 +49,10 @@ function toggleAll(): void {
 
 function agentName(agentId: string): string {
   return agents.value.find((a) => a.id === agentId)?.name ?? "—";
+}
+
+function formatDate(value: number): string {
+  return new Date(value).toLocaleString(locale.value);
 }
 
 /** Экспорт: открытый JSON, без ключей агентов. */
@@ -83,7 +90,10 @@ async function exportBackup(): Promise<void> {
     a.click();
     URL.revokeObjectURL(url);
 
-    notice.value = `Экспортировано: ${targetSessions.length} сессий, ${allMessages.length} сообщений. Ключи агентов и пароли в файл не попадают.`;
+    notice.value = t("sessions.backup.exported", {
+      sessions: targetSessions.length,
+      messages: allMessages.length,
+    });
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e);
   }
@@ -119,12 +129,15 @@ async function importBackup(event: Event): Promise<void> {
 
     const skipped = sessionsMerge.skipped + messagesMerge.skipped;
     const parts = [
-      `агентов: +${agentsMerge.added} / обновлено ${agentsMerge.updated}`,
-      `сессий: +${sessionsMerge.added}`,
-      `сообщений: +${messagesMerge.added}`,
+      t("sessions.backup.importedAgents", {
+        added: agentsMerge.added,
+        updated: agentsMerge.updated,
+      }),
+      t("sessions.backup.importedSessions", { added: sessionsMerge.added }),
+      t("sessions.backup.importedMessages", { added: messagesMerge.added }),
     ];
-    if (skipped > 0) parts.push(`пропущено конфликтов: ${skipped}`);
-    notice.value = `Импорт (слияние): ${parts.join(", ")}. Ключи существующих агентов сохранены; для новых агентов введите ключ.`;
+    if (skipped > 0) parts.push(t("sessions.backup.importedSkipped", { count: skipped }));
+    notice.value = t("sessions.backup.imported", { parts: parts.join(", ") });
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e);
   } finally {
@@ -141,7 +154,11 @@ async function cleanupExceptSelected(): Promise<void> {
     const result = await clearExcept(keep);
     await loadSessions();
     clearSessionSelection();
-    notice.value = `Удалено: ${result.removedSessions} сессий, ${result.removedMessages} сообщений. Сохранено ${keep.length}.`;
+    notice.value = t("sessions.cleanup.removed", {
+      sessions: result.removedSessions,
+      messages: result.removedMessages,
+      kept: keep.length,
+    });
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e);
   }
@@ -152,7 +169,7 @@ async function cleanupAll(): Promise<void> {
   error.value = "";
   notice.value = "";
   if (!confirmClearAll.value) {
-    error.value = "Отметьте подтверждение, чтобы удалить всё";
+    error.value = t("sessions.cleanup.needConfirm");
     return;
   }
   try {
@@ -160,7 +177,10 @@ async function cleanupAll(): Promise<void> {
     await loadSessions();
     clearSessionSelection();
     confirmClearAll.value = false;
-    notice.value = `Удалено всё: ${result.removedSessions} сессий, ${result.removedMessages} сообщений.`;
+    notice.value = t("sessions.cleanup.removedAll", {
+      sessions: result.removedSessions,
+      messages: result.removedMessages,
+    });
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e);
   }
@@ -169,16 +189,18 @@ async function cleanupAll(): Promise<void> {
 
 <template>
   <section>
-    <h2>Сессии и данные</h2>
+    <h2>{{ t("sessions.title") }}</h2>
 
     <div class="toolbar">
       <button @click="toggleAll">
-        {{ allSelected ? "Снять все" : "Выбрать все" }}
+        {{ allSelected ? t("sessions.deselectAll") : t("sessions.selectAll") }}
       </button>
-      <span class="muted">Выбрано: {{ selectedSessionIds.size }} из {{ sessions.length }}</span>
+      <span class="muted">
+        {{ t("sessions.selected", { count: selectedSessionIds.size, total: sessions.length }) }}
+      </span>
     </div>
 
-    <p v-if="sessions.length === 0" class="muted">Сессий нет.</p>
+    <p v-if="sessions.length === 0" class="muted">{{ t("sessions.empty") }}</p>
     <ul class="list">
       <li v-for="s in sessions" :key="s.id">
         <label class="check">
@@ -190,8 +212,13 @@ async function cleanupAll(): Promise<void> {
           <span>
             <strong>{{ s.title }}</strong>
             <span class="muted small">
-              · {{ agentName(s.agentId) }} · {{ s.messageCount }} сообщ. ·
-              {{ new Date(s.updatedAt).toLocaleString() }}
+              {{
+                t("sessions.item", {
+                  agent: agentName(s.agentId),
+                  count: s.messageCount,
+                  date: formatDate(s.updatedAt),
+                })
+              }}
             </span>
           </span>
         </label>
@@ -199,40 +226,36 @@ async function cleanupAll(): Promise<void> {
     </ul>
 
     <div class="card">
-      <h3>Бэкап истории</h3>
-      <p class="muted small">
-        Экспорт — открытый JSON. В файл <strong>не попадают ключи агентов и пароли</strong>:
-        только сессии, сообщения и настройки агентов (адрес, модель, лимиты). Ключ агента после
-        импорта вводится заново.
-      </p>
+      <h3>{{ t("sessions.backup.title") }}</h3>
+      <p class="muted small">{{ t("sessions.backup.intro") }}</p>
       <label class="check">
         <input v-model="onlySelectedForBackup" type="checkbox" />
-        <span>Экспортировать только отмеченные сессии</span>
+        <span>{{ t("sessions.backup.onlySelected") }}</span>
       </label>
       <div class="actions">
-        <button class="primary" @click="exportBackup">Экспорт в файл</button>
+        <button class="primary" @click="exportBackup">{{ t("sessions.backup.export") }}</button>
         <label class="file-btn">
-          Импорт из файла
+          {{ t("sessions.backup.import") }}
           <input type="file" accept="application/json,.json" @change="importBackup" />
         </label>
       </div>
     </div>
 
     <div class="card danger-zone">
-      <h3>Очистка IndexedDB</h3>
+      <h3>{{ t("sessions.cleanup.title") }}</h3>
       <div class="actions">
         <button @click="cleanupExceptSelected">
-          Удалить всё, кроме отмеченных ({{ selectedSessionIds.size }})
+          {{ t("sessions.cleanup.exceptSelected", { count: selectedSessionIds.size }) }}
         </button>
       </div>
       <div class="actions">
         <label class="check">
           <input v-model="confirmClearAll" type="checkbox" />
-          <span>Подтверждаю удаление всех сессий</span>
+          <span>{{ t("sessions.cleanup.confirmAll") }}</span>
         </label>
-        <button class="danger" @click="cleanupAll">Удалить все сессии</button>
+        <button class="danger" @click="cleanupAll">{{ t("sessions.cleanup.deleteAll") }}</button>
       </div>
-      <p class="muted small">Агенты при очистке сохраняются.</p>
+      <p class="muted small">{{ t("sessions.cleanup.agentsKept") }}</p>
     </div>
 
     <p v-if="error" class="error">{{ error }}</p>

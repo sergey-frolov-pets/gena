@@ -1,0 +1,31 @@
+import type { LocaleMessages } from "../types";
+
+export const sessionsMessages = {
+  "sessions.title": "Sessões e dados",
+  "sessions.selectAll": "Selecionar tudo",
+  "sessions.deselectAll": "Desmarcar tudo",
+  "sessions.selected": "Selecionadas: {count} de {total}",
+  "sessions.empty": "Não há sessões.",
+  "sessions.item": "· {agent} · {count} msg · {date}",
+  "sessions.backup.title": "Backup do histórico",
+  "sessions.backup.intro":
+    "A exportação é JSON aberto. O arquivo não inclui chaves de agentes nem senhas: apenas sessões, mensagens e configurações dos agentes (endereço, modelo, limites). Após importar, a chave do agente deve ser inserida novamente.",
+  "sessions.backup.onlySelected": "Exportar apenas as sessões selecionadas",
+  "sessions.backup.export": "Exportar para arquivo",
+  "sessions.backup.import": "Importar do arquivo",
+  "sessions.backup.exported": "Exportado: {sessions} sessões, {messages} mensagens. Chaves e senhas não são incluídas.",
+  "sessions.backup.imported":
+    "Importação (mesclagem): {parts}. As chaves dos agentes existentes são mantidas; insira chaves para os novos agentes.",
+  "sessions.backup.importedAgents": "agentes: +{added} / atualizados {updated}",
+  "sessions.backup.importedSessions": "sessões: +{added}",
+  "sessions.backup.importedMessages": "mensagens: +{added}",
+  "sessions.backup.importedSkipped": "conflitos ignorados: {count}",
+  "sessions.cleanup.title": "Limpeza do IndexedDB",
+  "sessions.cleanup.exceptSelected": "Excluir tudo exceto as selecionadas ({count})",
+  "sessions.cleanup.removed": "Excluído: {sessions} sessões, {messages} mensagens. Mantidas {kept}.",
+  "sessions.cleanup.confirmAll": "Confirmo excluir todas as sessões",
+  "sessions.cleanup.deleteAll": "Excluir todas as sessões",
+  "sessions.cleanup.needConfirm": "Marque a confirmação para excluir tudo",
+  "sessions.cleanup.removedAll": "Tudo excluído: {sessions} sessões, {messages} mensagens.",
+  "sessions.cleanup.agentsKept": "Os agentes são mantidos durante a limpeza.",
+} as const satisfies LocaleMessages;

@@ -1,0 +1,23 @@
+import type { LocaleMessages } from "../types";
+
+export const chatMessages = {
+  "chat.agent": "エージェント",
+  "chat.selectAgent": "— 選択 —",
+  "chat.newDialog": "新しいダイアログ",
+  "chat.dialogs": "ダイアログ",
+  "chat.selectOrCreate": "ダイアログを選択または作成してください",
+  "chat.messagesEmpty": "メッセージはまだありません。",
+  "chat.composerPlaceholder": "メッセージ…（Enter で送信）",
+  "chat.send": "送信",
+  "chat.usage": "本日 {used} / {limit} 回呼び出し",
+  "chat.remaining": "本日の残り呼び出し回数: {remaining}",
+  "chat.error.chooseAgent": "エージェントを選択してください",
+  "chat.error.noSession": "先にセッションを作成または開いてください",
+  "chat.error.agentNotFound": "セッションのエージェントが見つかりません",
+  "chat.error.noKey": "このエージェントにはキーがありません。「接続」で入力してください。",
+  "chat.error.limitReached": "1日の上限 {limit} 回に達しました。カウンターは明日（UTC）リセットされます。",
+  "chat.newDialogTitle": "新しいダイアログ",
+  "chat.role.user": "ユーザー",
+  "chat.role.assistant": "アシスタント",
+  "chat.role.system": "システム",
+} as const satisfies LocaleMessages;

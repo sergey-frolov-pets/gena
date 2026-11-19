@@ -1,0 +1,30 @@
+import type { LocaleMessages } from "../types";
+
+export const sessionsMessages = {
+  "sessions.title": "会话与数据",
+  "sessions.selectAll": "全选",
+  "sessions.deselectAll": "取消全选",
+  "sessions.selected": "已选择 {count} / {total}",
+  "sessions.empty": "没有会话。",
+  "sessions.item": "· {agent} · {count} 条消息 · {date}",
+  "sessions.backup.title": "历史备份",
+  "sessions.backup.intro":
+    "导出为明文 JSON。文件中不含智能体密钥和密码：只有会话、消息和智能体设置（地址、模型、上限）。导入后需重新输入智能体密钥。",
+  "sessions.backup.onlySelected": "仅导出已选会话",
+  "sessions.backup.export": "导出到文件",
+  "sessions.backup.import": "从文件导入",
+  "sessions.backup.exported": "已导出：{sessions} 个会话，{messages} 条消息。不含智能体密钥和密码。",
+  "sessions.backup.imported": "导入（合并）：{parts}。现有智能体的密钥已保留；新智能体需输入密钥。",
+  "sessions.backup.importedAgents": "智能体：+{added} / 更新 {updated}",
+  "sessions.backup.importedSessions": "会话：+{added}",
+  "sessions.backup.importedMessages": "消息：+{added}",
+  "sessions.backup.importedSkipped": "跳过冲突：{count}",
+  "sessions.cleanup.title": "清理 IndexedDB",
+  "sessions.cleanup.exceptSelected": "删除除已选之外的全部（{count}）",
+  "sessions.cleanup.removed": "已删除：{sessions} 个会话，{messages} 条消息。保留 {kept} 个。",
+  "sessions.cleanup.confirmAll": "我确认删除所有会话",
+  "sessions.cleanup.deleteAll": "删除所有会话",
+  "sessions.cleanup.needConfirm": "请勾选确认框以删除全部",
+  "sessions.cleanup.removedAll": "已全部删除：{sessions} 个会话，{messages} 条消息。",
+  "sessions.cleanup.agentsKept": "清理时会保留智能体。",
+} as const satisfies LocaleMessages;

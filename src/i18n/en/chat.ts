@@ -1,0 +1,23 @@
+import type { LocaleMessages } from "../types";
+
+export const chatMessages = {
+  "chat.agent": "Agent",
+  "chat.selectAgent": "— select —",
+  "chat.newDialog": "New dialog",
+  "chat.dialogs": "Dialogs",
+  "chat.selectOrCreate": "Select or create a dialog",
+  "chat.messagesEmpty": "No messages yet.",
+  "chat.composerPlaceholder": "Message… (Enter to send)",
+  "chat.send": "Send",
+  "chat.usage": "{used} / {limit} calls today",
+  "chat.remaining": "Calls left today: {remaining}",
+  "chat.error.chooseAgent": "Choose an agent",
+  "chat.error.noSession": "Create or open a session first",
+  "chat.error.agentNotFound": "The session's agent was not found",
+  "chat.error.noKey": "This agent has no key. Enter it under “Connections”.",
+  "chat.error.limitReached": "Daily limit of {limit} calls is exhausted. The counter resets tomorrow (UTC).",
+  "chat.newDialogTitle": "New dialog",
+  "chat.role.user": "user",
+  "chat.role.assistant": "assistant",
+  "chat.role.system": "system",
+} as const satisfies LocaleMessages;

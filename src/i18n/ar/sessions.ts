@@ -1,0 +1,30 @@
+import type { LocaleMessages } from "../types";
+
+export const sessionsMessages = {
+  "sessions.title": "الجلسات والبيانات",
+  "sessions.selectAll": "تحديد الكل",
+  "sessions.deselectAll": "إلغاء التحديد",
+  "sessions.selected": "المحدد: {count} من {total}",
+  "sessions.empty": "لا توجد جلسات.",
+  "sessions.item": "· {agent} · {count} رسالة · {date}",
+  "sessions.backup.title": "نسخة احتياطية للسجل",
+  "sessions.backup.intro":
+    "التصدير بصيغة JSON مفتوحة. لا يتضمن الملف مفاتيح الوكلاء أو كلمات المرور: فقط الجلسات والرسائل وإعدادات الوكلاء (العنوان والنموذج والحدود). بعد الاستيراد يجب إدخال مفتاح الوكيل من جديد.",
+  "sessions.backup.onlySelected": "تصدير الجلسات المحددة فقط",
+  "sessions.backup.export": "تصدير إلى ملف",
+  "sessions.backup.import": "استيراد من ملف",
+  "sessions.backup.exported": "تم التصدير: {sessions} جلسة، {messages} رسالة. لا تُضمَّن المفاتيح وكلمات المرور.",
+  "sessions.backup.imported": "استيراد (دمج): {parts}. تُحفظ مفاتيح الوكلاء الحاليين؛ أدخل مفاتيح للوكلاء الجدد.",
+  "sessions.backup.importedAgents": "الوكلاء: +{added} / محدَّث {updated}",
+  "sessions.backup.importedSessions": "الجلسات: +{added}",
+  "sessions.backup.importedMessages": "الرسائل: +{added}",
+  "sessions.backup.importedSkipped": "تعارضات متجاوزة: {count}",
+  "sessions.cleanup.title": "تنظيف IndexedDB",
+  "sessions.cleanup.exceptSelected": "حذف كل شيء عدا المحدد ({count})",
+  "sessions.cleanup.removed": "تم الحذف: {sessions} جلسة، {messages} رسالة. تم الاحتفاظ بـ {kept}.",
+  "sessions.cleanup.confirmAll": "أؤكد حذف جميع الجلسات",
+  "sessions.cleanup.deleteAll": "حذف جميع الجلسات",
+  "sessions.cleanup.needConfirm": "حدّد مربع التأكيد لحذف كل شيء",
+  "sessions.cleanup.removedAll": "تم حذف كل شيء: {sessions} جلسة، {messages} رسالة.",
+  "sessions.cleanup.agentsKept": "يُحتفظ بالوكلاء أثناء التنظيف.",
+} as const satisfies LocaleMessages;

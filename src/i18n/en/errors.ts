@@ -1,0 +1,21 @@
+import type { LocaleMessages } from "../types";
+
+export const errorsMessages = {
+  "errors.status.400": "The agent rejected the request (400). Check the message format and agent settings.",
+  "errors.status.401": "Wrong agent key (401/403). Check the key under “Connections”.",
+  "errors.status.404": "No agent found at this address (404). Check the URL endpoint.",
+  "errors.status.408": "The agent did not respond in time (408). Try again.",
+  "errors.status.413": "Request is too large (413). Reduce the context size in agent settings.",
+  "errors.status.429": "Rate limit on the agent side (429). Wait and try again later.",
+  "errors.status.5xx": "The agent is temporarily unavailable ({status}). Try again later.",
+  "errors.status.other": "The agent responded with error {status}.",
+  "errors.network.cors": "The browser blocked the request (CORS). The agent must allow this site's origin.",
+  "errors.network.unreachable": "The agent is unreachable: no network or the address does not respond (possibly CORS).",
+  "errors.network.aborted": "The request was aborted or timed out. Try again.",
+  "errors.network.other": "Could not reach the agent: {raw}",
+  "errors.cipher.missingSeed": "The browser does not persist data (private mode) — the key cannot be stored securely.",
+  "errors.cipher.decryptFailed": "Could not decrypt the agent key. Enter the key again under “Connections”.",
+  "errors.client.noAddress": "The agent has no address. Fill it in under “Connections”.",
+  "errors.client.notJson": "The agent returned a non-JSON response. Make sure the address is an agent endpoint.",
+  "errors.client.noReply": "The agent responded without a reply field. Check the agent contract.",
+} as const satisfies LocaleMessages;

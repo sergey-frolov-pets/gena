@@ -13,7 +13,10 @@ import {
 import { sendToAgent } from "@/lib/agent-client";
 import { describeError } from "@/lib/errors";
 import { canCall, getCallCount, recordCall } from "@/storage/usage";
+import { useLocale } from "@/i18n";
 import type { Session } from "@/storage/types";
+
+const { t } = useLocale();
 
 const agentId = ref("");
 const draft = ref("");
@@ -39,7 +42,7 @@ const callLimit = computed(() => activeAgent.value?.settings.callLimit ?? 0);
 
 const limitLabel = computed(() => {
   if (callLimit.value <= 0) return "";
-  return `${usedToday.value} / ${callLimit.value} вызовов сегодня`;
+  return t("chat.usage", { used: usedToday.value, limit: callLimit.value });
 });
 
 async function refreshUsage(): Promise<void> {
@@ -57,10 +60,10 @@ async function newSession(): Promise<void> {
   error.value = "";
   notice.value = "";
   if (!agentId.value) {
-    error.value = "Выберите агента";
+    error.value = t("chat.error.chooseAgent");
     return;
   }
-  const session = await createSession(agentId.value, "Новый диалог");
+  const session = await createSession(agentId.value, t("chat.newDialogTitle"));
   await loadMessages(session.id);
 }
 
@@ -76,25 +79,25 @@ async function send(): Promise<void> {
 
   const session = activeSession.value;
   if (!session) {
-    error.value = "Сначала создайте или откройте сессию";
+    error.value = t("chat.error.noSession");
     return;
   }
   const agent = agents.value.find((a) => a.id === session.agentId);
   if (!agent) {
-    error.value = "Агент сессии не найден";
+    error.value = t("chat.error.agentNotFound");
     return;
   }
 
   // Предупреждение о незаданном ключе — до отправки.
   if (!agent.sealedKey) {
-    error.value = "У агента не задан ключ. Введите его в разделе «Подключения».";
+    error.value = t("chat.error.noKey");
     return;
   }
 
   // Дневной лимит вызовов.
   const limit = agent.settings.callLimit;
   if (limit > 0 && !(await canCall(agent.id, limit))) {
-    error.value = `Дневной лимит ${limit} вызовов исчерпан. Счётчик обнулится завтра (UTC).`;
+    error.value = t("chat.error.limitReached", { limit });
     await refreshUsage();
     return;
   }
@@ -116,10 +119,10 @@ async function send(): Promise<void> {
     await recordCall(agent.id);
     await refreshUsage();
     if (limit > 0) {
-      notice.value = `Осталось вызовов сегодня: ${Math.max(0, limit - usedToday.value)}`;
+      notice.value = t("chat.remaining", { remaining: Math.max(0, limit - usedToday.value) });
     }
   } catch (e) {
-    error.value = describeError(e);
+    error.value = describeError(e, t);
   } finally {
     busy.value = false;
   }
@@ -130,15 +133,17 @@ async function send(): Promise<void> {
   <section class="chat">
     <div class="sidebar">
       <div class="field">
-        <label>Агент</label>
+        <label>{{ t("chat.agent") }}</label>
         <select v-model="agentId">
-          <option value="">— выберите —</option>
+          <option value="">{{ t("chat.selectAgent") }}</option>
           <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
         </select>
       </div>
-      <button class="primary" :disabled="!agentId" @click="newSession">Новый диалог</button>
+      <button class="primary" :disabled="!agentId" @click="newSession">
+        {{ t("chat.newDialog") }}
+      </button>
 
-      <h4>Диалоги</h4>
+      <h4>{{ t("chat.dialogs") }}</h4>
       <ul class="sessions">
         <li
           v-for="s in agentSessions"
@@ -154,27 +159,27 @@ async function send(): Promise<void> {
 
     <div class="main">
       <h3 v-if="activeSession">{{ activeSession.title }}</h3>
-      <h3 v-else class="muted">Выберите или создайте диалог</h3>
+      <h3 v-else class="muted">{{ t("chat.selectOrCreate") }}</h3>
       <p v-if="limitLabel" class="muted small usage">{{ limitLabel }}</p>
 
       <div class="messages">
         <div v-for="m in messages" :key="m.id" class="msg" :class="m.role">
-          <div class="role muted small">{{ m.role }}</div>
+          <div class="role muted small">{{ t(`chat.role.${m.role}` as never) }}</div>
           <div class="body">{{ m.content }}</div>
         </div>
-        <p v-if="messages.length === 0" class="muted">Сообщений пока нет.</p>
+        <p v-if="messages.length === 0" class="muted">{{ t("chat.messagesEmpty") }}</p>
       </div>
 
       <form class="composer" @submit.prevent="send">
         <textarea
           v-model="draft"
           rows="2"
-          placeholder="Сообщение… (Enter — отправить)"
+          :placeholder="t('chat.composerPlaceholder')"
           :disabled="busy || !activeSession"
           @keydown.enter.exact.prevent="send"
         />
         <button class="primary" type="submit" :disabled="busy || !activeSession">
-          {{ busy ? "…" : "Отправить" }}
+          {{ busy ? "…" : t("chat.send") }}
         </button>
       </form>
       <p v-if="error" class="error">{{ error }}</p>

@@ -1,0 +1,21 @@
+import type { LocaleMessages } from "../types";
+
+export const errorsMessages = {
+  "errors.status.400": "O agente recusou a solicitação (400). Verifique o formato da mensagem e as configurações.",
+  "errors.status.401": "Chave do agente incorreta (401/403). Verifique em «Conexões».",
+  "errors.status.404": "Nenhum agente encontrado neste endereço (404). Verifique a URL endpoint.",
+  "errors.status.408": "O agente não respondeu a tempo (408). Tente novamente.",
+  "errors.status.413": "A solicitação é grande demais (413). Reduza o tamanho do contexto nas configurações.",
+  "errors.status.429": "Limite de requisições no agente (429). Aguarde e tente mais tarde.",
+  "errors.status.5xx": "O agente está temporariamente indisponível ({status}). Tente mais tarde.",
+  "errors.status.other": "O agente respondeu com erro {status}.",
+  "errors.network.cors": "O navegador bloqueou a solicitação (CORS). O agente deve permitir a origem deste site.",
+  "errors.network.unreachable": "O agente está inacessível: sem rede ou o endereço não responde (possivelmente CORS).",
+  "errors.network.aborted": "A solicitação foi cancelada ou expirou. Tente novamente.",
+  "errors.network.other": "Não foi possível contatar o agente: {raw}",
+  "errors.cipher.missingSeed": "O navegador não armazena dados (modo privado) — a chave não pode ser salva com segurança.",
+  "errors.cipher.decryptFailed": "Não foi possível descriptografar a chave do agente. Insira a chave novamente em «Conexões».",
+  "errors.client.noAddress": "O agente não tem endereço. Preencha em «Conexões».",
+  "errors.client.notJson": "O agente retornou algo que não é JSON. Verifique se o endereço é um endpoint de agente.",
+  "errors.client.noReply": "O agente respondeu sem o campo reply. Verifique o contrato do agente.",
+} as const satisfies LocaleMessages;
