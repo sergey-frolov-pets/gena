@@ -220,6 +220,7 @@ export async function appendMessage(
   content: string,
   kind?: Message["kind"],
   attachments?: MessageAttachment[],
+  elapsedMs?: number,
 ): Promise<Message> {
   const message: Message = {
     id: newId("msg"),
@@ -228,6 +229,7 @@ export async function appendMessage(
     content,
     createdAt: Date.now(),
     kind,
+    ...(typeof elapsedMs === "number" && elapsedMs >= 0 ? { elapsedMs } : {}),
     ...(attachments && attachments.length > 0 ? { attachments } : {}),
   };
   await putMessage(message);

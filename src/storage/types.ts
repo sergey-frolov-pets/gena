@@ -100,6 +100,8 @@ export interface Message {
   role: MessageRole;
   content: string;
   createdAt: number;
+  /** Сколько шёл ответ: от отправки реплики до этого сообщения (мс). */
+  elapsedMs?: number;
   /** Тип сообщения. Нет поля → обычное текстовое. */
   kind?: MessageKind;
   /** Идентификатор сообщения на стороне сервера (для `message.update`). */

@@ -236,7 +236,22 @@ describe("pico-ws transport", () => {
     await expect(p).resolves.toEqual({ reply: "ответ" });
   });
 
-  it("плашка без продолжения → реальная ошибка ws_timeout через 2 минуты", async () => {
+  it("после плашки долгая пауза резервной модели не рвёт ход", async () => {
+    const { p, ws } = await connect();
+
+    ws.frame({
+      type: "message.create",
+      payload: { content: "⏳ Модель не ответила вовремя.", message_id: "n4" },
+    });
+    // Резервная модель думает 5 минут без единого кадра — это не обрыв.
+    await vi.advanceTimersByTimeAsync(300_000);
+    ws.frame({ type: "message.create", payload: { content: "ответ", message_id: "m40" } });
+    await vi.advanceTimersByTimeAsync(QUIET);
+
+    await expect(p).resolves.toEqual({ reply: "ответ" });
+  });
+
+  it("плашка без продолжения → реальная ошибка ws_timeout через 10 минут", async () => {
     const { p, ws } = await connect();
 
     ws.frame({
@@ -244,7 +259,7 @@ describe("pico-ws transport", () => {
       payload: { content: "⚠️ Не смог обработать сообщение.", message_id: "n2" },
     });
     const assertion = expect(p).rejects.toMatchObject({ code: "ws_timeout" });
-    await vi.advanceTimersByTimeAsync(121_000);
+    await vi.advanceTimersByTimeAsync(601_000);
     await assertion;
   });
 

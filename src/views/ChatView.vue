@@ -72,6 +72,7 @@ import {
 } from "@/lib/resume";
 import { readQueued, toPersisted, type RestoredQueue } from "@/lib/queue";
 import { listQueued, replaceQueued } from "@/storage/queue";
+import { answerElapsed, formatClock, formatDuration } from "@/lib/time";
 import ConfirmModal from "@/components/ConfirmModal.vue";
 import TextModal from "@/components/TextModal.vue";
 
@@ -105,6 +106,55 @@ const abortCtrl = ref<AbortController | null>(null);
 const streamingText = ref("");
 /** Сессия, к которой относится текущий стрим (чтобы не показывать его в другом диалоге). */
 const streamSessionId = ref<string | null>(null);
+
+/* ── Часы хода: сколько идёт текущий ответ ─────────────────────────────── */
+
+/** Когда отправлен запрос; null — хода нет. */
+const turnStartedAt = ref<number | null>(null);
+/** Тикающая метка времени для живого счётчика. */
+const clockNow = ref(Date.now());
+let clockTimer: ReturnType<typeof setInterval> | null = null;
+
+/** Запустить счётчик текущего хода. */
+function startTurnClock(at = Date.now()): void {
+  turnStartedAt.value = at;
+  clockNow.value = at;
+  if (clockTimer) clearInterval(clockTimer);
+  clockTimer = setInterval(() => {
+    clockNow.value = Date.now();
+  }, 500);
+}
+
+/** Погасить счётчик: ход завершён. */
+function stopTurnClock(): void {
+  if (clockTimer) clearInterval(clockTimer);
+  clockTimer = null;
+  turnStartedAt.value = null;
+}
+
+/** Подписи единиц длительности из словаря. */
+const durationUnits = computed(() => ({
+  h: t("chat.time.h"),
+  m: t("chat.time.m"),
+  s: t("chat.time.s"),
+}));
+
+/** Сколько идёт текущий ответ — «7 с». Пусто, когда хода нет. */
+const liveElapsed = computed(() => {
+  if (turnStartedAt.value === null) return "";
+  return formatDuration(Math.max(0, clockNow.value - turnStartedAt.value), durationUnits.value);
+});
+
+/** Время сообщения: часы появления в чате. */
+function messageClock(message: Message): string {
+  return formatClock(message.createdAt);
+}
+
+/** Длительность ответа для сообщения ленты: «42 с» или пусто. */
+function messageElapsed(index: number): string {
+  const ms = answerElapsed(feed.value, index);
+  return ms === null ? "" : formatDuration(ms, durationUnits.value);
+}
 /** Контейнер сообщений — для автоскролла. */
 const messagesEl = ref<HTMLElement | null>(null);
 /** Обёртка контента: её рост (картинки, шаги) возвращает нас к низу. */
@@ -956,12 +1006,15 @@ async function listenTurn(
       },
     });
     const incoming = await collectIncoming(agent, key, response.attachments ?? []);
+    // Догоняем ход, начатый до перезапуска: длительность считаем от последней реплики.
+    const requestAt = [...history].reverse().find((m) => m.role === "user")?.createdAt;
     const reply = await appendMessage(
       session.id,
       "assistant",
       response.reply,
       undefined,
       incoming,
+      requestAt ? Date.now() - requestAt : undefined,
     );
     // Ход на сервере всё-таки состоялся — засчитываем вызов.
     await recordCall(agent.id);
@@ -1001,6 +1054,7 @@ async function resumePending(sessionId: string): Promise<void> {
   }
   resuming.add(sessionId);
   busy.value = true;
+  startTurnClock(pending.at);
   notice.value = t("chat.resumeTurn");
   const history = list.filter(
     (m) => m.role !== "system" && (m.kind === undefined || m.kind === "text"),
@@ -1022,6 +1076,7 @@ async function resumePending(sessionId: string): Promise<void> {
     busy.value = false;
     notice.value = "";
     resuming.delete(sessionId);
+    stopTurnClock();
   }
   if (answered) {
     forgetPending(sessionId, pending.text);
@@ -1340,6 +1395,9 @@ async function exchange(
   stopDictation();
   lastText.value = text;
   busy.value = true;
+  // Часы хода: живой счётчик в облачке ответа и длительность после него.
+  const startedAt = Date.now();
+  startTurnClock(startedAt);
   // Запоминаем ход: если вкладку закроют до ответа, при следующем открытии догоним.
   rememberPending({ sessionId: session.id, text, at: Date.now() });
   streamSessionId.value = session.id;
@@ -1372,7 +1430,7 @@ async function exchange(
             if (shown()) streamingText.value += chunk;
           },
           onMessage: async (m) => {
-            await appendMessage(session.id, "assistant", m.content, m.kind);
+            await appendMessage(session.id, "assistant", m.content, m.kind, undefined, Date.now() - startedAt);
           },
           onNotice: (text) => {
             // Служебная плашка сервера: показываем статусом, ответа не ждём молча.
@@ -1388,7 +1446,10 @@ async function exchange(
       response.reply,
       undefined,
       incoming,
+      Date.now() - startedAt,
     );
+    // Ответ уже в ленте — живое облачко убираем, чтобы не было двух одинаковых.
+    if (shown()) streamingText.value = "";
     await recordCall(agent.id);
     await refreshUsage();
     forgetPending(session.id, text);
@@ -1413,6 +1474,7 @@ async function exchange(
     abortCtrl.value = null;
     streamingText.value = "";
     streamSessionId.value = null;
+    stopTurnClock();
     await nextTick();
     if (session.id === activeSessionId.value) composerEl.value?.focus();
     // «Отправить сейчас» важнее ошибки; иначе тянем следующую реплику очереди.
@@ -1760,6 +1822,7 @@ function onCompactChange(event: MediaQueryListEvent): void {
 }
 
 onUnmounted(() => {
+  stopTurnClock();
   window.visualViewport?.removeEventListener("resize", syncViewport);
   window.visualViewport?.removeEventListener("scroll", syncViewport);
   window.removeEventListener("resize", syncViewport);
@@ -2106,7 +2169,13 @@ function onRateChange(event: Event): void {
             :class="`chat-panel__message--${m.role}`"
             @click="onMessageClick($event, m)"
           >
-            <span class="chat-panel__role">{{ roleLabel(m) }}</span>
+            <span class="chat-panel__role">
+              <span class="chat-panel__time">{{ messageClock(m) }}</span>
+              <span class="chat-panel__role-name">{{ roleLabel(m) }}</span>
+              <span v-if="messageElapsed(index)" class="chat-panel__elapsed">
+                {{ messageElapsed(index) }}
+              </span>
+            </span>
             <p v-if="m.content" class="chat-panel__content">{{ m.content }}</p>
             <details v-if="m.edits?.length" class="chat-panel__edits">
               <summary>{{ t("chat.edited") }}</summary>
@@ -2242,7 +2311,13 @@ function onRateChange(event: Event): void {
           v-if="liveStreaming"
           class="chat-panel__message chat-panel__message--assistant"
         >
-          <span class="chat-panel__role">{{ agentRoleLabel() }}</span>
+          <span class="chat-panel__role">
+            <span v-if="turnStartedAt !== null" class="chat-panel__time">{{
+              formatClock(turnStartedAt)
+            }}</span>
+            <span class="chat-panel__role-name">{{ agentRoleLabel() }}</span>
+            <span v-if="liveElapsed" class="chat-panel__elapsed">{{ liveElapsed }}</span>
+          </span>
           <p class="chat-panel__content">{{ liveStreaming }}</p>
         </article>
 
@@ -2265,7 +2340,9 @@ function onRateChange(event: Event): void {
             </button>
           </div>
         </div>
-        <p v-if="liveTyping" class="chat-panel__thinking">{{ typingLabel }}</p>
+        <p v-if="liveTyping" class="chat-panel__thinking">
+          {{ typingLabel }}<span v-if="liveElapsed" class="chat-panel__elapsed"> · {{ liveElapsed }}</span>
+        </p>
         </div>
       </div>
     </div>
@@ -3031,6 +3108,26 @@ function onRateChange(event: Event): void {
   font-size: 0.68rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+
+/* Время появления сообщения — мелко, в начале строки автора. */
+.chat-panel__time {
+  font-size: 0.64rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+/* Длительность ответа: «42 с», «1 мин 05 с». */
+.chat-panel__elapsed {
+  font-size: 0.62rem;
+  letter-spacing: 0;
+  text-transform: none;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+  white-space: nowrap;
 }
 
 .chat-panel__content {
