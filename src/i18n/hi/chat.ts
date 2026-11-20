@@ -36,6 +36,8 @@ export const chatMessages = {
   "chat.steps.show": "चरण दिखाएँ ({count})",
   "chat.steps.hide": "चरण छिपाएँ ({count})",
   "chat.stop": "रोकें",
+  "chat.jumpTop": "शुरू में",
+  "chat.jumpEnd": "नवीनतम पर",
   "chat.retry": "पुनः प्रयास",
   "chat.rename": "नाम बदलें",
   "chat.renamePlaceholder": "संवाद का नाम",

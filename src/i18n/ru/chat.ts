@@ -36,6 +36,8 @@ export const chatMessages = {
   "chat.steps.show": "Показать шаги ({count})",
   "chat.steps.hide": "Свернуть шаги ({count})",
   "chat.stop": "Стоп",
+  "chat.jumpTop": "В начало",
+  "chat.jumpEnd": "В конец",
   "chat.retry": "Повторить",
   "chat.rename": "Переименовать",
   "chat.renamePlaceholder": "Название диалога",

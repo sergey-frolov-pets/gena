@@ -727,10 +727,49 @@ function nearBottom(el: HTMLElement): boolean {
   return el.scrollHeight - el.scrollTop - el.clientHeight < 48;
 }
 
+/* ── Стрелки прокрутки: видны при открытом вводе на телефоне ──────────── */
+
+/** Шевроны нужны только там, где ввод открывается оверлеем (телефон). */
+const jumpVisible = computed(() => compact.value && composerOpen.value);
+/** Есть ли куда листать вверх/вниз — иначе шеврон бесполезен. */
+const canJumpTop = ref(false);
+const canJumpEnd = ref(false);
+
+function updateJumpHints(): void {
+  const el = messagesEl.value;
+  if (!el) {
+    canJumpTop.value = false;
+    canJumpEnd.value = false;
+    return;
+  }
+  canJumpTop.value = el.scrollTop > 8;
+  canJumpEnd.value = el.scrollHeight - el.scrollTop - el.clientHeight > 8;
+}
+
+function jumpToTop(): void {
+  const el = messagesEl.value;
+  if (!el) return;
+  // Наверх ушли осознанно: новые сообщения больше не тянут читателя вниз.
+  stickBottom.value = false;
+  el.scrollTop = 0;
+  updateJumpHints();
+}
+
+async function jumpToEnd(): Promise<void> {
+  await scrollToBottom(true);
+  updateJumpHints();
+}
+
+// Открыли ввод — размеры ленты поменялись, пересчитываем доступные направления.
+watch(jumpVisible, (open) => {
+  if (open) void nextTick(updateJumpHints);
+});
+
 function onMessagesScroll(): void {
   const el = messagesEl.value;
   if (!el) return;
   stickBottom.value = nearBottom(el);
+  updateJumpHints();
 }
 
 /** Полное название диалога для модалки (обрезанный заголовок не прочитать). */
@@ -868,6 +907,7 @@ function settleToBottom(): void {
     requestAnimationFrame(() => {
       const next = messagesEl.value;
       if (next && stickBottom.value) next.scrollTop = next.scrollHeight;
+      updateJumpHints();
     });
   }, 16);
 }
@@ -1836,6 +1876,7 @@ onMounted(() => {
   // Вернулись на вкладку чата — показываем конец диалога, а не начало.
   void scrollToBottom(true);
   settleToBottom();
+  void nextTick(updateJumpHints);
   window.visualViewport?.addEventListener("resize", syncViewport);
   window.visualViewport?.addEventListener("scroll", syncViewport);
   window.addEventListener("resize", syncViewport);
@@ -2404,6 +2445,33 @@ function onRateChange(event: Event): void {
         </p>
         </div>
       </div>
+
+      <div v-if="jumpVisible && (canJumpTop || canJumpEnd)" class="chat-panel__jump">
+        <button
+          v-if="canJumpTop"
+          type="button"
+          class="chat-panel__jump-btn"
+          v-tip="t('chat.jumpTop')"
+          :aria-label="t('chat.jumpTop')"
+          @click="jumpToTop"
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m6 14 6-6 6 6" />
+          </svg>
+        </button>
+        <button
+          v-if="canJumpEnd"
+          type="button"
+          class="chat-panel__jump-btn"
+          v-tip="t('chat.jumpEnd')"
+          :aria-label="t('chat.jumpEnd')"
+          @click="jumpToEnd"
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m6 10 6 6 6-6" />
+          </svg>
+        </button>
+      </div>
     </div>
 
         <div class="chat-panel__dock" :class="{ 'is-overlay': compact && composerOpen }">
@@ -2480,6 +2548,18 @@ function onRateChange(event: Event): void {
             <path d="M4 20h4l10-10a2.8 2.8 0 1 0-4-4L4 16z" />
           </svg>
           <span>{{ t("chat.write") }}</span>
+        </button>
+        <button
+          v-if="busy && streamSessionId === activeSessionId"
+          type="button"
+          class="chat-panel__open-stop"
+          v-tip="t('chat.stop')"
+          :aria-label="t('chat.stop')"
+          @click="stop"
+        >
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true">
+            <rect x="7" y="7" width="10" height="10" rx="2" />
+          </svg>
         </button>
         <button
           v-if="quickReplies.length > 0"
@@ -4079,6 +4159,63 @@ function onRateChange(event: Event): void {
 .chat-panel__quick-trigger:hover {
   color: var(--text);
   border-color: var(--accent);
+}
+
+/* «Стоп» в доке: стоит между «Написать сообщение…» и молнией */
+.chat-panel__open-stop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-width: 46px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel-2);
+  color: var(--danger);
+  cursor: pointer;
+}
+
+.chat-panel__open-stop:hover {
+  border-color: var(--danger);
+  color: var(--text);
+}
+
+/* --- Шевроны прокрутки: по центру правого края --------------------------- */
+.chat-panel__jump {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.chat-panel__jump-btn {
+  pointer-events: auto;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--panel);
+  color: var(--muted);
+  opacity: 0.55;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+  transition: opacity 140ms ease, color 140ms ease;
+}
+
+.chat-panel__jump-btn:hover,
+.chat-panel__jump-btn:active {
+  opacity: 0.95;
+  color: var(--text);
 }
 
 .chat-panel__quick {

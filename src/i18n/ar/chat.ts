@@ -36,6 +36,8 @@ export const chatMessages = {
   "chat.steps.show": "إظهار الخطوات ({count})",
   "chat.steps.hide": "إخفاء الخطوات ({count})",
   "chat.stop": "إيقاف",
+  "chat.jumpTop": "إلى البداية",
+  "chat.jumpEnd": "إلى الأحدث",
   "chat.retry": "إعادة المحاولة",
   "chat.rename": "إعادة تسمية",
   "chat.renamePlaceholder": "اسم المحادثة",

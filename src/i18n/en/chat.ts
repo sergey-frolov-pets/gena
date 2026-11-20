@@ -36,6 +36,8 @@ export const chatMessages = {
   "chat.steps.show": "Show {count} steps",
   "chat.steps.hide": "Hide {count} steps",
   "chat.stop": "Stop",
+  "chat.jumpTop": "Scroll to start",
+  "chat.jumpEnd": "Scroll to latest",
   "chat.retry": "Retry",
   "chat.rename": "Rename",
   "chat.renamePlaceholder": "Dialog name",
