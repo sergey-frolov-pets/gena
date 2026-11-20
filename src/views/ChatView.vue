@@ -310,8 +310,9 @@ let dockObserver: ResizeObserver | null = null;
 
 function syncDockSpace(): void {
   const el = dockEl.value;
-  const overlay = compact.value && composerOpen.value;
-  const next = overlay && el ? Math.round(el.getBoundingClientRect().height) + 8 : 0;
+  // На телефоне док лежит поверх ленты в обоих состояниях: с вводом и без него.
+  const floating = compact.value;
+  const next = floating && el ? Math.round(el.getBoundingClientRect().height) + 8 : 0;
   if (next === dockSpace.value) return;
   dockSpace.value = next;
   settleToBottom();
@@ -2703,7 +2704,10 @@ function onRateChange(event: Event): void {
         <div
           ref="dockEl"
           class="chat-panel__dock"
-          :class="{ 'is-overlay': compact && composerOpen }"
+          :class="{
+            'is-overlay': compact && composerOpen,
+            'is-float': compact && !composerOpen,
+          }"
         >
       <p v-if="!online" class="chat-panel__warning" role="alert">{{ t("chat.offline") }}</p>
       <p v-if="dictationListening" class="chat-panel__recording" role="status" aria-live="polite">
@@ -4543,5 +4547,45 @@ function onRateChange(event: Event): void {
 
 .chat-panel__dock.is-overlay::before {
   display: none;
+}
+
+/* Телефон без ввода: панель прозрачная — над лентой висят только полупрозрачные
+   кнопки «Стоп» и молния. Сплошная панель появляется вместе с полем ввода. */
+.chat-panel__dock.is-float {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 30;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  pointer-events: none;
+}
+
+.chat-panel__dock.is-float > * {
+  pointer-events: auto;
+}
+
+/* Сама дорожка кнопок пропускает тапы к чату — срабатывают только кнопки. */
+.chat-panel__dock.is-float .chat-panel__open-row {
+  pointer-events: none;
+}
+
+.chat-panel__dock.is-float .chat-panel__open-row > * {
+  pointer-events: auto;
+}
+
+.chat-panel__dock.is-float::before {
+  display: none;
+}
+
+/* Служебные плашки над лентой не должны теряться на тексте сообщений. */
+.chat-panel__dock.is-float .chat-panel__warning,
+.chat-panel__dock.is-float .chat-panel__notice,
+.chat-panel__dock.is-float .chat-panel__lift {
+  padding: 4px 8px;
+  border-radius: 10px;
+  background: var(--panel);
 }
 </style>
