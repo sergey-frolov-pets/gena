@@ -23,6 +23,7 @@ import {
   sessions,
 } from "@/lib/store";
 import { newId } from "@/lib/id";
+import { isSendKey } from "@/lib/composer";
 import { sendToAgent, type TransportAttachment } from "@/lib/agent-client";
 import { describeError } from "@/lib/errors";
 import { canCall, getCallCount, recordCall } from "@/storage/usage";
@@ -558,6 +559,16 @@ async function enqueue(
   ];
 }
 
+/**
+ * Клавиши композера: Shift+Enter / Ctrl+Enter / Cmd+Enter — отправить,
+ * простой Enter — перенос строки (решение Сергея, 20.11.2026).
+ */
+function onComposerKey(event: KeyboardEvent): void {
+  if (!isSendKey(event)) return;
+  event.preventDefault();
+  void send();
+}
+
 async function send(): Promise<void> {
   error.value = "";
   notice.value = "";
@@ -894,6 +905,13 @@ function cancelEdit(): void {
   editingId.value = "";
   editingDraft.value = "";
   editError.value = "";
+}
+
+/** Клавиши правки сообщения: Shift/Ctrl/Cmd+Enter — сохранить, Enter — строка. */
+function onEditKey(event: KeyboardEvent, m: Message): void {
+  if (!isSendKey(event)) return;
+  event.preventDefault();
+  void commitEdit(m);
 }
 
 /**
@@ -1436,8 +1454,7 @@ function onRateChange(event: Event): void {
                 class="chat-panel__edit-input"
                 rows="2"
                 :aria-label="t('chat.editMessage')"
-                @keydown.enter.ctrl.prevent="commitEdit(m)"
-                @keydown.enter.meta.prevent="commitEdit(m)"
+                @keydown="onEditKey($event, m)"
                 @keydown.esc.prevent="cancelEdit"
               />
               <p v-if="editError" class="chat-panel__warning" role="alert">{{ editError }}</p>
@@ -1810,8 +1827,7 @@ function onRateChange(event: Event): void {
             :placeholder="t('chat.composerPlaceholder')"
             :aria-label="t('chat.composerPlaceholder')"
             :disabled="composerDisabled"
-            @keydown.enter.ctrl.prevent="send"
-            @keydown.enter.meta.prevent="send"
+            @keydown="onComposerKey"
             @paste="onPaste"
           />
           <button

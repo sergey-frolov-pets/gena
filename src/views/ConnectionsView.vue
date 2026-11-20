@@ -9,6 +9,7 @@ import {
   getAgentKey,
 } from "@/lib/store";
 import { checkConnection } from "@/lib/connection-check";
+import { validateAgentDraft, type AgentFormError } from "@/lib/agent-form";
 import { describeError } from "@/lib/errors";
 import { useLocale } from "@/i18n";
 import type { Agent, AgentConfig, Protocol } from "@/storage/types";
@@ -62,32 +63,6 @@ const addressPlaceholder = computed(() => {
   return t("connections.field.addressPlaceholder");
 });
 
-function validateAddress(): string | null {
-  const addr = address.value.trim();
-  if (!addr) return null;
-  let u: URL;
-  try {
-    u = new URL(addr);
-  } catch {
-    return t("connections.error.invalidUrl");
-  }
-  if (protocol.value === "pico_ws") {
-    if (u.protocol !== "ws:" && u.protocol !== "wss:") {
-      return t("connections.error.invalidUrl");
-    }
-    if (
-      u.protocol === "ws:" &&
-      typeof window !== "undefined" &&
-      window.location.protocol === "https:"
-    ) {
-      return t("connections.error.mixedContent");
-    }
-  } else if (u.protocol !== "http:" && u.protocol !== "https:") {
-    return t("connections.error.invalidUrl");
-  }
-  return null;
-}
-
 function resetForm(): void {
   name.value = "";
   address.value = "";
@@ -116,16 +91,28 @@ function startEdit(agent: Agent): void {
   notice.value = "";
 }
 
+/** Текст ошибки формы по коду проверки — без сырых сообщений из браузера. */
+function formErrorText(errors: AgentFormError[]): string {
+  if (errors.includes("addressMixed")) return t("connections.error.mixedContent");
+  if (errors.includes("addressInvalid")) return t("connections.error.invalidUrl");
+  return t("connections.missingFields");
+}
+
 async function submit(): Promise<void> {
   error.value = "";
   notice.value = "";
-  if (!name.value.trim() || !address.value.trim()) {
-    error.value = t("connections.missingFields");
-    return;
-  }
-  const urlError = validateAddress();
-  if (urlError) {
-    error.value = urlError;
+  const checked = validateAgentDraft(
+    {
+      name: name.value,
+      address: address.value,
+      contextSize: contextSize.value,
+      callLimit: callLimit.value,
+      llmModel: llmModel.value,
+    },
+    { protocol: protocol.value },
+  );
+  if (!checked.ok) {
+    error.value = formErrorText(checked.errors);
     return;
   }
 
@@ -140,16 +127,15 @@ async function submit(): Promise<void> {
   }
 
   const settings = {
-    contextSize: Number(contextSize.value) || 0,
-    callLimit: Number(callLimit.value) || 0,
-    llmModel: protocol.value === "http_json" ? llmModel.value.trim() : "",
+    ...checked.values.settings,
+    llmModel: protocol.value === "http_json" ? checked.values.settings.llmModel : "",
   };
 
   try {
     if (editingId.value) {
       await updateAgent(editingId.value, {
-        name: name.value.trim(),
-        address: address.value.trim(),
+        name: checked.values.name,
+        address: checked.values.address,
         settings,
         protocol: protocol.value,
         config,
@@ -157,8 +143,8 @@ async function submit(): Promise<void> {
       notice.value = t("connections.updated");
     } else {
       await createAgent({
-        name: name.value.trim(),
-        address: address.value.trim(),
+        name: checked.values.name,
+        address: checked.values.address,
         apiKey: apiKey.value,
         settings,
         protocol: protocol.value,
