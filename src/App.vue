@@ -233,7 +233,6 @@ onMounted(async () => {
 .content--flush :deep(.chat-panel) {
   flex: 1 1 auto;
   width: 100%;
-  height: auto;
   min-height: 0;
   border: 0;
   border-radius: 0;

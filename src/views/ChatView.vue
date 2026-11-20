@@ -25,6 +25,7 @@ import {
   sessionsLoaded,
 } from "@/lib/store";
 import { newId } from "@/lib/id";
+import { shouldOpenLastSession } from "@/lib/session-open";
 import { isSendKey } from "@/lib/composer";
 import { listenToAgent, sendToAgent, type TransportAttachment } from "@/lib/agent-client";
 import { cancelAgentTurn } from "@/lib/agent-client";
@@ -1210,11 +1211,27 @@ function onVisibility(): void {
 }
 
 // Агент выбран (вручную или автоматически) — поднимаем его последний диалог.
+// Диалоги могут читаться ещё с холодного старта: тогда ждём `sessionsLoaded`.
 watch(agentId, async (id) => {
   if (!id) return;
   rememberAgent(id);
   if (activeSession.value?.agentId === id) return;
+  if (!sessionsLoaded.value) return;
   await openLastSession(id);
+});
+
+// Диалоги прочитались позже, чем выбрался агент — иначе лента остаётся пустой.
+watch(sessionsLoaded, (loaded) => {
+  if (
+    !shouldOpenLastSession({
+      agentId: agentId.value,
+      sessionsLoaded: loaded,
+      activeSessionId: activeSessionId.value,
+    })
+  ) {
+    return;
+  }
+  void openLastSession(agentId.value);
 });
 
 // Открытый диалог попадает в полоску вкладок над чатом.
