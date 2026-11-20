@@ -28,6 +28,7 @@ import { isSendKey } from "@/lib/composer";
 import { listenToAgent, sendToAgent, type TransportAttachment } from "@/lib/agent-client";
 import { describeError } from "@/lib/errors";
 import { renderMarkdown } from "@/lib/markdown";
+import { splitContent } from "@/lib/ui-blocks";
 import { canCall, getCallCount, recordCall } from "@/storage/usage";
 import { listMessages } from "@/storage/db";
 import { useLocale } from "@/i18n";
@@ -1595,8 +1596,24 @@ function stop(): void {
  */
 /** Markdown реплики → безопасный HTML (кеш внутри lib/markdown). */
 function mdHtml(text: string): string {
+  noteUiBlock(text);
   return renderMarkdown(text, { copy: t("chat.copyMessage") });
 }
+
+/**
+ * P0 контракта плагинов: блок уже находится, рендера ещё нет — один раз
+ * пишем в консоль, какой плагин пришёл (или почему блок не принят).
+ */
+const seenUiBlocks = new Set<string>();
+function noteUiBlock(text: string): void {
+  if (!text.includes("```gena-ui")) return;
+  if (seenUiBlocks.has(text)) return;
+  if (seenUiBlocks.size > 200) seenUiBlocks.clear();
+  seenUiBlocks.add(text);
+  const parts = splitContent(text);
+  console.debug("[gena-ui]", parts.block ? `block:${parts.block.plugin}` : "fallback:text", parts.issues);
+}
+
 
 /**
  * Делегированный клик по markdown: кнопка «Копировать» в шапке блока кода.

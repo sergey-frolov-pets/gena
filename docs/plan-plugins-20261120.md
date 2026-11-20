@@ -158,7 +158,13 @@ ChatView.vue (2110)
 
 ## 6. Этапы
 
-### P0. Контракт и парсинг (без UI) — 1.5 ч
+### P0. Контракт и парсинг (без UI) — 1.5 ч ✅ (20.11.2026)
+- Сделано: `src/plugins/types.ts`, `src/lib/ui-blocks.ts` (`splitContent`, `parseBlock`,
+  `validateBlock`, `serializeBlock`), `src/lib/ui-text.ts` (`textOnly`, `hasUiBlock`),
+  16 тестов в `src/lib/ui-blocks.test.ts`; в `ChatView.mdHtml` — один `console.debug`
+  с найденным плагином. Лимит блока — **16 КБ** (решение Сергея), `items` ≤ 200, строка ≤ 2 000.
+- Проверки: vue-tsc чисто, vitest 238/238, vite build OK, check_code 0 проблем.
+- Визуально чат не изменился: блок только логируется, в ленте — обычный текст.
 - `types.ts`, `ui-blocks.ts` + тесты: валидный блок, битый JSON, неизвестный плагин,
   два блока, размер больше лимита, блок не последний.
 - `MessageBody.vue`: пока умеет только текст + `console.debug` о найденном блоке.
