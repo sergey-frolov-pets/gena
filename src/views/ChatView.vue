@@ -1860,6 +1860,15 @@ function startRename(): void {
   renaming.value = true;
 }
 
+/** Клик/тап мимо поля заголовка и кнопки «Переименовать» закрывает режим правки. */
+function onRenameOutside(event: Event): void {
+  if (!renaming.value) return;
+  const target = event.target as HTMLElement | null;
+  if (!target?.closest) return;
+  if (target.closest("[data-rename-keep]")) return;
+  renaming.value = false;
+}
+
 async function commitRename(): Promise<void> {
   const session = activeSession.value;
   renaming.value = false;
@@ -2030,6 +2039,7 @@ onMounted(() => {
   window.addEventListener("pagehide", flushQueue);
   document.addEventListener("visibilitychange", onVisibility);
   document.addEventListener("pointerdown", onQuickOutside, true);
+  document.addEventListener("pointerdown", onRenameOutside, true);
   window.addEventListener("keydown", onQuickKey);
   // Постоянное хранилище: IndexedDB не должна вычищаться при нехватке места.
   void navigator.storage?.persist?.();
@@ -2058,6 +2068,7 @@ onUnmounted(() => {
   window.removeEventListener("pagehide", flushQueue);
   document.removeEventListener("visibilitychange", onVisibility);
   document.removeEventListener("pointerdown", onQuickOutside, true);
+  document.removeEventListener("pointerdown", onRenameOutside, true);
   window.removeEventListener("keydown", onQuickKey);
   threadObserver?.disconnect();
   threadObserver = null;
@@ -2115,11 +2126,12 @@ function onRateChange(event: Event): void {
         <input
           v-model="renameDraft"
           class="chat-panel__rename"
+          data-rename-keep
           :aria-label="t('chat.renamePlaceholder')"
           @keydown.enter.prevent="commitRename"
           @keydown.esc.prevent="renaming = false"
         />
-        <button class="chat-panel__tool is-text" type="button" @click="commitRename">
+        <button class="chat-panel__tool is-text" type="button" data-rename-keep @click="commitRename">
           {{ t("chat.rename") }}
         </button>
       </template>
