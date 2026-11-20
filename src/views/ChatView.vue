@@ -286,9 +286,19 @@ const limitLabel = computed(() => {
   return t("chat.usage", { used: usedToday.value, limit: callLimit.value });
 });
 
-/** Кто именно печатает: имя агента, иначе нейтральное «Агент». */
+/**
+ * Кто именно печатает: имя агента, иначе нейтральное «Агент».
+ * Пометка (LLM) — только для прямого OpenAI-совместимого подключения к модели,
+ * а не для агента (Pico WS / HTTP JSON): там работает агент, не «модель».
+ */
+const isLlmAgent = computed(
+  () => (activeAgent.value?.protocol ?? "http_json") === "openai",
+);
+
 const typingLabel = computed(() =>
-  t("chat.typing", { name: activeAgent.value?.name?.trim() || t("chat.agent") }),
+  t(isLlmAgent.value ? "chat.typing.llm" : "chat.typing", {
+    name: activeAgent.value?.name?.trim() || t("chat.agent"),
+  }),
 );
 
 /** Писать можно сразу: сессия создастся при первом «Отправить». */
