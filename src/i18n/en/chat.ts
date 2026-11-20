@@ -72,6 +72,8 @@ export const chatMessages = {
   "chat.attachIncomingError": "Could not load the image from the agent",
   "chat.error.noPrompt": "Nothing to regenerate: the dialog has no user message",
   "chat.editMessage": "Edit message",
+  "chat.liftMessage": "Take into input",
+  "chat.lifted": "Message moved into the input: sending creates a new message.",
   "chat.edited": "edited · previous versions",
   "chat.queue.title": "Queued: {count}",
   "chat.queue.attachment": "attachment",

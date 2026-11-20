@@ -13,11 +13,11 @@ import {
   createSession,
   deleteMessagesFrom,
   duplicateSession,
-  editMessage,
   getAgentKey,
   loadMessages,
   messages,
   pinSession,
+  removeMessage,
   removeSession,
   renameSession,
   sessions,
@@ -175,6 +175,11 @@ function flushDraft(): void {
     draftTimer = null;
   }
   writeText(draftKey(activeSessionId.value), draft.value);
+}
+
+/** Уходим со страницы — забранная реплика возвращается в ленту, текст остаётся в поле. */
+function restoreLiftOnHide(): void {
+  if (lifted.value) lifted.value = null;
 }
 
 function readPending(): PendingTurn[] {
@@ -408,10 +413,16 @@ watch(
 );
 /** «Отправить сейчас»: прерываем текущий ход и шлём эту реплику. */
 const immediate = ref<QueuedMessage | null>(null);
-/** Сообщение, которое сейчас правим. */
-const editingId = ref("");
-const editingDraft = ref("");
-const editError = ref("");
+/**
+ * Реплика, забранная в поле ввода. Из ленты она убрана, отправка создаст
+ * новое сообщение, а отмена вернёт её на прежнее место.
+ */
+interface LiftedMessage {
+  message: Message;
+  /** Что было в поле до переноса — вернём при отмене. */
+  draftBefore: string;
+}
+const lifted = ref<LiftedMessage | null>(null);
 /**
  * Единый блок размышлений хода. Ключ — id ответа (`live` — текущий ход),
  * по умолчанию свёрнут; состояние живёт до перезагрузки.
@@ -420,7 +431,9 @@ const thoughtOpen = ref<Record<string, boolean>>({});
 const LIVE_KEY = "live";
 
 /** Лента без облачков «Вызовы инструментов»: показываем мысли и ответы. */
-const feed = computed<Message[]>(() => withoutToolCalls(messages.value));
+const feed = computed<Message[]>(() =>
+  withoutToolCalls(messages.value).filter((m) => m.id !== lifted.value?.message.id),
+);
 
 /** Все мысли хода, который заканчивается ответом `index`. */
 function turnThoughts(index: number): Message[] {
@@ -883,6 +896,8 @@ watch(agentId, async (id) => {
 watch(activeSessionId, (id) => {
   stickBottom.value = true;
   if (id) rememberTab(id);
+  // Диалог сменился — забранная реплика возвращается в свою ленту.
+  if (lifted.value && lifted.value.message.sessionId !== id) lifted.value = null;
   void scrollToBottom(true);
 });
 
@@ -970,13 +985,21 @@ async function send(): Promise<void> {
   }
   const payload = takeComposer();
   if (!payload) return;
+  // Реплика, забранная в поле ввода: её заменит новое сообщение.
+  const replace =
+    lifted.value && lifted.value.message.sessionId === activeSessionId.value
+      ? lifted.value.message
+      : undefined;
   // Агент занят — реплика встаёт в очередь, ответа не ждём.
   if (busy.value) {
+    await dropLifted();
     await enqueue(payload);
     return;
   }
   try {
-    await dispatch(payload, true);
+    const sent = await dispatch(payload, true, undefined, replace);
+    // Не ушло (нет ключа, лимит) — текст возвращаем в поле, реплика ждёт отмены.
+    if (!sent && replace) draft.value = replace.content;
   } catch (e) {
     error.value = describeError(e, t);
   }
@@ -984,13 +1007,15 @@ async function send(): Promise<void> {
 
 /**
  * Отправить реплику: при необходимости создать сессию, показать сообщение
- * в истории и сходить к агенту. `persist=false` — текст уже в истории
- * (правка сообщения), дублировать его не нужно.
+ * в истории и сходить к агенту. `persist=false` — текст уже в истории,
+ * дублировать его не нужно. `replace` — сообщение, забранное в поле ввода:
+ * оно уходит из истории, вместо него остаётся новое.
  */
 async function dispatch(
   payload: ComposerPayload,
   persist: boolean,
   sessionId?: string,
+  replace?: Message,
 ): Promise<boolean> {
   const text = payload.text;
   // Диалог выбираем строго: у реплики из очереди он свой, и если его уже нет —
@@ -1041,10 +1066,20 @@ async function dispatch(
   if (persist) {
     await appendMessage(session.id, "user", text, undefined, attachments);
   }
+  // Прежняя реплика из поля ввода больше не нужна: в контекст пойдёт новая.
+  if (replace) {
+    if (lifted.value?.message.id === replace.id) lifted.value = null;
+    await removeMessage(replace);
+  }
   const visible = session.id === activeSessionId.value;
   const history = (
     visible ? messages.value : await listMessages(session.id)
-  ).filter((m) => m.role !== "system" && (m.kind === undefined || m.kind === "text"));
+  ).filter(
+    (m) =>
+      m.id !== replace?.id &&
+      m.role !== "system" &&
+      (m.kind === undefined || m.kind === "text"),
+  );
   await exchange(session, agent, outgoing, payload.images.map((img) => img.dataUrl), history);
   return true;
 }
@@ -1291,51 +1326,55 @@ function stop(): void {
   abortCtrl.value?.abort();
 }
 
-/** Открыть правку своего сообщения: прежний текст останется в истории версий. */
-function startEdit(m: Message): void {
-  if (busy.value) {
-    error.value = "";
-  }
-  editingId.value = m.id;
-  editingDraft.value = m.content;
-  editError.value = "";
-}
-
-function cancelEdit(): void {
-  editingId.value = "";
-  editingDraft.value = "";
-  editError.value = "";
-}
-
-/** Клавиши правки сообщения: Shift/Ctrl/Cmd+Enter — сохранить, Enter — строка. */
-function onEditKey(event: KeyboardEvent, m: Message): void {
-  if (!isSendKey(event)) return;
-  event.preventDefault();
-  void commitEdit(m);
+/**
+ * Клик по своей реплике забирает её в поле ввода. Кнопки, картинки и
+ * выделенный текст не перехватываем — там свои действия.
+ */
+function onMessageClick(event: MouseEvent, m: Message): void {
+  if (m.role !== "user" || m.kind) return;
+  if (event.button !== 0) return;
+  const target = event.target as HTMLElement | null;
+  if (target?.closest("button, a, img, summary, details, textarea, input")) return;
+  if (window.getSelection()?.toString()) return;
+  startEdit(m);
 }
 
 /**
- * Сохранить правку и послать агенту новую реплику. Прежние версии текста
- * остаются в сообщении (`edits`), ответы агента не удаляются.
+ * Забрать свою реплику в поле ввода: из ленты она убирается, отправка создаст
+ * новое сообщение, а «Отмена» вернёт её на прежнее место (решение Сергея, 20.11.2026).
  */
-async function commitEdit(m: Message): Promise<void> {
-  const text = editingDraft.value.trim();
-  if (!text) {
-    editError.value = t("chat.error.emptyMessage");
-    return;
-  }
-  const updated = await editMessage(m.id, text);
-  cancelEdit();
-  if (!updated) return;
+function startEdit(m: Message): void {
+  if (m.role !== "user" || m.kind) return;
+  if (lifted.value?.message.id === m.id) return;
+  const previous = lifted.value;
+  // Второй перенос без отмены: первая реплика возвращается в ленту.
+  const draftBefore = previous ? previous.draftBefore : draft.value;
+  lifted.value = { message: m, draftBefore };
+  draft.value = m.content;
   error.value = "";
   notice.value = "";
-  const payload: ComposerPayload = { text, images: [], docs: [] };
-  if (busy.value) {
-    // Правка адресована диалогу своего сообщения, а не тому, что открыт сейчас.
-    await enqueue(payload, false, m.sessionId);
-    return;
-  }
-  await dispatch(payload, false, m.sessionId);
+  if (compact.value) composerOpen.value = true;
+  void nextTick(() => {
+    composerEl.value?.focus();
+    void autoGrow();
+  });
+}
+
+/** Отмена переноса: реплика возвращается в ленту, поле — как было до переноса. */
+function cancelLift(): void {
+  const current = lifted.value;
+  if (!current) return;
+  lifted.value = null;
+  draft.value = current.draftBefore;
+  void autoGrow();
+}
+
+/** Реплика ушла заново — прежнее сообщение из истории и контекста убираем. */
+async function dropLifted(): Promise<void> {
+  const current = lifted.value;
+  if (!current) return;
+  lifted.value = null;
+  await removeMessage(current.message);
 }
 
 async function retry(): Promise<void> {
@@ -1542,6 +1581,7 @@ onMounted(() => {
   window.addEventListener("offline", onOffline);
   window.addEventListener("beforeunload", onBeforeUnload);
   window.addEventListener("pagehide", flushDraft);
+  window.addEventListener("pagehide", restoreLiftOnHide);
   window.addEventListener("pagehide", flushQueue);
   document.addEventListener("visibilitychange", onVisibility);
   // Постоянное хранилище: IndexedDB не должна вычищаться при нехватке места.
@@ -1566,6 +1606,7 @@ onUnmounted(() => {
   window.removeEventListener("offline", onOffline);
   window.removeEventListener("beforeunload", onBeforeUnload);
   window.removeEventListener("pagehide", flushDraft);
+  window.removeEventListener("pagehide", restoreLiftOnHide);
   window.removeEventListener("pagehide", flushQueue);
   document.removeEventListener("visibilitychange", onVisibility);
   threadObserver?.disconnect();
@@ -1899,28 +1940,10 @@ function onRateChange(event: Event): void {
             v-if="m.kind !== 'thought'"
             class="chat-panel__message"
             :class="`chat-panel__message--${m.role}`"
+            @click="onMessageClick($event, m)"
           >
             <span class="chat-panel__role">{{ roleLabel(m) }}</span>
-            <div v-if="editingId === m.id" class="chat-panel__edit">
-              <textarea
-                v-model="editingDraft"
-                class="chat-panel__edit-input"
-                rows="2"
-                :aria-label="t('chat.editMessage')"
-                @keydown="onEditKey($event, m)"
-                @keydown.esc.prevent="cancelEdit"
-              />
-              <p v-if="editError" class="chat-panel__warning" role="alert">{{ editError }}</p>
-              <div class="chat-panel__edit-actions">
-                <button type="button" class="chat-panel__link" @click="cancelEdit">
-                  {{ t("chat.cancel") }}
-                </button>
-                <button type="button" class="chat-panel__link is-primary" @click="commitEdit(m)">
-                  {{ t("chat.send") }}
-                </button>
-              </div>
-            </div>
-            <p v-else-if="m.content" class="chat-panel__content">{{ m.content }}</p>
+            <p v-if="m.content" class="chat-panel__content">{{ m.content }}</p>
             <details v-if="m.edits?.length" class="chat-panel__edits">
               <summary>{{ t("chat.edited") }}</summary>
               <p v-for="(v, i) in m.edits" :key="i" class="chat-panel__content">{{ v }}</p>
@@ -1960,8 +1983,8 @@ function onRateChange(event: Event): void {
                 v-if="m.role === 'user' && !m.kind"
                 type="button"
                 class="chat-panel__action"
-                v-tip="t('chat.editMessage')"
-                :aria-label="t('chat.editMessage')"
+                v-tip="t('chat.liftMessage')"
+                :aria-label="t('chat.liftMessage')"
                 @click="startEdit(m)"
               >
                 <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -2162,6 +2185,13 @@ function onRateChange(event: Event): void {
         </svg>
         <span>{{ t("chat.write") }}</span>
       </button>
+
+      <p v-if="lifted" class="chat-panel__lift" role="status">
+        <span>{{ t("chat.lifted") }}</span>
+        <button type="button" class="chat-panel__link" @click="cancelLift">
+          {{ t("chat.cancel") }}
+        </button>
+      </p>
 
       <form
         v-if="!compact || composerOpen"
@@ -3192,35 +3222,18 @@ function onRateChange(event: Event): void {
   gap: 2px;
 }
 
-/* --- Правка своего сообщения -------------------------------------------- */
-.chat-panel__edit {
+/* --- Реплика, забранная в поле ввода ------------------------------------ */
+.chat-panel__lift {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  width: min(100%, 34rem);
-}
-
-.chat-panel__edit-input {
-  width: 100%;
-  min-height: 42px;
-  padding: 6px 8px;
-  border: 1px solid var(--accent);
-  border-radius: 10px;
-  background: var(--panel);
-  color: var(--text);
-  font: inherit;
-  line-height: 1.4;
-  resize: vertical;
-}
-
-.chat-panel__edit-actions {
-  display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
-}
-
-.chat-panel__link.is-primary {
-  font-weight: 600;
+  margin: 0;
+  padding: 4px 8px;
+  border: 1px dashed var(--accent);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 0.72rem;
 }
 
 .chat-panel__edits {

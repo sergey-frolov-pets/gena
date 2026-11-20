@@ -72,6 +72,8 @@ export const chatMessages = {
   "chat.attachIncomingError": "Не удалось загрузить изображение от агента",
   "chat.error.noPrompt": "Нечего повторять: в диалоге нет реплики пользователя",
   "chat.editMessage": "Изменить сообщение",
+  "chat.liftMessage": "Забрать в поле ввода",
+  "chat.lifted": "Реплика в поле ввода: отправка создаст новое сообщение.",
   "chat.edited": "изменено · прежние версии",
   "chat.queue.title": "В очереди: {count}",
   "chat.queue.attachment": "вложение",

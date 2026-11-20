@@ -270,6 +270,28 @@ export async function editMessage(
 }
 
 /**
+ * Убрать одно сообщение из истории.
+ * Нужно, когда реплику забрали в поле ввода и отправили заново — новым
+ * сообщением, без прежнего дубля в контексте агента.
+ */
+export async function removeMessage(message: Message): Promise<void> {
+  await deleteMessage(message.id);
+
+  const session = sessions.value.find((s) => s.id === message.sessionId);
+  if (session) {
+    session.messageCount = Math.max(0, session.messageCount - 1);
+    session.updatedAt = Date.now();
+    // `sessions` хранит реактивные прокси: IndexedDB не умеет их клонировать.
+    await putSession(toRaw(session));
+    await loadSessions();
+  }
+
+  if (activeSessionId.value === message.sessionId) {
+    messages.value = messages.value.filter((m) => m.id !== message.id);
+  }
+}
+
+/**
  * Удалить сообщение и все следующие за ним в сессии.
  * Нужно для «Повторить ответ»: хвост диалога пересобирается заново.
  */

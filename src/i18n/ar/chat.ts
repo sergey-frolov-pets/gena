@@ -72,6 +72,8 @@ export const chatMessages = {
   "chat.attachIncomingError": "تعذّر تحميل الصورة من الوكيل",
   "chat.error.noPrompt": "لا يوجد ما يُعاد توليده: لا توجد رسالة من المستخدم في المحادثة",
   "chat.editMessage": "تعديل الرسالة",
+  "chat.liftMessage": "نقل إلى حقل الإدخال",
+  "chat.lifted": "الرسالة في حقل الإدخال: الإرسال سينشئ رسالة جديدة.",
   "chat.edited": "مُعدّلة · إصدارات سابقة",
   "chat.queue.title": "في الانتظار: {count}",
   "chat.queue.attachment": "مرفق",

@@ -72,6 +72,8 @@ export const chatMessages = {
   "chat.attachIncomingError": "エージェントからの画像を読み込めませんでした",
   "chat.error.noPrompt": "再生成できません: 会話にユーザーのメッセージがありません",
   "chat.editMessage": "メッセージを編集",
+  "chat.liftMessage": "入力欄に移す",
+  "chat.lifted": "入力欄に移動しました。送信すると新しいメッセージになります。",
   "chat.edited": "編集済み · 以前の版",
   "chat.queue.title": "キュー: {count}",
   "chat.queue.attachment": "添付ファイル",

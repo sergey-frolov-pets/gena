@@ -72,6 +72,8 @@ export const chatMessages = {
   "chat.attachIncomingError": "एजेंट से छवि लोड नहीं हो सकी",
   "chat.error.noPrompt": "दोबारा बनाने के लिए कुछ नहीं: बातचीत में उपयोगकर्ता का संदेश नहीं है",
   "chat.editMessage": "संदेश संपादित करें",
+  "chat.liftMessage": "इनपुट में ले जाएँ",
+  "chat.lifted": "संदेश इनपुट में है: भेजने पर नया संदेश बनेगा।",
   "chat.edited": "संपादित · पिछले संस्करण",
   "chat.queue.title": "कतार में: {count}",
   "chat.queue.attachment": "अनुलग्नक",

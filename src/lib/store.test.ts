@@ -13,6 +13,7 @@ import {
   loadMessages,
   messages,
   pinSession,
+  removeMessage,
   renameSession,
   sessions,
 } from "./store";
@@ -79,6 +80,19 @@ describe("store: сессия и сообщения", () => {
 
     expect(await listMessages(first.id)).toEqual([]);
     expect((await listMessages(second.id)).map((m) => m.content)).toEqual(["другое"]);
+  });
+
+  it("removeMessage убирает реплику из истории и выравнивает счётчик диалога", async () => {
+    const session = await createSession("agent-store-6", "Диалог");
+    await loadMessages(session.id);
+    await appendMessage(session.id, "user", "первая");
+    const dropped = await appendMessage(session.id, "user", "вторая");
+
+    await removeMessage(dropped);
+
+    expect(messages.value.map((m) => m.content)).toEqual(["первая"]);
+    expect((await listMessages(session.id)).map((m) => m.content)).toEqual(["первая"]);
+    expect(sessions.value.find((s) => s.id === session.id)?.messageCount).toBe(1);
   });
 
   it("clearMessages закрывает диалог и не даёт дочитать его историю", async () => {

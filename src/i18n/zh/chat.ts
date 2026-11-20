@@ -72,6 +72,8 @@ export const chatMessages = {
   "chat.attachIncomingError": "无法加载代理发送的图片",
   "chat.error.noPrompt": "无法重新生成：对话中没有用户消息",
   "chat.editMessage": "编辑消息",
+  "chat.liftMessage": "移入输入框",
+  "chat.lifted": "消息已移入输入框：发送将创建新消息。",
   "chat.edited": "已编辑 · 历史版本",
   "chat.queue.title": "队列：{count}",
   "chat.queue.attachment": "附件",

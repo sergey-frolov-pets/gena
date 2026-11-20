@@ -72,6 +72,8 @@ export const chatMessages = {
   "chat.attachIncomingError": "Bild vom Agenten konnte nicht geladen werden",
   "chat.error.noPrompt": "Nichts zu wiederholen: im Dialog gibt es keine Nutzernachricht",
   "chat.editMessage": "Nachricht bearbeiten",
+  "chat.liftMessage": "Ins Eingabefeld holen",
+  "chat.lifted": "Nachricht im Eingabefeld: Senden erstellt eine neue Nachricht.",
   "chat.edited": "bearbeitet · frühere Versionen",
   "chat.queue.title": "In der Warteschlange: {count}",
   "chat.queue.attachment": "Anhang",
