@@ -5,6 +5,7 @@ export const chatMessages = {
   "chat.selectAgent": "— auswählen —",
   "chat.newDialog": "Neuer Dialog",
   "chat.dialogs": "Dialoge",
+  "chat.sessionName": "Dialogname",
   "chat.selectOrCreate": "Dialog auswählen oder erstellen",
   "chat.messagesEmpty": "Noch keine Nachrichten.",
   "chat.composerPlaceholder": "Nachricht… (Strg+Enter zum Senden)",

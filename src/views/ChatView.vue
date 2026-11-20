@@ -65,6 +65,7 @@ import {
   type StepOpenMap,
 } from "@/lib/turns";
 import ConfirmModal from "@/components/ConfirmModal.vue";
+import TextModal from "@/components/TextModal.vue";
 
 const { t } = useLocale();
 
@@ -86,6 +87,9 @@ const streamingText = ref("");
 const streamSessionId = ref<string | null>(null);
 /** Контейнер сообщений — для автоскролла. */
 const messagesEl = ref<HTMLElement | null>(null);
+/** Обёртка контента: её рост (картинки, шаги) возвращает нас к низу. */
+const threadEl = ref<HTMLElement | null>(null);
+let threadObserver: ResizeObserver | null = null;
 /** Поле ввода — чтобы вернуть фокус после отправки. */
 const composerEl = ref<HTMLTextAreaElement | null>(null);
 /** Шит истории диалогов (как в AiChatPanel). */
@@ -254,10 +258,41 @@ const busySessionIds = computed<Set<string>>(() => {
 /** Пользователь у нижней границы диалога — новые сообщения можно подтягивать. */
 const stickBottom = ref(true);
 
+function nearBottom(el: HTMLElement): boolean {
+  return el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+}
+
 function onMessagesScroll(): void {
   const el = messagesEl.value;
   if (!el) return;
-  stickBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+  stickBottom.value = nearBottom(el);
+}
+
+/** Полное название диалога для модалки (обрезанный заголовок не прочитать). */
+const titleShown = ref("");
+/** До какого времени гасим click после долгого тапа. */
+let pressGuardUntil = 0;
+
+function showTitle(title: string): void {
+  titleShown.value = title || t("chat.newDialog");
+  pressGuardUntil = Date.now() + 700;
+}
+
+/** true — этот click пришёл сразу после долгого тапа, действие не нужно. */
+function clickAfterLongPress(): boolean {
+  if (Date.now() >= pressGuardUntil) return false;
+  pressGuardUntil = 0;
+  return true;
+}
+
+function onTitleClick(): void {
+  if (clickAfterLongPress()) return;
+  startRename();
+}
+
+function onTabClick(id: string): void {
+  if (clickAfterLongPress()) return;
+  void openSession(id);
 }
 
 /** Диалог, у которого подтверждаем удаление. */
@@ -342,14 +377,30 @@ async function refreshUsage(): Promise<void> {
 watch([agentId, activeSessionId, agents], refreshUsage, { immediate: true });
 
 async function scrollToBottom(force = false): Promise<void> {
+  if (force) stickBottom.value = true;
   await nextTick();
   const el = messagesEl.value;
-  if (!el || (!force && !stickBottom.value)) return;
+  if (!el || !stickBottom.value) return;
   el.scrollTop = el.scrollHeight;
   stickBottom.value = true;
 }
+
+/**
+ * Догнать низ после смены раскладки: клавиатура, шрифты, картинки,
+ * раскрытые шаги. Несколько кадров — высота контента успевает измениться.
+ */
+async function settleToBottom(): Promise<void> {
+  for (let i = 0; i < 4; i += 1) {
+    await nextTick();
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    const el = messagesEl.value;
+    if (!el || !stickBottom.value) return;
+    el.scrollTop = el.scrollHeight;
+  }
+}
+
 // Появление сообщений и стрим подтягиваем только если читатель у нижней границы.
-watch([messages, streamingText, typing], () => void scrollToBottom(), { flush: "post" });
+watch([messages, streamingText, typing], () => void settleToBottom(), { flush: "post" });
 
 /** Растущее поле ввода, как в AiChatPanel (до 4 строк). */
 async function autoGrow(): Promise<void> {
@@ -374,11 +425,14 @@ function newSession(): void {
 
 async function openSession(id: string): Promise<void> {
   stopDictation();
+  // Диалог всегда открываем с конца: прошлые «листания вверх» не переносим.
+  stickBottom.value = true;
   await loadMessages(id);
   rememberTab(id);
   historyOpen.value = false;
   // Открываем диалог на последних сообщениях, а не на первых.
   await scrollToBottom(true);
+  void settleToBottom();
 }
 
 /** Последний агент запоминается, чтобы после перезагрузки открыть его диалог. */
@@ -409,7 +463,11 @@ async function openLastSession(forAgent = agentId.value): Promise<void> {
     return;
   }
   const last = [...list].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+  stickBottom.value = true;
   await loadMessages(last.id);
+  // После перезагрузки и смены агента диалог тоже открывается с конца.
+  await scrollToBottom(true);
+  void settleToBottom();
 }
 
 // Агент выбран (вручную или автоматически) — поднимаем его последний диалог.
@@ -421,8 +479,11 @@ watch(agentId, async (id) => {
 });
 
 // Открытый диалог попадает в полоску вкладок над чатом.
+// Смена диалога — читаем с конца, даже если в прошлом листали вверх.
 watch(activeSessionId, (id) => {
+  stickBottom.value = true;
   if (id) rememberTab(id);
+  void scrollToBottom(true);
 });
 
 // Один агент в списке — выбираем сразу, чтобы можно было писать без настройки.
@@ -989,15 +1050,23 @@ onMounted(() => {
   syncViewport();
   // Вернулись на вкладку чата — показываем конец диалога, а не начало.
   void scrollToBottom(true);
+  void settleToBottom();
   window.visualViewport?.addEventListener("resize", syncViewport);
   window.visualViewport?.addEventListener("scroll", syncViewport);
   window.addEventListener("resize", syncViewport);
+  // Контент вырос (картинки, раскрытые шаги, стрим) — держим низ, если читатель там.
+  if (typeof ResizeObserver !== "undefined") {
+    threadObserver = new ResizeObserver(() => void settleToBottom());
+    if (threadEl.value) threadObserver.observe(threadEl.value);
+  }
 });
 
 onUnmounted(() => {
   window.visualViewport?.removeEventListener("resize", syncViewport);
   window.visualViewport?.removeEventListener("scroll", syncViewport);
   window.removeEventListener("resize", syncViewport);
+  threadObserver?.disconnect();
+  threadObserver = null;
   document.documentElement.style.removeProperty("--app-vvh");
   abortCtrl.value?.abort();
 });
@@ -1041,7 +1110,8 @@ function onRateChange(event: Event): void {
         class="chat-panel__title"
         type="button"
         :aria-label="activeSession?.title || t('chat.selectOrCreate')"
-        @click="startRename"
+        v-longpress="() => showTitle(activeSession?.title || '')"
+        @click="onTitleClick"
       >
         <span class="chat-panel__title-text">
           {{ activeSession?.title || t("chat.newDialog") }}
@@ -1153,7 +1223,8 @@ function onRateChange(event: Event): void {
           class="chat-panel__tab-open"
           :aria-current="s.id === activeSessionId ? 'true' : undefined"
           :title="s.title"
-          @click="openSession(s.id)"
+          v-longpress="() => showTitle(s.title)"
+          @click="onTabClick(s.id)"
         >
           <span v-if="busySessionIds.has(s.id)" class="chat-panel__busy-dot" aria-hidden="true" />
           <span class="chat-panel__tab-title">{{ s.title }}</span>
@@ -1219,7 +1290,12 @@ function onRateChange(event: Event): void {
               'is-busy': busySessionIds.has(s.id),
             }"
           >
-            <button class="chat-panel__session-open" type="button" @click="openSession(s.id)">
+            <button
+              class="chat-panel__session-open"
+              type="button"
+              v-longpress="() => showTitle(s.title)"
+              @click="onTabClick(s.id)"
+            >
               <span class="chat-panel__session-title">
                 <span
                   v-if="busySessionIds.has(s.id)"
@@ -1281,6 +1357,7 @@ function onRateChange(event: Event): void {
         @dragover.prevent
         @drop.prevent="onDrop"
       >
+        <div ref="threadEl" class="chat-panel__thread">
         <template v-for="(m, index) in messages" :key="m.id">
           <details
             v-if="m.kind === 'thought'"
@@ -1545,6 +1622,7 @@ function onRateChange(event: Event): void {
           </div>
         </div>
         <p v-if="liveTyping" class="chat-panel__thinking">{{ typingLabel }}</p>
+        </div>
       </div>
     </div>
 
@@ -1740,6 +1818,14 @@ function onRateChange(event: Event): void {
     >
       <img :src="lightbox" alt="" />
     </div>
+
+    <TextModal
+      :open="Boolean(titleShown)"
+      :title="t('chat.sessionName')"
+      :text="titleShown"
+      :close-label="t('chat.close')"
+      @close="titleShown = ''"
+    />
 
     <ConfirmModal
       :open="Boolean(confirmDeleteSession)"
@@ -2155,11 +2241,16 @@ function onRateChange(event: Event): void {
 .chat-panel__messages {
   flex: 1 1 auto;
   min-height: 0;
+  padding: 8px 8px 0;
+  overflow-y: auto;
+}
+
+/* Обёртка нужна ResizeObserver: рост контента возвращает читателя к низу. */
+.chat-panel__thread {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 8px 8px 0;
-  overflow-y: auto;
+  min-height: 100%;
 }
 
 /* --- Пузыри: как .ai-chat-panel__message --------------------------------- */
