@@ -23,6 +23,8 @@ export const chatMessages = {
   "chat.typing": "agent is typing…",
   "chat.thought": "Reasoning",
   "chat.toolCalls": "Tool calls",
+  "chat.steps.show": "Show {count} steps",
+  "chat.steps.hide": "Hide {count} steps",
   "chat.stop": "Stop",
   "chat.retry": "Retry",
   "chat.rename": "Rename",

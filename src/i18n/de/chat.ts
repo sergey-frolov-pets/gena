@@ -23,6 +23,8 @@ export const chatMessages = {
   "chat.typing": "Agent schreibt…",
   "chat.thought": "Überlegung",
   "chat.toolCalls": "Tool-Aufrufe",
+  "chat.steps.show": "Schritte anzeigen ({count})",
+  "chat.steps.hide": "Schritte ausblenden ({count})",
   "chat.stop": "Stopp",
   "chat.retry": "Erneut versuchen",
   "chat.rename": "Umbenennen",

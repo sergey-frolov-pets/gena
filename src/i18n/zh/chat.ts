@@ -23,6 +23,8 @@ export const chatMessages = {
   "chat.typing": "智能体正在输入…",
   "chat.thought": "推理",
   "chat.toolCalls": "工具调用",
+  "chat.steps.show": "显示步骤（{count}）",
+  "chat.steps.hide": "收起步骤（{count}）",
   "chat.stop": "停止",
   "chat.retry": "重试",
   "chat.rename": "重命名",

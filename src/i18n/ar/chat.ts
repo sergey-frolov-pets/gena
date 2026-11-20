@@ -23,6 +23,8 @@ export const chatMessages = {
   "chat.typing": "الوكيل يكتب…",
   "chat.thought": "التفكير",
   "chat.toolCalls": "استدعاءات الأدوات",
+  "chat.steps.show": "إظهار الخطوات ({count})",
+  "chat.steps.hide": "إخفاء الخطوات ({count})",
   "chat.stop": "إيقاف",
   "chat.retry": "إعادة المحاولة",
   "chat.rename": "إعادة تسمية",

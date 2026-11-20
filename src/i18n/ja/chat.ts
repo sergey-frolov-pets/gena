@@ -23,6 +23,8 @@ export const chatMessages = {
   "chat.typing": "エージェントが入力中…",
   "chat.thought": "思考",
   "chat.toolCalls": "ツール呼び出し",
+  "chat.steps.show": "ステップを表示（{count}）",
+  "chat.steps.hide": "ステップを閉じる（{count}）",
   "chat.stop": "停止",
   "chat.retry": "再試行",
   "chat.rename": "名前を変更",

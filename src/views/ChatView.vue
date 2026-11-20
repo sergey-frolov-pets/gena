@@ -56,6 +56,14 @@ import {
 import type { Agent, Message, MessageAttachment, Session } from "@/storage/types";
 import { ImageError, prepareImage, type PreparedImage } from "@/lib/images";
 import { attachmentFromBlobUrl, fetchMediaBlob, getCachedMedia } from "@/lib/media";
+import {
+  anyStepOpen,
+  collectTrailingSteps,
+  collectTurnSteps,
+  setStepOpen,
+  setStepsOpen,
+  type StepOpenMap,
+} from "@/lib/turns";
 import ConfirmModal from "@/components/ConfirmModal.vue";
 
 const { t } = useLocale();
@@ -127,6 +135,41 @@ const immediate = ref<QueuedMessage | null>(null);
 const editingId = ref("");
 const editingDraft = ref("");
 const editError = ref("");
+/**
+ * Раскрытые шаги хода (мысль / вызовы инструментов). По умолчанию всё свёрнуто,
+ * состояние живёт до перезагрузки — кнопка в облачке ответа переключает шаги хода.
+ */
+const stepOpen = ref<StepOpenMap>({});
+
+/** Шаги, относящиеся к ответу с индексом `index` в ленте. */
+function turnSteps(index: number): Message[] {
+  return collectTurnSteps(messages.value, index);
+}
+
+/** Развёрнут ли хотя бы один шаг этого ответа. */
+function turnExpanded(index: number): boolean {
+  return anyStepOpen(stepOpen.value, turnSteps(index));
+}
+
+/** Свернуть/развернуть все шаги ответа одной кнопкой. */
+function toggleTurn(index: number): void {
+  stepOpen.value = setStepsOpen(stepOpen.value, turnSteps(index), !turnExpanded(index));
+}
+
+/** Шаги текущего (ещё не завершённого) хода — те, что идут в конце ленты. */
+const liveSteps = computed<Message[]>(() => collectTrailingSteps(messages.value));
+const liveStepsExpanded = computed<boolean>(() => anyStepOpen(stepOpen.value, liveSteps.value));
+
+function toggleLiveSteps(): void {
+  stepOpen.value = setStepsOpen(stepOpen.value, liveSteps.value, !liveStepsExpanded.value);
+}
+
+/** Ручное раскрытие одного облачка шага подхватываем в общее состояние. */
+function onStepToggle(id: string, event: Event): void {
+  const open = (event.target as HTMLDetailsElement).open;
+  if (open === (stepOpen.value[id] === true)) return;
+  stepOpen.value = setStepOpen(stepOpen.value, id, open);
+}
 
 const agentSessions = computed<Session[]>(() =>
   sessions.value.filter((s) => !agentId.value || s.agentId === agentId.value),
@@ -1106,11 +1149,21 @@ function onRateChange(event: Event): void {
         @drop.prevent="onDrop"
       >
         <template v-for="(m, index) in messages" :key="m.id">
-          <details v-if="m.kind === 'thought'" class="chat-panel__aux">
+          <details
+            v-if="m.kind === 'thought'"
+            class="chat-panel__aux"
+            :open="stepOpen[m.id] === true"
+            @toggle="onStepToggle(m.id, $event)"
+          >
             <summary>{{ t("chat.thought") }}</summary>
             <div class="chat-panel__content">{{ m.content }}</div>
           </details>
-          <details v-else-if="m.kind === 'tool_calls'" class="chat-panel__aux">
+          <details
+            v-else-if="m.kind === 'tool_calls'"
+            class="chat-panel__aux"
+            :open="stepOpen[m.id] === true"
+            @toggle="onStepToggle(m.id, $event)"
+          >
             <summary>{{ t("chat.toolCalls") }}</summary>
             <div class="chat-panel__content">{{ m.content }}</div>
           </details>
@@ -1172,6 +1225,54 @@ function onRateChange(event: Event): void {
               </span>
             </div>
             <div class="chat-panel__message-actions">
+              <button
+                v-if="m.role === 'assistant' && !m.kind && turnSteps(index).length"
+                type="button"
+                class="chat-panel__action chat-panel__action--steps"
+                :class="{ 'is-on': turnExpanded(index) }"
+                v-tip="
+                  turnExpanded(index)
+                    ? t('chat.steps.hide', { count: turnSteps(index).length })
+                    : t('chat.steps.show', { count: turnSteps(index).length })
+                "
+                :aria-label="
+                  turnExpanded(index)
+                    ? t('chat.steps.hide', { count: turnSteps(index).length })
+                    : t('chat.steps.show', { count: turnSteps(index).length })
+                "
+                :aria-expanded="turnExpanded(index)"
+                @click="toggleTurn(index)"
+              >
+                <svg
+                  v-if="turnExpanded(index)"
+                  viewBox="0 0 24 24"
+                  width="15"
+                  height="15"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="m6 15 6-6 6 6" />
+                </svg>
+                <svg
+                  v-else
+                  viewBox="0 0 24 24"
+                  width="15"
+                  height="15"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+                <span class="chat-panel__action-count">{{ turnSteps(index).length }}</span>
+              </button>
               <button
                 v-if="m.role === 'user' && !m.kind"
                 type="button"
@@ -1240,6 +1341,55 @@ function onRateChange(event: Event): void {
         >
           <span class="chat-panel__role">{{ t("chat.role.assistant") }}</span>
           <p class="chat-panel__content">{{ liveStreaming }}</p>
+          <div v-if="liveSteps.length" class="chat-panel__message-actions">
+            <button
+              type="button"
+              class="chat-panel__action chat-panel__action--steps"
+              :class="{ 'is-on': liveStepsExpanded }"
+              v-tip="
+                liveStepsExpanded
+                  ? t('chat.steps.hide', { count: liveSteps.length })
+                  : t('chat.steps.show', { count: liveSteps.length })
+              "
+              :aria-label="
+                liveStepsExpanded
+                  ? t('chat.steps.hide', { count: liveSteps.length })
+                  : t('chat.steps.show', { count: liveSteps.length })
+              "
+              :aria-expanded="liveStepsExpanded"
+              @click="toggleLiveSteps"
+            >
+              <svg
+                v-if="liveStepsExpanded"
+                viewBox="0 0 24 24"
+                width="15"
+                height="15"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="m6 15 6-6 6 6" />
+              </svg>
+              <svg
+                v-else
+                viewBox="0 0 24 24"
+                width="15"
+                height="15"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+              <span class="chat-panel__action-count">{{ liveSteps.length }}</span>
+            </button>
+          </div>
         </article>
 
         <div
@@ -1845,6 +1995,19 @@ function onRateChange(event: Event): void {
 .chat-panel__action.is-on {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+/* Кнопка шагов хода: иконка-шеврон + счётчик шагов. */
+.chat-panel__action--steps {
+  width: auto;
+  gap: 2px;
+  padding: 0 5px;
+}
+
+.chat-panel__action-count {
+  font-size: 0.68rem;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
 .chat-panel__aux {

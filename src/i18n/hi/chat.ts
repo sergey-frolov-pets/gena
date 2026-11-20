@@ -23,6 +23,8 @@ export const chatMessages = {
   "chat.typing": "एजेंट लिख रहा है…",
   "chat.thought": "विचार",
   "chat.toolCalls": "टूल कॉल",
+  "chat.steps.show": "चरण दिखाएँ ({count})",
+  "chat.steps.hide": "चरण छिपाएँ ({count})",
   "chat.stop": "रोकें",
   "chat.retry": "पुनः प्रयास",
   "chat.rename": "नाम बदलें",
