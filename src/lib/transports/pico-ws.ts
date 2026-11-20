@@ -37,6 +37,24 @@ const IDLE_TIMEOUT_MS = 15 * 60_000;
 const HARD_TIMEOUT_MS = 45 * 60_000;
 const CONNECT_ATTEMPTS = 3;
 const CONNECT_BACKOFF_MS = 1_000;
+/** Сколько ждём открытия WebSocket, прежде чем повторить подключение. */
+const CONNECT_TIMEOUT_MS = 15_000;
+
+function withTimeout<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
 
 /** Один финальный ответ (сообщение или его стрим-обновление). */
 interface FinalFrame {
@@ -103,6 +121,8 @@ export function makePicoTransport(ctor?: PicoSocketCtor): AgentTransport {
         let settled = false;
         let quietTimer: ReturnType<typeof setTimeout> | null = null;
         let idleTimer: ReturnType<typeof setTimeout> | null = null;
+        /** Соединение реально открылось — до этого close не считается концом хода. */
+        let opened = false;
         /** Шаги хода, уже отданные наверх — обновления по ним не дублируем. */
         const seenAux = new Set<string>();
 
@@ -257,7 +277,7 @@ export function makePicoTransport(ctor?: PicoSocketCtor): AgentTransport {
             setFinal(id, str(payload.content), parseIncomingAttachments(payload.attachments));
           },
           onClose() {
-            if (settled) {
+            if (settled || !opened) {
               return;
             }
             if (reply !== null) {
@@ -278,7 +298,12 @@ export function makePicoTransport(ctor?: PicoSocketCtor): AgentTransport {
               return;
             }
             try {
-              await conn.connect(url, req.apiKey);
+              await withTimeout(
+                conn.connect(url, req.apiKey),
+                CONNECT_TIMEOUT_MS,
+                "WebSocket connect timeout",
+              );
+              opened = true;
               conn.send({
                 type: "message.send",
                 id: requestId,
@@ -291,6 +316,7 @@ export function makePicoTransport(ctor?: PicoSocketCtor): AgentTransport {
               return;
             } catch (err) {
               lastErr = err;
+              conn.close();
               if (attempt < maxAttempts - 1) {
                 await delay(CONNECT_BACKOFF_MS * 2 ** attempt);
               }

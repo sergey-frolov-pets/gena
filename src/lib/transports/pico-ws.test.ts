@@ -216,6 +216,22 @@ describe("pico-ws transport", () => {
     await assertion;
   });
 
+  it("закрытие до open — повторное подключение, а не мгновенная ошибка", async () => {
+    const transport = makePicoTransport(ctor);
+    const p = transport.send(req(), {});
+    const first = FakeWebSocket.instances.at(-1)!;
+    first.emit("close");
+    await vi.advanceTimersByTimeAsync(1000);
+
+    const second = FakeWebSocket.instances.at(-1)!;
+    expect(second).not.toBe(first);
+    second.emit("open");
+    await vi.advanceTimersByTimeAsync(0);
+    second.frame({ type: "message.create", payload: { content: "ok", message_id: "m1" } });
+    await vi.advanceTimersByTimeAsync(QUIET);
+    await expect(p).resolves.toEqual({ reply: "ok" });
+  });
+
   it("abort → network/aborted", async () => {
     const ac = new AbortController();
     const transport = makePicoTransport(ctor);

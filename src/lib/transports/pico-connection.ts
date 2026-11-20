@@ -76,8 +76,18 @@ export class PicoConnection {
         reject(new Error(msg));
       };
 
+      // Браузер может закрыть соединение без события error — не ждём вечно.
+      const onEarlyClose = () => {
+        if (settled) return;
+        settled = true;
+        socket.removeEventListener("open", onOpen);
+        socket.removeEventListener("error", onError);
+        reject(new Error("WebSocket closed before open"));
+      };
+
       socket.addEventListener("open", onOpen);
       socket.addEventListener("error", onError);
+      socket.addEventListener("close", onEarlyClose);
       socket.addEventListener("message", (ev: unknown) => {
         const raw = (ev as { data?: unknown } | null)?.data;
         let frame: PicoFrame;
