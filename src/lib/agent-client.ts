@@ -9,6 +9,7 @@
 import type { Agent, AgentSettings, Message } from "@/storage/types";
 import { getTransport, type TransportEvents } from "./transports";
 import type { TransportAttachment } from "./transports/types";
+import type { CancelResult } from "./transports/types";
 import { trimHistory } from "./transports/history";
 
 export interface AgentRequest {
@@ -68,6 +69,8 @@ export interface ListenRequest {
   history?: Message[];
   signal: AbortSignal;
   events?: TransportEvents;
+  /** С какого момента (Unix-мс) просить пропущенные кадры хода (`turn.resume`). */
+  since?: number;
 }
 
 /**
@@ -94,8 +97,28 @@ export async function listenToAgent(
       message: "",
       history: request.history ?? [],
       signal: request.signal,
+      resumeSince: request.since,
       fetchImpl: fetch,
     },
     request.events ?? {},
   );
+}
+
+/**
+ * Попросить агента остановить идущий ход.
+ *
+ * Для `pico_ws` это кадр `cancel`: без него закрытие сокета не останавливает
+ * генерацию — модель продолжает считаться и тратить токены.
+ * Транспорты без поддержки возвращают `accepted: false`.
+ */
+export async function cancelAgentTurn(
+  agent: Agent,
+  apiKey: string,
+  sessionId: string,
+): Promise<CancelResult> {
+  const transport = getTransport(agent);
+  if (!transport.cancel) {
+    return { accepted: false, reason: "unsupported" };
+  }
+  return transport.cancel({ agent, apiKey, sessionId });
 }

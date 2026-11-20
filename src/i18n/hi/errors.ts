@@ -21,6 +21,7 @@ export const errorsMessages = {
   "errors.ws.connect": "WebSocket से एजेंट से कनेक्ट नहीं हो सका। पता, टोकन और wss:// का उपयोग जाँचें।",
   "errors.ws.closed": "उत्तर मिलने से पहले एजेंट से कनेक्शन बंद हो गया।",
   "errors.ws.timeout": "एजेंट ने समय पर उत्तर नहीं दिया।",
+  "errors.ws.noActiveTurn": "सर्वर पर यह चरण पहले ही समाप्त हो चुका है — कोई उत्तर नहीं।",
   "errors.ws.picoError": "एजेंट त्रुटि: {detail}",
   "errors.openai.empty": "एजेंट ने खाली या अप्रत्याशित उत्तर दिया।",
   "errors.openai.error": "एजेंट त्रुटि: {detail}",

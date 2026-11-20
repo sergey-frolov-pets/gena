@@ -36,6 +36,7 @@ export const chatMessages = {
   "chat.steps.show": "显示步骤（{count}）",
   "chat.steps.hide": "收起步骤（{count}）",
   "chat.stop": "停止",
+  "chat.stopped": "已停止",
   "chat.jumpTop": "回到开头",
   "chat.jumpEnd": "回到最新",
   "chat.retry": "重试",

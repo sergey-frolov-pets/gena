@@ -416,3 +416,134 @@ describe("pico-ws transport", () => {
     await expect(p).resolves.toMatchObject({ reply: "итог" });
   });
 });
+
+describe("pico-ws: cancel и turn.resume", () => {
+  beforeEach(() => {
+    FakeWebSocket.instances = [];
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("Стоп шлёт cancel в открытый сокет и возвращает accepted", async () => {
+    const { p, ws } = await connect();
+    ws.frame({ type: "typing.start" });
+
+    const transport = makePicoTransport(ctor);
+    const promise = transport.cancel!({ agent: agent(), apiKey: "secret", sessionId: "ses1" });
+    await vi.advanceTimersByTimeAsync(0);
+
+    const frame = ws.sent.map((raw) => JSON.parse(raw)).find((item) => item.type === "cancel");
+    expect(frame).toBeTruthy();
+    expect(frame.payload).toEqual({});
+
+    ws.frame({
+      type: "cancel",
+      id: frame.id,
+      payload: { request_id: frame.id, accepted: true, reason: "cancel_requested" },
+    });
+    await expect(promise).resolves.toEqual({ accepted: true, reason: "cancel_requested" });
+
+    // Сервер прекратил ход — кадров больше не будет, соединение закрывается.
+    ws.frame({ type: "typing.stop" });
+    ws.emit("close");
+    await expect(p).rejects.toMatchObject({ code: "ws_closed" });
+  });
+
+  it("нет активного соединения — cancel честно говорит no_active_turn", async () => {
+    const transport = makePicoTransport(ctor);
+    await expect(
+      transport.cancel!({ agent: agent(), apiKey: "secret", sessionId: "ses1" }),
+    ).resolves.toEqual({ accepted: false, reason: "no_active_turn" });
+  });
+
+  it("без подтверждения cancel отвечает timeout, а не висит", async () => {
+    const { p, ws } = await connect();
+    const guard = p.catch(() => undefined);
+    const transport = makePicoTransport(ctor);
+    const promise = transport.cancel!({ agent: agent(), apiKey: "secret", sessionId: "ses1" });
+    await vi.advanceTimersByTimeAsync(3_000);
+    await expect(promise).resolves.toEqual({ accepted: false, reason: "timeout" });
+    ws.emit("close");
+    await guard;
+  });
+
+  it("listen с since просит turn.resume и применяет пропущенные кадры", async () => {
+    const transport = makePicoTransport(ctor);
+    const states: Array<{ active: boolean; frames: number }> = [];
+    const p = transport.listen!(req({ resumeSince: 1_700_000_000_000 }), {
+      onTurnState: (state) => states.push(state),
+    });
+    const ws = FakeWebSocket.instances.at(-1)!;
+    ws.emit("open");
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(ws.sent).toHaveLength(1);
+    const ask = JSON.parse(ws.sent[0]);
+    expect(ask.type).toBe("turn.resume");
+    expect(ask.payload).toMatchObject({ since: 1_700_000_000_000, limit: 200 });
+
+    ws.frame({
+      type: "turn.resume",
+      id: ask.id,
+      payload: {
+        since: 1_700_000_000_000,
+        active: false,
+        returned: 2,
+        frames: [
+          {
+            type: "message.create",
+            payload: { kind: "thought", content: "думаю", message_id: "th1" },
+          },
+          { type: "message.create", payload: { content: "ответ из буфера", message_id: "m11" } },
+        ],
+      },
+    });
+    await vi.advanceTimersByTimeAsync(QUIET);
+    await expect(p).resolves.toMatchObject({ reply: "ответ из буфера", serverId: "m11" });
+    expect(states).toEqual([{ active: false, frames: 2 }]);
+  });
+
+  it("turn.resume: ход закончился без ответа → no_active_turn (реплику повторяем)", async () => {
+    const transport = makePicoTransport(ctor);
+    const p = transport.listen!(req({ resumeSince: 1_700_000_000_000 }), {});
+    const ws = FakeWebSocket.instances.at(-1)!;
+    ws.emit("open");
+    await vi.advanceTimersByTimeAsync(0);
+
+    const ask = JSON.parse(ws.sent[0]);
+    const assertion = expect(p).rejects.toMatchObject({ code: "no_active_turn" });
+    ws.frame({
+      type: "turn.resume",
+      id: ask.id,
+      payload: { since: 1_700_000_000_000, active: false, returned: 0, frames: [] },
+    });
+    await assertion;
+  });
+
+  it("turn.resume: active=true — продолжаем слушать, а не сдаёмся", async () => {
+    const transport = makePicoTransport(ctor);
+    const states: Array<{ active: boolean; frames: number }> = [];
+    const p = transport.listen!(req({ resumeSince: 1_700_000_000_000 }), {
+      onTurnState: (state) => states.push(state),
+    });
+    const ws = FakeWebSocket.instances.at(-1)!;
+    ws.emit("open");
+    await vi.advanceTimersByTimeAsync(0);
+
+    const ask = JSON.parse(ws.sent[0]);
+    ws.frame({
+      type: "turn.resume",
+      id: ask.id,
+      payload: { since: 1_700_000_000_000, active: true, returned: 0, frames: [] },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(states).toEqual([{ active: true, frames: 0 }]);
+
+    ws.frame({ type: "message.create", payload: { content: "живой ответ", message_id: "m12" } });
+    await vi.advanceTimersByTimeAsync(QUIET);
+    await expect(p).resolves.toMatchObject({ reply: "живой ответ" });
+  });
+});

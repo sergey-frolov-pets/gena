@@ -21,6 +21,7 @@ export const errorsMessages = {
   "errors.ws.connect": "Não foi possível conectar ao agente via WebSocket. Verifique o endereço, o token e se usa wss://.",
   "errors.ws.closed": "A conexão com o agente fechou antes de receber uma resposta.",
   "errors.ws.timeout": "O agente não respondeu a tempo.",
+  "errors.ws.noActiveTurn": "O turno no servidor já terminou — não há resposta.",
   "errors.ws.picoError": "Erro do agente: {detail}",
   "errors.openai.empty": "O agente devolveu uma resposta vazia ou inesperada.",
   "errors.openai.error": "Erro do agente: {detail}",

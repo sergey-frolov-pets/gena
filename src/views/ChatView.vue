@@ -27,6 +27,7 @@ import {
 import { newId } from "@/lib/id";
 import { isSendKey } from "@/lib/composer";
 import { listenToAgent, sendToAgent, type TransportAttachment } from "@/lib/agent-client";
+import { cancelAgentTurn } from "@/lib/agent-client";
 import { describeError } from "@/lib/errors";
 import { renderMarkdown } from "@/lib/markdown";
 import { splitContent } from "@/lib/ui-blocks";
@@ -105,6 +106,10 @@ const usedToday = ref(0);
 const lastText = ref("");
 /** Контроллер отмены текущего хода. */
 const abortCtrl = ref<AbortController | null>(null);
+/** Ход остановлен кнопкой «Стоп» — ошибкой это не показываем. */
+const stoppedByUser = ref(false);
+/** Отмена на сервере уже запрошена — второе нажатие не дублируем. */
+const stopping = ref(false);
 /** Накопленный текст стриминга. */
 const streamingText = ref("");
 /** Сессия, к которой относится текущий стрим (чтобы не показывать его в другом диалоге). */
@@ -1049,17 +1054,21 @@ async function listenTurn(
   agent: Agent,
   history: Message[],
   windowMs: number,
+  since?: number,
 ): Promise<ListenOutcome> {
   const key = await getAgentKey(agent);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), windowMs);
   let heard = false;
+  /** Сервер ответил на `turn.resume`: знаем, идёт ли ход на самом деле. */
+  const resumeState: { value: { active: boolean; frames: number } | null } = { value: null };
   const shown = () => session.id === activeSessionId.value;
   try {
     const response = await listenToAgent(agent, key, {
       sessionId: session.id,
       history,
       signal: controller.signal,
+      since,
       events: {
         onTyping: (on) => {
           heard = true;
@@ -1092,6 +1101,10 @@ async function listenTurn(
           heard = true;
           if (shown()) showNotice(text);
         },
+        onTurnState: (state) => {
+          resumeState.value = state;
+          if (state.active || state.frames > 0) heard = true;
+        },
       },
     });
     const incoming = await collectIncoming(agent, key, response.attachments ?? []);
@@ -1113,7 +1126,11 @@ async function listenTurn(
       speak(reply.id, response.reply);
     }
     return "answered";
-  } catch {
+  } catch (e) {
+    // Сервер ответил `turn.resume`: ход не идёт и ответа в буфере нет —
+    // реплику надо повторить, даже если там были одни мысли.
+    if ((e as { code?: string }).code === "no_active_turn") return "silent";
+    if (resumeState.value && !resumeState.value.active) return "silent";
     return heard ? "alive" : "silent";
   } finally {
     clearTimeout(timer);
@@ -1154,7 +1171,7 @@ async function resumePending(sessionId: string): Promise<void> {
   const deadline = Date.now() + RESUME_LISTEN_MAX_MS;
   try {
     while (!answered && Date.now() < deadline) {
-      const outcome = await listenTurn(session, agent, history, RESUME_LISTEN_MS);
+      const outcome = await listenTurn(session, agent, history, RESUME_LISTEN_MS, pending.at);
       if (outcome === "answered") {
         answered = true;
         break;
@@ -1493,6 +1510,7 @@ async function exchange(
   streamSessionId.value = session.id;
   if (session.id === activeSessionId.value) streamingText.value = "";
   let failed = false;
+  stoppedByUser.value = false;
   const controller = new AbortController();
   abortCtrl.value = controller;
   const limit = agent.settings.callLimit;
@@ -1569,7 +1587,13 @@ async function exchange(
       code !== undefined &&
       ["network", "ws_closed", "ws_timeout", "ws_connect"].includes(code);
     if (!retryable) forgetPending(session.id, text);
-    error.value = describeError(e, t);
+    if (stoppedByUser.value) {
+      // «Стоп»: ход прекращён намеренно — это не ошибка, а сообщение-статус.
+      error.value = "";
+      showNotice(t("chat.stopped"));
+    } else {
+      error.value = describeError(e, t);
+    }
   } finally {
     busy.value = false;
     typing.value = false;
@@ -1647,7 +1671,26 @@ async function runRegenerate(m: Message): Promise<void> {
 }
 
 function stop(): void {
-  abortCtrl.value?.abort();
+  if (stopping.value) return;
+  const id = streamSessionId.value;
+  const session = id ? sessions.value.find((s) => s.id === id) : undefined;
+  const agent = session ? agents.value.find((a) => a.id === session.agentId) : undefined;
+  stoppedByUser.value = true;
+  stopping.value = true;
+  void (async () => {
+    try {
+      // Сначала просим сервер прекратить генерацию: закрытие сокета её не рвёт.
+      if (id && agent) {
+        const key = await getAgentKey(agent);
+        await cancelAgentTurn(agent, key, id);
+      }
+    } catch {
+      // Отмена на сервере вспомогательная — локальный обрыв делаем всё равно.
+    } finally {
+      stopping.value = false;
+      abortCtrl.value?.abort();
+    }
+  })();
 }
 
 /**

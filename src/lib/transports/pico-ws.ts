@@ -34,6 +34,8 @@ import { AgentClientError } from "./client-error";
 import { PicoConnection, WS_OPEN, type PicoFrame, type PicoSocketCtor } from "./pico-connection";
 import type {
   AgentTransport,
+  CancelRequest,
+  CancelResult,
   TransportAttachment,
   TransportEvents,
   TransportRequest,
@@ -71,6 +73,42 @@ const CONNECT_TIMEOUT_MS = 15_000;
 const PING_INTERVAL_MS = 25_000;
 /** Столько тишины при отправленных ping считаем обрывом (три пропущенных pong). */
 const PING_SILENCE_MS = 75_000;
+/** Подтверждение `cancel` ждём недолго: локальный обрыв нужен всё равно. */
+const CANCEL_ACK_MS = 2_500;
+
+/**
+ * Активные ходы текущей вкладки. По ним кнопка «Стоп» просит сервер
+ * прекратить генерацию (`cancel`), иначе после закрытия сокета модель
+ * продолжает считаться и жечь токены.
+ */
+interface ActiveTurn {
+  key: string;
+  cancel: () => Promise<CancelResult>;
+}
+
+const activeTurns = new Set<ActiveTurn>();
+
+/** Адрес агента в одном виде: без хвостовых слэшей и регистра. */
+function normaliseAddress(address: string): string {
+  return address.trim().replace(/\/+$/, "").toLowerCase();
+}
+
+function turnKey(address: string, sessionId: string): string {
+  return `${normaliseAddress(address)}|${sessionId}`;
+}
+
+/**
+ * Попросить сервер остановить идущий ход в этой вкладке.
+ * Нет активного соединения — отменять нечего (или ход уже кончился).
+ */
+export async function cancelPicoTurn(address: string, sessionId: string): Promise<CancelResult> {
+  const key = turnKey(address, sessionId);
+  const turn = [...activeTurns].find((item) => item.key === key);
+  if (!turn) {
+    return { accepted: false, reason: "no_active_turn" };
+  }
+  return turn.cancel();
+}
 
 function withTimeout<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -174,6 +212,50 @@ function runTurn(
     let opened = false;
     /** Шаги хода, уже отданные наверх — обновления по ним не дублируем. */
     const seenAux = new Set<string>();
+    /** Ожидающее подтверждение `cancel` (кнопка «Стоп»). */
+    let cancelId: string | null = null;
+    let cancelWaiter: ((result: CancelResult) => void) | null = null;
+    let cancelPromise: Promise<CancelResult> | null = null;
+    /** Соединение зарегистрировано как «ход можно отменить». */
+    let registered: ActiveTurn | null = null;
+
+    function unregister(): void {
+      if (registered) {
+        activeTurns.delete(registered);
+        registered = null;
+      }
+    }
+
+    /** Отправить `cancel` серверу и подождать ответ (не дольше CANCEL_ACK_MS). */
+    function requestCancel(): Promise<CancelResult> {
+      if (cancelPromise) {
+        return cancelPromise;
+      }
+      if (settled || !opened || conn.readyState !== WS_OPEN) {
+        return Promise.resolve({ accepted: false, reason: "no_active_turn" });
+      }
+      const id = newId();
+      cancelId = id;
+      cancelPromise = new Promise<CancelResult>((resolve) => {
+        const done = (result: CancelResult) => {
+          if (!cancelWaiter) {
+            return;
+          }
+          cancelWaiter = null;
+          cancelId = null;
+          clearTimeout(timer);
+          resolve(result);
+        };
+        const timer = setTimeout(() => done({ accepted: false, reason: "timeout" }), CANCEL_ACK_MS);
+        cancelWaiter = done;
+      });
+      try {
+        conn.send({ type: "cancel", id, timestamp: Date.now(), payload: {} });
+      } catch {
+        cancelWaiter?.({ accepted: false, reason: "send_failed" });
+      }
+      return cancelPromise;
+    }
 
     const hardTimer = setTimeout(() => {
       finish(
@@ -223,6 +305,8 @@ function runTurn(
       }
       settled = true;
       clearTimers();
+      unregister();
+      cancelWaiter?.({ accepted: false, reason: "turn_finished" });
       conn.close();
       fn(value);
     }
@@ -353,12 +437,43 @@ function runTurn(
       req.signal.addEventListener("abort", onAbort);
     }
 
-    conn.setHandlers({
-      onMessage(frame: PicoFrame) {
+    /** Один кадр сервера: разбор типа и отдача наверх. */
+    function handleFrame(frame: PicoFrame): void {
         // `pong` подтверждает живость соединения, но ход им не продлеваем:
         // иначе watchdog молчания никогда бы не сработал.
         if (frame.type === "pong") {
           lastFrameAt = Date.now();
+          return;
+        }
+        // Подтверждение отмены: относится к нашей заявке, ход им не продлеваем.
+        if (frame.type === "cancel") {
+          const ack = (frame.payload ?? {}) as Record<string, unknown>;
+          const request = str(ack.request_id) || str(frame.id);
+          if (!cancelId || request !== cancelId) {
+            return;
+          }
+          const waiter = cancelWaiter;
+          waiter?.({ accepted: ack.accepted === true, reason: str(ack.reason) || undefined });
+          return;
+        }
+        // Ответ на запрос пропущенных кадров: применяем их как обычные кадры.
+        if (frame.type === "turn.resume" || frame.type === "message.history") {
+          const bundle = (frame.payload ?? {}) as Record<string, unknown>;
+          const frames = Array.isArray(bundle.frames) ? (bundle.frames as PicoFrame[]) : [];
+          for (const item of frames) {
+            if (item && typeof item === "object") {
+              handleFrame(item);
+            }
+          }
+          const active = bundle.active === true;
+          ev.onTurnState?.({ active, frames: frames.length });
+          // Ход закончился, а ответа в буфере нет — реплику придётся повторить.
+          if (!active && reply === null) {
+            finish(
+              reject,
+              new AgentClientError("turn is not running", undefined, "no_active_turn"),
+            );
+          }
           return;
         }
         touch();
@@ -435,6 +550,11 @@ function runTurn(
           return;
         }
         setFinal(id, content, parseIncomingAttachments(payload.attachments));
+    }
+
+    conn.setHandlers({
+      onMessage(frame) {
+        handleFrame(frame);
       },
       onClose() {
         if (settled || !opened) {
@@ -470,8 +590,20 @@ function runTurn(
           opened = true;
           // Связь проверяем прикладным ping и в пассивном ожидании тоже.
           startPings();
+          registered = { key: turnKey(agent.address, req.sessionId), cancel: requestCancel };
+          activeTurns.add(registered);
           if (!shouldSend) {
-            // Пассивное ожидание: ничего не отправляем, слушаем сессию.
+            // Пассивное ожидание: ничего не отправляем, просим пропущенные кадры
+            // (`turn.resume`) — так после закрытия приложения ответ подбирается
+            // сразу, без окна ожидания. Старый сервер кадр просто проигнорирует.
+            if (typeof req.resumeSince === "number" && req.resumeSince > 0) {
+              conn.send({
+                type: "turn.resume",
+                id: newId(),
+                timestamp: Date.now(),
+                payload: { since: req.resumeSince, limit: 200 },
+              });
+            }
             return;
           }
           conn.send({
@@ -507,6 +639,9 @@ export function makePicoTransport(ctor?: PicoSocketCtor): AgentTransport {
     },
     listen(req: TransportRequest, ev: TransportEvents): Promise<TransportReply> {
       return runTurn(req, ev, false, ctor);
+    },
+    cancel(req: CancelRequest): Promise<CancelResult> {
+      return cancelPicoTurn(req.agent.address, req.sessionId);
     },
     dispose() {
       // Соединение открывается на каждый ход и закрывается по завершении.

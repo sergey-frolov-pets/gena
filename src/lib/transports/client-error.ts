@@ -11,6 +11,7 @@ export type AgentClientErrorCode =
   | "ws_connect"
   | "ws_closed"
   | "ws_timeout"
+  | "no_active_turn"
   | "pico_error"
   | "openai_error"
   | "openai_empty";

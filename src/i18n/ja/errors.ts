@@ -21,6 +21,7 @@ export const errorsMessages = {
   "errors.ws.connect": "WebSocket でエージェントに接続できませんでした。アドレス、トークン、wss:// の使用を確認してください。",
   "errors.ws.closed": "応答を受信する前にエージェントへの接続が閉じられました。",
   "errors.ws.timeout": "エージェントが時間内に応答しませんでした。",
+  "errors.ws.noActiveTurn": "サーバー側の実行はすでに終了しています。応答はありません。",
   "errors.ws.picoError": "エージェントエラー: {detail}",
   "errors.openai.empty": "エージェントが空または想定外の応答を返しました。",
   "errors.openai.error": "エージェントエラー: {detail}",

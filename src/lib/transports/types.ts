@@ -18,6 +18,28 @@ export interface TransportRequest {
   history: Message[];
   signal: AbortSignal;
   fetchImpl?: typeof fetch;
+  /**
+   * Пассивное ожидание (`listen`): с какого момента (Unix-мс) просить у сервера
+   * пропущенные кадры хода (`turn.resume`). Без него слушаем только живой поток.
+   */
+  resumeSince?: number;
+}
+
+/** Остановка идущего хода на стороне агента. */
+export interface CancelRequest {
+  agent: Agent;
+  apiKey: string;
+  sessionId: string;
+}
+
+/**
+ * Итог отмены. `accepted: false` — активного хода нет (или сервер старый,
+ * или соединение уже закрыто): локальный обрыв всё равно нужен, но сервер
+ * генерацию не прекратит.
+ */
+export interface CancelResult {
+  accepted: boolean;
+  reason?: string;
 }
 
 /** Вложение, пришедшее от агента (Pico: только изображения, путь на сервере). */
@@ -60,6 +82,11 @@ export interface TransportEvents {
    * `id` — идентификатор сообщения агента, а не локальный.
    */
   onDelete?: (id: string) => void;
+  /**
+   * Ответ на `turn.resume`: сколько кадров сервер отдал и идёт ли ход.
+   * `active: false` и ноль кадров — ответа не будет, реплику надо повторить.
+   */
+  onTurnState?: (state: { active: boolean; frames: number }) => void;
 }
 
 export interface AgentTransport {
@@ -70,6 +97,11 @@ export interface AgentTransport {
    * Есть только у транспортов с постоянным соединением (`pico_ws`).
    */
   listen?(req: TransportRequest, ev: TransportEvents): Promise<TransportReply>;
+  /**
+   * Попросить сервер остановить идущий ход (`cancel`). Локальный обрыв нужен
+   * всё равно: кадр только прекращает генерацию на сервере.
+   */
+  cancel?(req: CancelRequest): Promise<CancelResult>;
   /** Освободить ресурсы (закрыть WebSocket и т.п.). */
   dispose?(): void;
 }

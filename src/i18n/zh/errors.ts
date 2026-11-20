@@ -21,6 +21,7 @@ export const errorsMessages = {
   "errors.ws.connect": "无法通过 WebSocket 连接到智能体。请检查地址、令牌以及是否使用 wss://。",
   "errors.ws.closed": "与智能体的连接在收到回复前已关闭。",
   "errors.ws.timeout": "智能体未及时响应。",
+  "errors.ws.noActiveTurn": "服务器上的回合已结束——没有回复。",
   "errors.ws.picoError": "智能体错误：{detail}",
   "errors.openai.empty": "智能体返回了空或意外的响应。",
   "errors.openai.error": "代理错误：{detail}",

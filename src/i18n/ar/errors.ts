@@ -21,6 +21,7 @@ export const errorsMessages = {
   "errors.ws.connect": "تعذّر الاتصال بالوكيل عبر WebSocket. تحقق من العنوان والرمز واستخدام wss://.",
   "errors.ws.closed": "أُغلقت الاتصال بالوكيل قبل وصول رد.",
   "errors.ws.timeout": "لم يرد الوكيل في الوقت المناسب.",
+  "errors.ws.noActiveTurn": "انتهى الطلب على الخادم بالفعل — لا يوجد رد.",
   "errors.ws.picoError": "خطأ الوكيل: {detail}",
   "errors.openai.empty": "أعاد الوكيل ردًا فارغًا أو غير متوقع.",
   "errors.openai.error": "خطأ الوكيل: {detail}",

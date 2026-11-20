@@ -36,6 +36,7 @@ export const chatMessages = {
   "chat.steps.show": "ステップを表示（{count}）",
   "chat.steps.hide": "ステップを閉じる（{count}）",
   "chat.stop": "停止",
+  "chat.stopped": "停止しました",
   "chat.jumpTop": "先頭へ",
   "chat.jumpEnd": "最新へ",
   "chat.retry": "再試行",
