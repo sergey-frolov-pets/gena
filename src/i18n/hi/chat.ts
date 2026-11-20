@@ -2,13 +2,17 @@ import type { LocaleMessages } from "../types";
 
 export const chatMessages = {
   "chat.agent": "एजेंट",
+  "chat.write": "संदेश लिखें…",
+  "chat.attachFile": "फ़ाइल या छवि संलग्न करें",
+  "chat.resumeTurn": "पिछला अनुरोध जारी है…",
+  "chat.offline": "नेटवर्क नहीं — उत्तर नहीं आ सकता",
   "chat.selectAgent": "— चुनें —",
   "chat.newDialog": "नया संवाद",
   "chat.dialogs": "संवाद",
   "chat.sessionName": "डायलॉग का नाम",
   "chat.selectOrCreate": "संवाद चुनें या बनाएँ",
   "chat.messagesEmpty": "अभी कोई संदेश नहीं है।",
-  "chat.composerPlaceholder": "संदेश… (भेजने के लिए Shift+Enter, नई पंक्ति के लिए Enter)",
+  "chat.composerPlaceholder": "संदेश… (भेजने के लिए Shift+Enter)",
   "chat.send": "भेजें",
   "chat.usage": "आज {used} / {limit} कॉल",
   "chat.remaining": "आज शेष कॉल: {remaining}",

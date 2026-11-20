@@ -45,6 +45,27 @@ export function collectTrailingSteps(list: readonly Message[]): Message[] {
   return collectTurnSteps(list, list.length);
 }
 
+/**
+ * Только размышления хода: все `thought` перед ответом (или в конце ленты).
+ * Несколько мыслей одного хода показываются одной свёртываемой областью.
+ */
+export function collectTurnThoughts(list: readonly Message[], answerIndex: number): Message[] {
+  return collectTurnSteps(list, answerIndex).filter((message) => message.kind === "thought");
+}
+
+/** Размышления текущего (незавершённого) хода. */
+export function collectTrailingThoughts(list: readonly Message[]): Message[] {
+  return collectTrailingSteps(list).filter((message) => message.kind === "thought");
+}
+
+/** Текст единого блока размышлений: мысли склеены пустой строкой. */
+export function thoughtText(list: readonly Message[]): string {
+  return list
+    .map((message) => message.content.trim())
+    .filter((text) => text.length > 0)
+    .join("\n\n");
+}
+
 /** Развёрнут ли хотя бы один шаг хода. */
 export function anyStepOpen(open: Readonly<StepOpenMap>, steps: readonly Message[]): boolean {
   return steps.some((step) => open[step.id] === true);

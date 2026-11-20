@@ -2,13 +2,17 @@ import type { LocaleMessages } from "../types";
 
 export const chatMessages = {
   "chat.agent": "Agent",
+  "chat.write": "Nachricht schreiben…",
+  "chat.attachFile": "Datei oder Bild anhängen",
+  "chat.resumeTurn": "Vorherige Anfrage wird fortgesetzt…",
+  "chat.offline": "Offline — die Antwort kommt möglicherweise nicht an",
   "chat.selectAgent": "— auswählen —",
   "chat.newDialog": "Neuer Dialog",
   "chat.dialogs": "Dialoge",
   "chat.sessionName": "Dialogname",
   "chat.selectOrCreate": "Dialog auswählen oder erstellen",
   "chat.messagesEmpty": "Noch keine Nachrichten.",
-  "chat.composerPlaceholder": "Nachricht… (Umschalt+Enter zum Senden, Enter für eine neue Zeile)",
+  "chat.composerPlaceholder": "Nachricht… (Umschalt+Enter zum Senden)",
   "chat.send": "Senden",
   "chat.usage": "{used} / {limit} Aufrufe heute",
   "chat.remaining": "Verbleibende Aufrufe heute: {remaining}",

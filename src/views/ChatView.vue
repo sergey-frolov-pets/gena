@@ -59,14 +59,16 @@ import type { Agent, Message, MessageAttachment, Session } from "@/storage/types
 import { ImageError, prepareImage, type PreparedImage } from "@/lib/images";
 import { attachmentFromBlobUrl, fetchMediaBlob, getCachedMedia } from "@/lib/media";
 import {
-  anyStepOpen,
-  collectTrailingSteps,
-  collectTurnSteps,
+  collectTrailingThoughts,
+  collectTurnThoughts,
+  thoughtText,
   withoutToolCalls,
-  setStepOpen,
-  setStepsOpen,
-  type StepOpenMap,
 } from "@/lib/turns";
+import {
+  isPendingFresh,
+  shouldResume,
+  type PendingTurn,
+} from "@/lib/resume";
 import ConfirmModal from "@/components/ConfirmModal.vue";
 import TextModal from "@/components/TextModal.vue";
 
@@ -118,6 +120,171 @@ const fileError = ref("");
 const MAX_IMAGES = 5;
 const MAX_DOCUMENTS = 5;
 
+/* ── Черновик и незавершённый ход ─────────────────────────────────────── */
+
+const DRAFT_PREFIX = "gena.chat.draft.";
+const PENDING_KEY = "gena.chat.pending";
+const MAX_PENDING = 5;
+
+function readText(key: string): string {
+  try {
+    return window.localStorage.getItem(key) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function writeText(key: string, value: string): void {
+  try {
+    if (value) window.localStorage.setItem(key, value);
+    else window.localStorage.removeItem(key);
+  } catch {
+    // Приватный режим или отключённое хранилище — живём без сохранения.
+  }
+}
+
+function draftKey(id: string | null): string {
+  return `${DRAFT_PREFIX}${id ?? "new"}`;
+}
+
+let draftTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Черновик сохраняется с задержкой, чтобы не писать в localStorage на каждый символ. */
+function saveDraftSoon(): void {
+  if (draftTimer) clearTimeout(draftTimer);
+  const key = draftKey(activeSessionId.value);
+  const value = draft.value;
+  draftTimer = setTimeout(() => {
+    writeText(key, value);
+  }, 200);
+}
+
+/** Восстановить черновик диалога (или «нового»). */
+function restoreDraft(id: string | null): void {
+  draft.value = readText(draftKey(id));
+  void autoGrow();
+}
+
+/** Записать черновик немедленно — перед закрытием вкладки/уходом со страницы. */
+function flushDraft(): void {
+  if (draftTimer) {
+    clearTimeout(draftTimer);
+    draftTimer = null;
+  }
+  writeText(draftKey(activeSessionId.value), draft.value);
+}
+
+function readPending(): PendingTurn[] {
+  try {
+    const raw = window.localStorage.getItem(PENDING_KEY);
+    const list: unknown = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(list)) return [];
+    return list.filter(
+      (item): item is PendingTurn =>
+        Boolean(item) &&
+        typeof (item as PendingTurn).sessionId === "string" &&
+        typeof (item as PendingTurn).text === "string" &&
+        typeof (item as PendingTurn).at === "number",
+    );
+  } catch {
+    return [];
+  }
+}
+
+function writePending(list: PendingTurn[]): void {
+  writeText(PENDING_KEY, JSON.stringify(list.slice(-MAX_PENDING)));
+}
+
+function rememberPending(turn: PendingTurn): void {
+  const list = readPending();
+  // Уже сохранён — не сдвигаем время: TTL считается от первой отправки.
+  if (list.some((item) => item.sessionId === turn.sessionId && item.text === turn.text)) return;
+  list.push(turn);
+  writePending(list);
+}
+
+function forgetPending(sessionId: string, text: string): void {
+  writePending(
+    readPending().filter((item) => !(item.sessionId === sessionId && item.text === text)),
+  );
+}
+
+/** Последний незавершённый ход этого диалога. */
+function pendingFor(sessionId: string): PendingTurn | null {
+  const list = readPending().filter((item) => item.sessionId === sessionId);
+  return list.length > 0 ? list[list.length - 1] : null;
+}
+
+/* ── Окно ввода на телефоне: по тапу, поверх чата ─────────────────────── */
+
+const compact = ref(
+  typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches,
+);
+const composerOpen = ref(!compact.value);
+const composerForm = ref<HTMLFormElement | null>(null);
+let compactQuery: MediaQueryList | null = null;
+/** Клик по кнопке внутри формы (файл, микрофон) не должен закрывать ввод. */
+let blurGuardUntil = 0;
+
+function guardBlur(): void {
+  blurGuardUntil = Date.now() + 1_500;
+}
+
+function syncCompact(matches: boolean): void {
+  compact.value = matches;
+  if (!matches) composerOpen.value = true;
+}
+
+function openComposer(): void {
+  if (!compact.value) return;
+  composerOpen.value = true;
+  void nextTick(() => composerEl.value?.focus());
+}
+
+function closeComposer(): void {
+  if (!compact.value) return;
+  composerOpen.value = false;
+}
+
+/** Тап по полотну чата открывает ввод; кнопки и ссылки не перехватываем. */
+function onChatTap(event: MouseEvent): void {
+  if (!compact.value || composerOpen.value) return;
+  const target = event.target as HTMLElement | null;
+  if (target?.closest("button, a, input, textarea, select, details, summary")) return;
+  openComposer();
+}
+
+/** Потеря фокуса: закрываем, если фокус ушёл за пределы формы. */
+function onComposerBlur(event: FocusEvent): void {
+  if (!compact.value) return;
+  if (Date.now() < blurGuardUntil) return;
+  const next = event.relatedTarget as Node | null;
+  if (next && composerForm.value?.contains(next)) return;
+  window.setTimeout(() => {
+    const active = document.activeElement;
+    if (active && composerForm.value?.contains(active)) return;
+    closeComposer();
+  }, 150);
+}
+
+/* ── Сеть и стабильность ──────────────────────────────────────────────── */
+
+const online = ref(typeof navigator === "undefined" ? true : navigator.onLine);
+
+function onOnline(): void {
+  online.value = true;
+}
+
+function onOffline(): void {
+  online.value = false;
+}
+
+function onBeforeUnload(event: BeforeUnloadEvent): void {
+  if (!busy.value) return;
+  event.preventDefault();
+  event.returnValue = "";
+}
+
 /** Реплика, готовая к отправке: текст + вложения (в памяти, до отправки). */
 interface ComposerPayload {
   text: string;
@@ -143,40 +310,62 @@ const editingId = ref("");
 const editingDraft = ref("");
 const editError = ref("");
 /**
- * Раскрытые шаги хода (мысль / вызовы инструментов). По умолчанию всё свёрнуто,
- * состояние живёт до перезагрузки — кнопка в облачке ответа переключает шаги хода.
+ * Единый блок размышлений хода. Ключ — id ответа (`live` — текущий ход),
+ * по умолчанию свёрнут; состояние живёт до перезагрузки.
  */
-const stepOpen = ref<StepOpenMap>({});
+const thoughtOpen = ref<Record<string, boolean>>({});
+const LIVE_KEY = "live";
 
-/** Лента без облачков «Вызовы инструментов»: показываем только мысли и ответы. */
+/** Лента без облачков «Вызовы инструментов»: показываем мысли и ответы. */
 const feed = computed<Message[]>(() => withoutToolCalls(messages.value));
 
-/** Шаги, относящиеся к ответу с индексом `index` в ленте. */
-function turnSteps(index: number): Message[] {
-  return collectTurnSteps(feed.value, index);
+/** Все мысли хода, который заканчивается ответом `index`. */
+function turnThoughts(index: number): Message[] {
+  return collectTurnThoughts(feed.value, index);
 }
 
-/** Развёрнут ли хотя бы один шаг этого ответа. */
-function turnExpanded(index: number): boolean {
-  return anyStepOpen(stepOpen.value, turnSteps(index));
+/** Склеенный текст всех мыслей этого хода. */
+function turnThoughtText(index: number): string {
+  return thoughtText(turnThoughts(index));
 }
 
-/** Свернуть/развернуть все шаги ответа одной кнопкой. */
-function toggleTurn(index: number): void {
-  stepOpen.value = setStepsOpen(stepOpen.value, turnSteps(index), !turnExpanded(index));
+function thoughtExpanded(key: string): boolean {
+  return thoughtOpen.value[key] === true;
 }
 
-/** Шаги текущего (ещё не завершённого) хода — те, что идут в конце ленты. */
-const liveSteps = computed<Message[]>(() => collectTrailingSteps(feed.value));
-const liveStepsExpanded = computed<boolean>(() => anyStepOpen(stepOpen.value, liveSteps.value));
-
-function toggleLiveSteps(): void {
-  stepOpen.value = setStepsOpen(stepOpen.value, liveSteps.value, !liveStepsExpanded.value);
+/** Раскрыть/свернуть единый блок размышлений хода. */
+function toggleThought(key: string): void {
+  const next = { ...thoughtOpen.value };
+  if (next[key]) delete next[key];
+  else next[key] = true;
+  thoughtOpen.value = next;
 }
 
-/** Ручное раскрытие одного блока размышлений (как строка «Reasoning» в Cursor). */
-function toggleStep(id: string): void {
-  stepOpen.value = setStepOpen(stepOpen.value, id, stepOpen.value[id] !== true);
+/** Мысли текущего (ещё не завершённого) хода — тоже одним блоком. */
+const liveThoughts = computed<Message[]>(() => collectTrailingThoughts(feed.value));
+const liveThoughtText = computed(() => thoughtText(liveThoughts.value));
+
+/** Подпись роли: имя агента, а у прямого LLM — «модель (LLM)». */
+function roleLabel(message: Message): string {
+  if (message.role !== "assistant") return t(`chat.role.${message.role}` as never);
+  const agent =
+    agents.value.find((a) => a.id === activeSession.value?.agentId) ?? activeAgent.value;
+  if (!agent) return t("chat.agent");
+  if ((agent.protocol ?? "http_json") === "openai") {
+    const config = (agent.config ?? {}) as { model?: string };
+    const model =
+      config.model?.trim() ||
+      agent.settings.llmModel?.trim() ||
+      agent.name?.trim() ||
+      t("chat.agent");
+    return `${model} (LLM)`;
+  }
+  return agent.name?.trim() || t("chat.agent");
+}
+
+/** Подпись ассистента для текущего (ещё не записанного) ответа. */
+function agentRoleLabel(): string {
+  return roleLabel({ role: "assistant" } as Message);
 }
 
 const agentSessions = computed<Session[]>(() =>
@@ -472,7 +661,10 @@ async function autoGrow(): Promise<void> {
   el.style.height = "auto";
   el.style.height = `${Math.min(el.scrollHeight, 4 * 22)}px`;
 }
-watch(draft, autoGrow);
+watch(draft, () => {
+  saveDraftSoon();
+  void autoGrow();
+});
 
 /** «Новый диалог» — просто чистый лист: запись в БД появится после первой отправки. */
 function newSession(): void {
@@ -480,6 +672,7 @@ function newSession(): void {
   notice.value = "";
   stopDictation();
   clearMessages();
+  restoreDraft(null);
   historyOpen.value = false;
   void nextTick(() => composerEl.value?.focus());
 }
@@ -489,11 +682,13 @@ async function openSession(id: string): Promise<void> {
   // Диалог всегда открываем с конца: прошлые «листания вверх» не переносим.
   stickBottom.value = true;
   await loadMessages(id);
+  restoreDraft(id);
   rememberTab(id);
   historyOpen.value = false;
   // Открываем диалог на последних сообщениях, а не на первых.
   await scrollToBottom(true);
   settleToBottom();
+  void resumePending(id);
 }
 
 /** Последний агент запоминается, чтобы после перезагрузки открыть его диалог. */
@@ -520,14 +715,56 @@ async function openLastSession(forAgent = agentId.value): Promise<void> {
   const list = sessions.value.filter((s) => s.agentId === forAgent);
   if (list.length === 0) {
     clearMessages();
+    restoreDraft(null);
     return;
   }
   const last = [...list].sort((a, b) => b.updatedAt - a.updatedAt)[0];
   stickBottom.value = true;
   await loadMessages(last.id);
+  restoreDraft(last.id);
   // После перезагрузки и смены агента диалог тоже открывается с конца.
   await scrollToBottom(true);
   settleToBottom();
+  void resumePending(last.id);
+}
+
+/** Диалоги, по которым уже идёт догон, — чтобы не отправить дважды. */
+const resuming = new Set<string>();
+
+/**
+ * Догон незавершённого хода. Сервер Pico историю не отдаёт (контекст живёт
+ * по `session_id`), поэтому повторяем исходный текст — но только если ответа
+ * после этой реплики в истории ещё нет.
+ */
+async function resumePending(sessionId: string): Promise<void> {
+  if (busy.value || resuming.has(sessionId)) return;
+  const pending = pendingFor(sessionId);
+  if (!pending || !isPendingFresh(pending, Date.now())) return;
+  const session = sessions.value.find((s) => s.id === sessionId);
+  const agent = session && agents.value.find((a) => a.id === session.agentId);
+  if (!session || !agent?.sealedKey) return;
+  const list = await listMessages(sessionId);
+  if (!shouldResume(list, pending, Date.now())) {
+    forgetPending(sessionId, pending.text);
+    return;
+  }
+  resuming.add(sessionId);
+  notice.value = t("chat.resumeTurn");
+  try {
+    const history = list.filter(
+      (m) => m.role !== "system" && (m.kind === undefined || m.kind === "text"),
+    );
+    await exchange(session, agent, pending.text, [], history);
+  } finally {
+    resuming.delete(sessionId);
+  }
+}
+
+/** Вернулись на вкладку — проверяем, не остался ли незавершённый ход. */
+function onVisibility(): void {
+  if (document.visibilityState !== "visible") return;
+  const id = activeSessionId.value;
+  if (id) void resumePending(id);
 }
 
 // Агент выбран (вручную или автоматически) — поднимаем его последний диалог.
@@ -570,6 +807,9 @@ function takeComposer(): ComposerPayload | null {
   pendingDocs.value = [];
   attachError.value = "";
   fileError.value = "";
+  // Черновик ушёл в отправку — сохранённую копию убираем, ввод на телефоне прячем.
+  writeText(draftKey(activeSessionId.value), "");
+  closeComposer();
   void autoGrow();
   return { text, images, docs };
 }
@@ -806,6 +1046,8 @@ async function exchange(
   stopDictation();
   lastText.value = text;
   busy.value = true;
+  // Запоминаем ход: если вкладку закроют до ответа, при следующем открытии догоним.
+  rememberPending({ sessionId: session.id, text, at: Date.now() });
   streamSessionId.value = session.id;
   if (session.id === activeSessionId.value) streamingText.value = "";
   let failed = false;
@@ -851,6 +1093,7 @@ async function exchange(
     );
     await recordCall(agent.id);
     await refreshUsage();
+    forgetPending(session.id, text);
     if (autoSpeak.value && response.reply.trim()) {
       speak(reply.id, response.reply);
     }
@@ -859,6 +1102,12 @@ async function exchange(
     }
   } catch (e) {
     failed = true;
+    // Отмена и смысловые ошибки — не догоняем; сетевые обрывы оставляем до повтора.
+    const code = (e as { code?: string }).code;
+    const retryable = !controller.signal.aborted &&
+      code !== undefined &&
+      ["network", "ws_closed", "ws_timeout", "ws_connect"].includes(code);
+    if (!retryable) forgetPending(session.id, text);
     error.value = describeError(e, t);
   } finally {
     busy.value = false;
@@ -1012,7 +1261,7 @@ async function copyText(id: string, text: string): Promise<void> {
 async function copyChat(): Promise<void> {
   const lines = messages.value
     .filter((m) => m.kind === undefined || m.kind === "text")
-    .map((m) => `${t(`chat.role.${m.role}` as never)}: ${m.content}`);
+    .map((m) => `${roleLabel(m)}: ${m.content}`);
   if (lines.length === 0) return;
   await copyText("chat", lines.join("\n\n"));
 }
@@ -1180,6 +1429,17 @@ onMounted(() => {
   window.visualViewport?.addEventListener("resize", syncViewport);
   window.visualViewport?.addEventListener("scroll", syncViewport);
   window.addEventListener("resize", syncViewport);
+  // Телефон: ввод открывается тапом по чату, а не занимает экран постоянно.
+  compactQuery = window.matchMedia("(max-width: 640px)");
+  syncCompact(compactQuery.matches);
+  compactQuery.addEventListener("change", onCompactChange);
+  window.addEventListener("online", onOnline);
+  window.addEventListener("offline", onOffline);
+  window.addEventListener("beforeunload", onBeforeUnload);
+  window.addEventListener("pagehide", flushDraft);
+  document.addEventListener("visibilitychange", onVisibility);
+  // Постоянное хранилище: IndexedDB не должна вычищаться при нехватке места.
+  void navigator.storage?.persist?.();
   // Контент вырос (картинки, раскрытые шаги, стрим) — держим низ, если читатель там.
   if (typeof ResizeObserver !== "undefined") {
     threadObserver = new ResizeObserver(() => settleToBottom());
@@ -1187,10 +1447,20 @@ onMounted(() => {
   }
 });
 
+function onCompactChange(event: MediaQueryListEvent): void {
+  syncCompact(event.matches);
+}
+
 onUnmounted(() => {
   window.visualViewport?.removeEventListener("resize", syncViewport);
   window.visualViewport?.removeEventListener("scroll", syncViewport);
   window.removeEventListener("resize", syncViewport);
+  compactQuery?.removeEventListener("change", onCompactChange);
+  window.removeEventListener("online", onOnline);
+  window.removeEventListener("offline", onOffline);
+  window.removeEventListener("beforeunload", onBeforeUnload);
+  window.removeEventListener("pagehide", flushDraft);
+  document.removeEventListener("visibilitychange", onVisibility);
   threadObserver?.disconnect();
   threadObserver = null;
   document.documentElement.style.removeProperty("--app-vvh");
@@ -1480,21 +1750,22 @@ function onRateChange(event: Event): void {
         role="log"
         aria-live="polite"
         @scroll="onMessagesScroll"
+        @click="onChatTap"
         @dragover.prevent
         @drop.prevent="onDrop"
       >
         <div ref="threadEl" class="chat-panel__thread">
         <template v-for="(m, index) in feed" :key="m.id">
           <div
-            v-if="m.kind === 'thought'"
+            v-if="m.role === 'assistant' && m.kind !== 'thought' && turnThoughtText(index)"
             class="chat-panel__thought"
-            :class="{ 'is-open': stepOpen[m.id] === true }"
+            :class="{ 'is-open': thoughtExpanded(m.id) }"
           >
             <button
               type="button"
               class="chat-panel__thought-toggle"
-              :aria-expanded="stepOpen[m.id] === true"
-              @click="toggleStep(m.id)"
+              :aria-expanded="thoughtExpanded(m.id)"
+              @click="toggleThought(m.id)"
             >
               <svg
                 class="chat-panel__thought-chevron"
@@ -1511,13 +1782,18 @@ function onRateChange(event: Event): void {
                 <path d="M9 6l6 6-6 6" />
               </svg>
               <span>{{ t("chat.thought") }}</span>
+              <span class="chat-panel__thought-count">{{ turnThoughts(index).length }}</span>
             </button>
             <div class="chat-panel__thought-body">
-              <div class="chat-panel__thought-inner">{{ m.content }}</div>
+              <div class="chat-panel__thought-inner">{{ turnThoughtText(index) }}</div>
             </div>
           </div>
-          <article v-else class="chat-panel__message" :class="`chat-panel__message--${m.role}`">
-            <span class="chat-panel__role">{{ t(`chat.role.${m.role}` as never) }}</span>
+          <article
+            v-if="m.kind !== 'thought'"
+            class="chat-panel__message"
+            :class="`chat-panel__message--${m.role}`"
+          >
+            <span class="chat-panel__role">{{ roleLabel(m) }}</span>
             <div v-if="editingId === m.id" class="chat-panel__edit">
               <textarea
                 v-model="editingDraft"
@@ -1573,54 +1849,6 @@ function onRateChange(event: Event): void {
               </span>
             </div>
             <div class="chat-panel__message-actions">
-              <button
-                v-if="m.role === 'assistant' && !m.kind && turnSteps(index).length"
-                type="button"
-                class="chat-panel__action chat-panel__action--steps"
-                :class="{ 'is-on': turnExpanded(index) }"
-                v-tip="
-                  turnExpanded(index)
-                    ? t('chat.steps.hide', { count: turnSteps(index).length })
-                    : t('chat.steps.show', { count: turnSteps(index).length })
-                "
-                :aria-label="
-                  turnExpanded(index)
-                    ? t('chat.steps.hide', { count: turnSteps(index).length })
-                    : t('chat.steps.show', { count: turnSteps(index).length })
-                "
-                :aria-expanded="turnExpanded(index)"
-                @click="toggleTurn(index)"
-              >
-                <svg
-                  v-if="turnExpanded(index)"
-                  viewBox="0 0 24 24"
-                  width="15"
-                  height="15"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.8"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="m6 15 6-6 6 6" />
-                </svg>
-                <svg
-                  v-else
-                  viewBox="0 0 24 24"
-                  width="15"
-                  height="15"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.8"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="m6 9 6 6 6-6" />
-                </svg>
-                <span class="chat-panel__action-count">{{ turnSteps(index).length }}</span>
-              </button>
               <button
                 v-if="m.role === 'user' && !m.kind"
                 type="button"
@@ -1683,61 +1911,45 @@ function onRateChange(event: Event): void {
           </article>
         </template>
 
+        <div
+          v-if="liveThoughtText"
+          class="chat-panel__thought"
+          :class="{ 'is-open': thoughtExpanded(LIVE_KEY) }"
+        >
+          <button
+            type="button"
+            class="chat-panel__thought-toggle"
+            :aria-expanded="thoughtExpanded(LIVE_KEY)"
+            @click="toggleThought(LIVE_KEY)"
+          >
+            <svg
+              class="chat-panel__thought-chevron"
+              viewBox="0 0 24 24"
+              width="13"
+              height="13"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M9 6l6 6-6 6" />
+            </svg>
+            <span>{{ t("chat.thought") }}</span>
+            <span class="chat-panel__thought-count">{{ liveThoughts.length }}</span>
+          </button>
+          <div class="chat-panel__thought-body">
+            <div class="chat-panel__thought-inner">{{ liveThoughtText }}</div>
+          </div>
+        </div>
+
         <article
           v-if="liveStreaming"
           class="chat-panel__message chat-panel__message--assistant"
         >
-          <span class="chat-panel__role">{{ t("chat.role.assistant") }}</span>
+          <span class="chat-panel__role">{{ agentRoleLabel() }}</span>
           <p class="chat-panel__content">{{ liveStreaming }}</p>
-          <div v-if="liveSteps.length" class="chat-panel__message-actions">
-            <button
-              type="button"
-              class="chat-panel__action chat-panel__action--steps"
-              :class="{ 'is-on': liveStepsExpanded }"
-              v-tip="
-                liveStepsExpanded
-                  ? t('chat.steps.hide', { count: liveSteps.length })
-                  : t('chat.steps.show', { count: liveSteps.length })
-              "
-              :aria-label="
-                liveStepsExpanded
-                  ? t('chat.steps.hide', { count: liveSteps.length })
-                  : t('chat.steps.show', { count: liveSteps.length })
-              "
-              :aria-expanded="liveStepsExpanded"
-              @click="toggleLiveSteps"
-            >
-              <svg
-                v-if="liveStepsExpanded"
-                viewBox="0 0 24 24"
-                width="15"
-                height="15"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <path d="m6 15 6-6 6 6" />
-              </svg>
-              <svg
-                v-else
-                viewBox="0 0 24 24"
-                width="15"
-                height="15"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <path d="m6 9 6 6 6-6" />
-              </svg>
-              <span class="chat-panel__action-count">{{ liveSteps.length }}</span>
-            </button>
-          </div>
         </article>
 
         <div
@@ -1764,7 +1976,8 @@ function onRateChange(event: Event): void {
       </div>
     </div>
 
-    <div class="chat-panel__dock">
+        <div class="chat-panel__dock" :class="{ 'is-overlay': compact && composerOpen }">
+      <p v-if="!online" class="chat-panel__warning" role="alert">{{ t("chat.offline") }}</p>
       <p v-if="dictationListening" class="chat-panel__recording" role="status" aria-live="polite">
         <span class="chat-panel__recording-dot" aria-hidden="true" />
         {{ t("chat.dictateRecording") }}
@@ -1831,7 +2044,25 @@ function onRateChange(event: Event): void {
         </ul>
       </div>
 
-      <form class="chat-panel__composer" @submit.prevent="send">
+      <button
+        v-if="compact && !composerOpen"
+        type="button"
+        class="chat-panel__open"
+        @click="openComposer"
+      >
+        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 20h4l10-10a2.8 2.8 0 1 0-4-4L4 16z" />
+        </svg>
+        <span>{{ t("chat.write") }}</span>
+      </button>
+
+      <form
+        v-if="!compact || composerOpen"
+        ref="composerForm"
+        class="chat-panel__composer"
+        @submit.prevent="send"
+        @focusout="onComposerBlur"
+      >
         <div v-if="pendingImages.length > 0 || pendingDocs.length > 0" class="chat-panel__chips">
           <div v-for="(img, i) in pendingImages" :key="i" class="chat-panel__chip">
             <img :src="img.thumb" alt="" />
@@ -1876,16 +2107,13 @@ function onRateChange(event: Event): void {
           <button
             type="button"
             class="chat-panel__icon-btn"
-            v-tip="t('chat.attach')"
-            :aria-label="t('chat.attach')"
+            v-tip="t('chat.attachFile')"
+            :aria-label="t('chat.attachFile')"
             :disabled="composerDisabled"
-            @click="pickImages"
+            @click="guardBlur(); pickImages()"
           >
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M21 12.5V7a4 4 0 0 0-4-4h-9a4 4 0 0 0-4 4v10a4 4 0 0 0 4 4h6" />
-              <path d="m3 16 4.5-4.5a2 2 0 0 1 2.8 0L15 16" />
-              <circle cx="8.5" cy="8.5" r="1.5" />
-              <path d="M18 15v6M15 18h6" />
+              <path d="M20.5 11.5 12 20a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8" />
             </svg>
           </button>
           <textarea
@@ -1909,7 +2137,7 @@ function onRateChange(event: Event): void {
             :aria-label="dictationListening ? t('chat.dictateStop') : t('chat.dictate')"
             :aria-pressed="dictationListening"
             :disabled="composerDisabled"
-            @click="onDictateToggle"
+            @click="guardBlur(); onDictateToggle()"
           >
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <rect x="9" y="3" width="6" height="11" rx="3" />
@@ -3133,5 +3361,52 @@ function onRateChange(event: Event): void {
 .chat-panel__file-size {
   flex: 0 0 auto;
   opacity: 0.8;
+}
+
+/* --- Единый блок размышлений: счётчик мыслей ---------------------------- */
+.chat-panel__thought-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 18px;
+  text-align: center;
+}
+
+/* --- Телефон: ввод по тапу, поверх ленты -------------------------------- */
+.chat-panel__open {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 11px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.chat-panel__open:hover {
+  color: var(--text);
+}
+
+.chat-panel__dock.is-overlay {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 30;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.22);
+}
+
+.chat-panel__dock.is-overlay::before {
+  display: none;
 }
 </style>

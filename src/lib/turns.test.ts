@@ -3,8 +3,11 @@ import type { Message } from "@/storage/types";
 import {
   anyStepOpen,
   collectTrailingSteps,
+  collectTrailingThoughts,
+  collectTurnThoughts,
   collectTurnSteps,
   isStepMessage,
+  thoughtText,
   withoutToolCalls,
   setStepOpen,
   setStepsOpen,
@@ -100,5 +103,47 @@ describe("шаги хода", () => {
       msg("a1", "assistant"),
     ]);
     expect(collectTurnSteps(list, list.length - 1).map((m) => m.id)).toEqual(["t1"]);
+  });
+});
+
+
+describe("размышления одним блоком", () => {
+  it("собирает несколько мыслей хода, вызовы инструментов не берёт", () => {
+    const list = [
+      msg("u1", "user"),
+      msg("t1", "assistant", "thought"),
+      msg("c1", "assistant", "tool_calls"),
+      msg("t2", "assistant", "thought"),
+      msg("a1", "assistant"),
+    ];
+    expect(collectTurnThoughts(list, 4).map((m) => m.id)).toEqual(["t1", "t2"]);
+  });
+
+  it("останавливается на реплике пользователя", () => {
+    const list = [
+      msg("t1", "assistant", "thought"),
+      msg("a1", "assistant"),
+      msg("u2", "user"),
+      msg("t2", "assistant", "thought"),
+      msg("a2", "assistant"),
+    ];
+    expect(collectTurnThoughts(list, 4).map((m) => m.id)).toEqual(["t2"]);
+  });
+
+  it("текст склеивает мысли пустой строкой и выкидывает пустые", () => {
+    const steps = [msg("t1", "assistant", "thought"), msg("t2", "assistant", "thought")];
+    steps[1].content = "   ";
+    expect(thoughtText(steps)).toBe("t1");
+    expect(thoughtText([])).toBe("");
+  });
+
+  it("у текущего хода берёт только мысли в конце ленты", () => {
+    const list = [
+      msg("a1", "assistant"),
+      msg("t2", "assistant", "thought"),
+      msg("t3", "assistant", "thought"),
+      msg("c2", "assistant", "tool_calls"),
+    ];
+    expect(collectTrailingThoughts(list).map((m) => m.id)).toEqual(["t2", "t3"]);
   });
 });

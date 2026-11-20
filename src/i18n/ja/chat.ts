@@ -2,13 +2,17 @@ import type { LocaleMessages } from "../types";
 
 export const chatMessages = {
   "chat.agent": "エージェント",
+  "chat.write": "メッセージを入力…",
+  "chat.attachFile": "ファイルまたは画像を添付",
+  "chat.resumeTurn": "前のリクエストを続行中…",
+  "chat.offline": "オフライン — 返信が届かない可能性があります",
   "chat.selectAgent": "— 選択 —",
   "chat.newDialog": "新しいダイアログ",
   "chat.dialogs": "ダイアログ",
   "chat.sessionName": "ダイアログ名",
   "chat.selectOrCreate": "ダイアログを選択または作成してください",
   "chat.messagesEmpty": "メッセージはまだありません。",
-  "chat.composerPlaceholder": "メッセージ…（Shift+Enter で送信、Enter で改行）",
+  "chat.composerPlaceholder": "メッセージ…（Shift+Enter で送信）",
   "chat.send": "送信",
   "chat.usage": "本日 {used} / {limit} 回呼び出し",
   "chat.remaining": "本日の残り呼び出し回数: {remaining}",
