@@ -221,6 +221,8 @@ export async function appendMessage(
   kind?: Message["kind"],
   attachments?: MessageAttachment[],
   elapsedMs?: number,
+  /** Идентификатор сообщения на стороне агента (`message.delete`, `message.update`). */
+  serverId?: string,
 ): Promise<Message> {
   const message: Message = {
     id: newId("msg"),
@@ -231,6 +233,7 @@ export async function appendMessage(
     kind,
     ...(typeof elapsedMs === "number" && elapsedMs >= 0 ? { elapsedMs } : {}),
     ...(attachments && attachments.length > 0 ? { attachments } : {}),
+    ...(serverId ? { serverId } : {}),
   };
   await putMessage(message);
 
@@ -292,6 +295,26 @@ export async function removeMessage(message: Message): Promise<void> {
   if (activeSessionId.value === message.sessionId) {
     messages.value = messages.value.filter((m) => m.id !== message.id);
   }
+}
+
+/**
+ * Удалить сообщение по идентификатору агента (`message.delete`).
+ *
+ * Сервер так правит историю: например, убирает промежуточное сообщение,
+ * текст которого заменил финальным ответом. Локальную копию тоже убираем,
+ * иначе после перезагрузки в ленте останется устаревшая версия.
+ */
+export async function removeMessageByServerId(
+  sessionId: string,
+  serverId: string,
+): Promise<boolean> {
+  if (!serverId) return false;
+  const source =
+    activeSessionId.value === sessionId ? messages.value : await listMessages(sessionId);
+  const target = source.find((m) => m.sessionId === sessionId && m.serverId === serverId);
+  if (!target) return false;
+  await removeMessage(target);
+  return true;
 }
 
 /**

@@ -16,4 +16,6 @@ export const appMessages = {
   "app.footer.support": "परियोजना का समर्थन करें",
   "app.footer.versionHint": "संस्करण",
   "app.footer.links": "फ़ुटर लिंक",
+  "app.updateReady": "नया संस्करण उपलब्ध है",
+  "app.updateAction": "अपडेट करें",
 } as const satisfies LocaleMessages;

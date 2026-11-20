@@ -9,12 +9,21 @@ import InstallButton from "./components/InstallButton.vue";
 import AppFooter from "./components/AppFooter.vue";
 import { loadAgents, loadSessions } from "./lib/store";
 import { useTheme } from "./lib/theme";
+import { watchForUpdate } from "./lib/version-update";
 import { useLocale } from "./i18n";
 
 type Tab = "connections" | "chat" | "sessions";
 const tab = ref<Tab>("chat");
 const { t } = useLocale();
 const { theme } = useTheme();
+/** Плашка «доступна новая версия»: ставится, когда SW перешёл на новую сборку. */
+const updateReady = ref(false);
+watchForUpdate(() => {
+  updateReady.value = true;
+});
+function applyUpdate(): void {
+  window.location.reload();
+}
 /** Иконка бренда: на тёмной теме — тёмный фон и светло-зелёный логотип. */
 const brandIcon = computed(
   () => `${import.meta.env.BASE_URL}icon${theme.value === "dark" ? "-dark" : ""}.svg?v=2`,
@@ -117,6 +126,13 @@ onMounted(async () => {
     </header>
 
     <main class="content" :class="{ 'content--flush': tab === 'chat' }">
+      <!-- Новая сборка уже управляет вкладкой: показываем плашку, а не ждём перезагрузки. -->
+      <div v-if="updateReady" class="update-bar" role="status">
+        <span class="update-bar__text">{{ t("app.updateReady") }}</span>
+        <button type="button" class="update-bar__action" @click="applyUpdate">
+          {{ t("app.updateAction") }}
+        </button>
+      </div>
       <ConnectionsView v-if="tab === 'connections'" />
       <ChatView v-else-if="tab === 'chat'" />
       <SessionsView v-else />
@@ -221,5 +237,34 @@ onMounted(async () => {
   min-height: 0;
   border: 0;
   border-radius: 0;
+}
+
+/* Плашка обновления: тонкая полоса, видна на любой вкладке, ничего не перекрывает. */
+.update-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+  font-size: 0.86rem;
+}
+
+.update-bar__action {
+  border: 1px solid var(--accent);
+  background: var(--panel);
+  color: inherit;
+  border-radius: 8px;
+  padding: 4px 12px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.update-bar__action:hover {
+  background: var(--accent);
+  color: #fff;
 }
 </style>

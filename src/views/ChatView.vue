@@ -18,6 +18,7 @@ import {
   messages,
   pinSession,
   removeMessage,
+  removeMessageByServerId,
   removeSession,
   renameSession,
   sessions,
@@ -1036,10 +1037,22 @@ async function listenTurn(
         },
         onMessage: async (m) => {
           heard = true;
-          await appendMessage(session.id, "assistant", m.content, m.kind);
+          await appendMessage(
+            session.id,
+            "assistant",
+            m.content,
+            m.kind,
+            undefined,
+            undefined,
+            m.id,
+          );
         },
         onUpdate: () => {
           heard = true;
+        },
+        onDelete: async (id) => {
+          heard = true;
+          await removeMessageByServerId(session.id, id);
         },
         onNotice: (text) => {
           heard = true;
@@ -1057,6 +1070,7 @@ async function listenTurn(
       undefined,
       incoming,
       requestAt ? Date.now() - requestAt : undefined,
+      response.serverId,
     );
     // Ход на сервере всё-таки состоялся — засчитываем вызов.
     await recordCall(agent.id);
@@ -1472,7 +1486,18 @@ async function exchange(
             if (shown()) streamingText.value += chunk;
           },
           onMessage: async (m) => {
-            await appendMessage(session.id, "assistant", m.content, m.kind, undefined, Date.now() - startedAt);
+            await appendMessage(
+              session.id,
+              "assistant",
+              m.content,
+              m.kind,
+              undefined,
+              Date.now() - startedAt,
+              m.id,
+            );
+          },
+          onDelete: async (id) => {
+            await removeMessageByServerId(session.id, id);
           },
           onNotice: (text) => {
             // Служебная плашка сервера: показываем статусом, ответа не ждём молча.
@@ -1489,6 +1514,7 @@ async function exchange(
       undefined,
       incoming,
       Date.now() - startedAt,
+      response.serverId,
     );
     // Ответ уже в ленте — живое облачко убираем, чтобы не было двух одинаковых.
     if (shown()) streamingText.value = "";

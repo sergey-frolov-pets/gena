@@ -31,6 +31,8 @@ export interface TransportAttachment {
 export interface TransportReply {
   reply: string;
   attachments?: TransportAttachment[];
+  /** Идентификатор финального сообщения на стороне агента (для `message.delete`). */
+  serverId?: string;
 }
 
 /** Событие промежуточного сообщения (мысль / вызовы инструментов / стрим). */
@@ -53,6 +55,11 @@ export interface TransportEvents {
    * Ход при этом продолжается — плашку показываем строкой статуса, а не ответом.
    */
   onNotice?: (text: string) => void;
+  /**
+   * Агент удалил сообщение (`message.delete`): правка на стороне Pico.
+   * `id` — идентификатор сообщения агента, а не локальный.
+   */
+  onDelete?: (id: string) => void;
 }
 
 export interface AgentTransport {

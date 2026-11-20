@@ -14,6 +14,7 @@ import {
   messages,
   pinSession,
   removeMessage,
+  removeMessageByServerId,
   renameSession,
   sessions,
 } from "./store";
@@ -93,6 +94,21 @@ describe("store: сессия и сообщения", () => {
     expect(messages.value.map((m) => m.content)).toEqual(["первая"]);
     expect((await listMessages(session.id)).map((m) => m.content)).toEqual(["первая"]);
     expect(sessions.value.find((s) => s.id === session.id)?.messageCount).toBe(1);
+  });
+
+  it("removeMessageByServerId убирает сообщение по id агента (message.delete)", async () => {
+    const session = await createSession("agent-store-7", "Диалог");
+    await loadMessages(session.id);
+    await appendMessage(session.id, "user", "вопрос");
+    await appendMessage(session.id, "assistant", "старый ответ", undefined, undefined, 10, "srv-1");
+    await appendMessage(session.id, "assistant", "новый ответ", undefined, undefined, 10, "srv-2");
+
+    expect(await removeMessageByServerId(session.id, "srv-1")).toBe(true);
+
+    expect(messages.value.map((m) => m.content)).toEqual(["вопрос", "новый ответ"]);
+    // Повторное удаление того же id — не ошибка, просто «нечего удалять».
+    expect(await removeMessageByServerId(session.id, "srv-1")).toBe(false);
+    expect(sessions.value.find((s) => s.id === session.id)?.messageCount).toBe(2);
   });
 
   it("clearMessages закрывает диалог и не даёт дочитать его историю", async () => {

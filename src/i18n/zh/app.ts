@@ -16,4 +16,6 @@ export const appMessages = {
   "app.footer.support": "支持项目",
   "app.footer.versionHint": "版本",
   "app.footer.links": "页脚链接",
+  "app.updateReady": "有新版本可用",
+  "app.updateAction": "更新",
 } as const satisfies LocaleMessages;

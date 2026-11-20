@@ -16,4 +16,6 @@ export const appMessages = {
   "app.footer.support": "Apoyar el proyecto",
   "app.footer.versionHint": "Versión",
   "app.footer.links": "Enlaces del pie de página",
+  "app.updateReady": "Hay una nueva versión disponible",
+  "app.updateAction": "Actualizar",
 } as const satisfies LocaleMessages;

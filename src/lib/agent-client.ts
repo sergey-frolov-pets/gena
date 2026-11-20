@@ -25,6 +25,8 @@ export interface AgentResponse {
   reply: string;
   /** Вложения финального сообщения (Pico: изображения по пути `/pico/media/...`). */
   attachments?: TransportAttachment[];
+  /** Идентификатор сообщения на стороне агента (Pico). */
+  serverId?: string;
 }
 
 export { AgentClientError, type AgentClientErrorCode } from "./transports";

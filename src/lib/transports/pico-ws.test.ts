@@ -12,6 +12,8 @@ class FakeWebSocket {
   protocols: string[];
   readyState = 0;
   sent: string[] = [];
+  /** Сервер Pico отвечает на `ping` кадром `pong` — фейк делает то же. */
+  autoPong = true;
   private listeners: Record<string, Array<(ev: unknown) => void>> = {};
 
   constructor(url: string, protocols?: string | string[]) {
@@ -28,6 +30,17 @@ class FakeWebSocket {
   }
   send(data: string): void {
     this.sent.push(data);
+    if (!this.autoPong) return;
+    let frame: { type?: string; id?: string } | null = null;
+    try {
+      frame = JSON.parse(data) as { type?: string; id?: string };
+    } catch {
+      return;
+    }
+    if (frame?.type === "ping") {
+      // Ответ приходит следующим тиком — как по сети.
+      setTimeout(() => this.frame({ type: "pong", id: frame?.id }), 0);
+    }
   }
   close(): void {
     this.readyState = 3;
@@ -107,7 +120,7 @@ describe("pico-ws transport", () => {
 
     ws.frame({ type: "message.create", payload: { content: "ответ", message_id: "m2" } });
     await vi.advanceTimersByTimeAsync(QUIET);
-    await expect(p).resolves.toEqual({ reply: "ответ" });
+    await expect(p).resolves.toMatchObject({ reply: "ответ" });
   });
 
   it("заглушка «думаю…» не считается ответом и не завершает ход", async () => {
@@ -130,7 +143,7 @@ describe("pico-ws transport", () => {
 
     ws.frame({ type: "message.create", payload: { content: "готово", message_id: "m1" } });
     await vi.advanceTimersByTimeAsync(QUIET);
-    await expect(p).resolves.toEqual({ reply: "готово" });
+    await expect(p).resolves.toMatchObject({ reply: "готово" });
   });
 
   it("message.update продлевает ход и стримит прирост в onDelta", async () => {
@@ -144,7 +157,7 @@ describe("pico-ws transport", () => {
     ws.frame({ type: "message.update", payload: { content: "Привет, мир", message_id: "m1" } });
     await vi.advanceTimersByTimeAsync(QUIET);
 
-    await expect(p).resolves.toEqual({ reply: "Привет, мир" });
+    await expect(p).resolves.toMatchObject({ reply: "Привет, мир" });
     expect(onDelta.mock.calls.map((c) => c[1])).toEqual(["При", "вет", ", мир"]);
   });
 
@@ -169,7 +182,7 @@ describe("pico-ws transport", () => {
 
     ws.frame({ type: "message.create", payload: { content: "ответ", message_id: "m1" } });
     await vi.advanceTimersByTimeAsync(QUIET);
-    await expect(p).resolves.toEqual({ reply: "ответ" });
+    await expect(p).resolves.toMatchObject({ reply: "ответ" });
   });
 
   it("вложения финального сообщения → attachments в ответе (только изображения)", async () => {
@@ -191,6 +204,7 @@ describe("pico-ws transport", () => {
     await expect(p).resolves.toEqual({
       reply: "вот фото",
       attachments: [{ url: "/pico/media/r1", filename: undefined, contentType: "image/jpeg" }],
+      serverId: "m3",
     });
   });
 
@@ -233,7 +247,7 @@ describe("pico-ws transport", () => {
     ws.frame({ type: "message.create", payload: { content: "ответ", message_id: "m10" } });
     await vi.advanceTimersByTimeAsync(QUIET);
 
-    await expect(p).resolves.toEqual({ reply: "ответ" });
+    await expect(p).resolves.toMatchObject({ reply: "ответ" });
   });
 
   it("после плашки долгая пауза резервной модели не рвёт ход", async () => {
@@ -248,7 +262,7 @@ describe("pico-ws transport", () => {
     ws.frame({ type: "message.create", payload: { content: "ответ", message_id: "m40" } });
     await vi.advanceTimersByTimeAsync(QUIET);
 
-    await expect(p).resolves.toEqual({ reply: "ответ" });
+    await expect(p).resolves.toMatchObject({ reply: "ответ" });
   });
 
   it("плашка без продолжения → реальная ошибка ws_timeout через 10 минут", async () => {
@@ -276,7 +290,7 @@ describe("pico-ws transport", () => {
     ws.frame({ type: "message.create", payload: { content: "ответ", message_id: "m2" } });
     await vi.advanceTimersByTimeAsync(QUIET);
 
-    await expect(p).resolves.toEqual({ reply: "ответ" });
+    await expect(p).resolves.toMatchObject({ reply: "ответ" });
   });
 
   it("listen: ничего не отправляет и подбирает ответ идущего хода", async () => {
@@ -291,7 +305,7 @@ describe("pico-ws transport", () => {
 
     ws.frame({ type: "message.create", payload: { content: "поздний ответ", message_id: "m5" } });
     await vi.advanceTimersByTimeAsync(QUIET);
-    await expect(p).resolves.toEqual({ reply: "поздний ответ" });
+    await expect(p).resolves.toMatchObject({ reply: "поздний ответ" });
   });
 
   it("обрыв до ответа → ws_closed", async () => {
@@ -314,7 +328,7 @@ describe("pico-ws transport", () => {
     await vi.advanceTimersByTimeAsync(0);
     second.frame({ type: "message.create", payload: { content: "ok", message_id: "m1" } });
     await vi.advanceTimersByTimeAsync(QUIET);
-    await expect(p).resolves.toEqual({ reply: "ok" });
+    await expect(p).resolves.toMatchObject({ reply: "ok" });
   });
 
   it("abort → network/aborted", async () => {
@@ -337,6 +351,57 @@ describe("pico-ws transport", () => {
     await assertion;
   });
 
+  it("прикладной ping держит ход: pong приходит, ход не рвётся", async () => {
+    const { p, ws } = await connect();
+    await vi.advanceTimersByTimeAsync(200_000);
+    const pings = ws.sent.filter((raw) => JSON.parse(raw).type === "ping");
+    expect(pings.length).toBeGreaterThanOrEqual(7);
+
+    ws.frame({ type: "message.create", payload: { content: "после паузы", message_id: "m1" } });
+    await vi.advanceTimersByTimeAsync(QUIET);
+    await expect(p).resolves.toMatchObject({ reply: "после паузы" });
+  });
+
+  it("нет pong → мёртвое соединение ловится за ~минуту, а не за 15", async () => {
+    const transport = makePicoTransport(ctor);
+    const p = transport.send(req(), {});
+    const ws = FakeWebSocket.instances.at(-1)!;
+    ws.autoPong = false;
+    ws.emit("open");
+    await vi.advanceTimersByTimeAsync(0);
+
+    const assertion = expect(p).rejects.toMatchObject({ code: "ws_timeout", detail: "no_pong" });
+    await vi.advanceTimersByTimeAsync(80_000);
+    await assertion;
+  });
+
+  it("message.delete убирает ответ и не даёт ему стать итогом хода", async () => {
+    const onDelete = vi.fn();
+    const { p, ws } = await connect({ onDelete });
+    ws.frame({ type: "message.create", payload: { content: "черновой", message_id: "m1" } });
+    ws.frame({ type: "message.delete", payload: { message_id: "m1" } });
+    expect(onDelete).toHaveBeenCalledWith("m1");
+
+    let done = false;
+    void p.then(
+      () => (done = true),
+      () => (done = true),
+    );
+    await vi.advanceTimersByTimeAsync(QUIET + 100);
+    expect(done).toBe(false);
+
+    ws.frame({ type: "message.create", payload: { content: "итог", message_id: "m2" } });
+    await vi.advanceTimersByTimeAsync(QUIET);
+    await expect(p).resolves.toMatchObject({ reply: "итог", serverId: "m2" });
+  });
+
+  it("финальный ответ отдаёт serverId — по нему клиент удаляет сообщение", async () => {
+    const { p, ws } = await connect();
+    ws.frame({ type: "message.create", payload: { content: "ответ", message_id: "m7" } });
+    await vi.advanceTimersByTimeAsync(QUIET);
+    await expect(p).resolves.toMatchObject({ reply: "ответ", serverId: "m7" });
+  });
+
   it("долгий ход с шагами не обрывается по 120 секундам", async () => {
     const { p, ws } = await connect();
     for (let i = 0; i < 6; i++) {
@@ -348,6 +413,6 @@ describe("pico-ws transport", () => {
     }
     ws.frame({ type: "message.create", payload: { content: "итог", message_id: "m9" } });
     await vi.advanceTimersByTimeAsync(QUIET);
-    await expect(p).resolves.toEqual({ reply: "итог" });
+    await expect(p).resolves.toMatchObject({ reply: "итог" });
   });
 });

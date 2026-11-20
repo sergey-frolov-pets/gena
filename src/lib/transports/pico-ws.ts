@@ -31,7 +31,7 @@ import type { PicoConfig } from "@/storage/types";
 import { parseIncomingAttachments } from "@/lib/media";
 import { isTurnNotice } from "@/lib/notices";
 import { AgentClientError } from "./client-error";
-import { PicoConnection, type PicoFrame, type PicoSocketCtor } from "./pico-connection";
+import { PicoConnection, WS_OPEN, type PicoFrame, type PicoSocketCtor } from "./pico-connection";
 import type {
   AgentTransport,
   TransportAttachment,
@@ -61,6 +61,16 @@ const CONNECT_ATTEMPTS = 3;
 const CONNECT_BACKOFF_MS = 1_000;
 /** Сколько ждём открытия WebSocket, прежде чем повторить подключение. */
 const CONNECT_TIMEOUT_MS = 15_000;
+/**
+ * Прикладной ping: раз в 25 с спрашиваем сервер «ты жив?».
+ *
+ * Нужен, чтобы мёртвое соединение (например, телефон ушёл в спящую сеть)
+ * обнаруживалось за ~минуту, а не за 15 минут тишины. Сервер отвечает `pong`
+ * тем же `id` (см. `pkg/channels/pico` в PicoClaw).
+ */
+const PING_INTERVAL_MS = 25_000;
+/** Столько тишины при отправленных ping считаем обрывом (три пропущенных pong). */
+const PING_SILENCE_MS = 75_000;
 
 function withTimeout<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -154,6 +164,10 @@ function runTurn(
     let idleTimer: ReturnType<typeof setTimeout> | null = null;
     let errorTimer: ReturnType<typeof setTimeout> | null = null;
     let noticeTimer: ReturnType<typeof setTimeout> | null = null;
+    /** Прикладной ping: связь проверяется, даже когда агент долго молчит. */
+    let pingTimer: ReturnType<typeof setInterval> | null = null;
+    /** Когда последний раз приходил ЛЮБОЙ кадр (включая `pong`). */
+    let lastFrameAt = Date.now();
     /** `error`-кадр, которому ещё даём шанс оказаться шумом. */
     let pendingError: AgentClientError | null = null;
     /** Соединение реально открылось — до этого close не считается концом хода. */
@@ -169,13 +183,22 @@ function runTurn(
     }, HARD_TIMEOUT_MS);
 
     function withAttachments(): TransportReply {
-      return reply && reply.attachments && reply.attachments.length > 0
-        ? { reply: reply.content, attachments: reply.attachments }
-        : { reply: reply?.content ?? "" };
+      const base: TransportReply = { reply: reply?.content ?? "" };
+      if (reply?.attachments && reply.attachments.length > 0) {
+        base.attachments = reply.attachments;
+      }
+      if (reply?.id) {
+        base.serverId = reply.id;
+      }
+      return base;
     }
 
     function clearTimers(): void {
       clearTimeout(hardTimer);
+      if (pingTimer) {
+        clearInterval(pingTimer);
+        pingTimer = null;
+      }
       if (quietTimer) {
         clearTimeout(quietTimer);
         quietTimer = null;
@@ -215,6 +238,7 @@ function runTurn(
 
     /** Кадр пришёл — агент жив, сдвигаем watchdog и снимаем «шумовые» таймеры. */
     function touch(): void {
+      lastFrameAt = Date.now();
       clearPendingError();
       if (noticeTimer) {
         clearTimeout(noticeTimer);
@@ -229,6 +253,29 @@ function runTurn(
           new AgentClientError("no events from agent", undefined, "ws_timeout"),
         );
       }, IDLE_TIMEOUT_MS);
+    }
+
+    /**
+     * Прикладной ping: сервер отвечает `pong` с тем же `id`, поэтому тишина
+     * дольше трёх интервалов — это мёртвое соединение, а не долгая работа.
+     */
+    function startPings(): void {
+      if (pingTimer) {
+        return;
+      }
+      pingTimer = setInterval(() => {
+        if (settled || conn.readyState !== WS_OPEN) {
+          return;
+        }
+        if (Date.now() - lastFrameAt >= PING_SILENCE_MS) {
+          finish(
+            reject,
+            new AgentClientError("connection lost: no pong", undefined, "ws_timeout", "no_pong"),
+          );
+          return;
+        }
+        conn.send({ type: "ping", id: newId(), timestamp: Date.now() });
+      }, PING_INTERVAL_MS);
     }
 
     /**
@@ -308,6 +355,12 @@ function runTurn(
 
     conn.setHandlers({
       onMessage(frame: PicoFrame) {
+        // `pong` подтверждает живость соединения, но ход им не продлеваем:
+        // иначе watchdog молчания никогда бы не сработал.
+        if (frame.type === "pong") {
+          lastFrameAt = Date.now();
+          return;
+        }
         touch();
         const type = frame.type;
         const payload = (frame.payload ?? {}) as Record<string, unknown>;
@@ -320,6 +373,18 @@ function runTurn(
         if (type === "typing.stop") {
           // Индикатор гаснет перед финальным ответом — ход это не завершает.
           ev.onTyping?.(false);
+          return;
+        }
+        if (type === "message.delete") {
+          // Сервер правит историю: сообщения с таким id больше нет.
+          const deleted = str(payload.message_id);
+          if (!deleted) {
+            return;
+          }
+          if (reply && reply.id === deleted) {
+            reply = null;
+          }
+          ev.onDelete?.(deleted);
           return;
         }
         if (type === "error") {
@@ -403,6 +468,8 @@ function runTurn(
             "WebSocket connect timeout",
           );
           opened = true;
+          // Связь проверяем прикладным ping и в пассивном ожидании тоже.
+          startPings();
           if (!shouldSend) {
             // Пассивное ожидание: ничего не отправляем, слушаем сессию.
             return;
