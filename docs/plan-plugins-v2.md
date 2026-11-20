@@ -206,8 +206,8 @@ Kimi предложил выкинуть. Оставляю осознанно: �
 
 | # | Что | Оценка | Готово, когда |
 |---|---|---|---|
-| G0 | `pkg/uiblock` + тесты | 1.5 ч | `go test ./pkg/uiblock/` зелёный, 14 кейсов |
-| G1 | Extract в 5 точках (§3.2), `PayloadKeyUI`, pico payload, `turnResult.uiPayload` | 2.5 ч | в `sessions/*.jsonl` нет JSON-блока; в кадре `ui` — объект; тесты `pkg/agent`, `pkg/channels/pico` зелёные; gateway перезапущен, Гена отвечает |
+| G0 ✅ | `pkg/uiblock` + тесты | 1.5 ч | `go test ./pkg/uiblock/` зелёный, 17 кейсов (2026-11-20) |
+| G1 ✅ | Extract в 5 точках (§3.2), `PayloadKeyUI`, pico payload, `turnResult.uiPayload` | 2.5 ч | реализовано 2026-11-20, см. §11 |
 | C0 | контракт клиента: `types.ts`, `ui-blocks.ts`, `ui-stream.ts`, `ui-text.ts`, `appendMessage` на опции + тесты | 2 ч | визуально ничего не изменилось, тесты ≥ 200 |
 | C1 | `PluginHost`, `GenericView` (5 view), `registry`, демо-плагин | 3 ч | карточка сворачивается на телефоне; битый блок = текст; падение плагина не роняет чат |
 | C2 | `ui-actions`, `sendSilent`, confirm, optimistic, дедуп, i18n, копия/TTS/экспорт | 2 ч | «Готово» закрывает задачу (проверка `tasks_list`), реплики в ленте нет, двойной тап не дублирует |
@@ -296,3 +296,35 @@ python3 skills/code-review-hook/scripts/check_code.py --git
 
 Обе ставки подтверждены: `ui` без нового `kind` — безопасно; вырезка не ломает регенерацию,
 если чистый текст доезжает до истории и `turnResult`.
+
+## 11. Реализация G0/G1 (2026-11-20)
+
+### G0 — `pkg/uiblock` (коммит `036b1be6`)
+
+`Extract(text) Result{Clean, Block, Plugin, Dropped}` + `Validate`. 17 тестов.
+Правила: вырезаются все ограждения с info-строкой `gena-ui`; блок — последний валидный;
+битый JSON вырезается и заменяется пометкой `[ui-блок отброшен: <причина>]`.
+Попутный фикс: если слово `gena-ui` встретилось в прозе без ограждения, текст
+возвращается байт в байт (раньше нормализовались CRLF и пустые строки).
+
+### G1 — встраивание
+
+| Место | Файл | Что сделано |
+|---|---|---|
+| Точка вырезки | `pkg/agent/pipeline_finalize.go` | `extractUI(finalContent)` до `setFinalContent`, истории, суммаризации и стрима; блок → `turnResult.uiPayload` |
+| Промежуточные ответы | `pkg/agent/pipeline_llm.go` | текст перед tool-calls чистится, блок запоминается в `ts.uiPayload` (`setPendingUI`) и доезжает финальным ответом |
+| Основная отправка | `pkg/agent/agent.go` | `result.uiPayload` → `Context.Raw["ui"]` |
+| `PublishResponseIfNeeded` | `pkg/agent/agent_outbound.go` | stop / cron / steering / follow-up: текст чистится, `ui` в `Raw` |
+| `message`-тул | `pkg/tools/integration/message.go` | блок вырезается всегда; для карточек — отдельный `SetSendCardCallback` (старые колбэки не тронуты) |
+| Стрим-финал | `pkg/agent/pipeline_streaming.go`, `pkg/bus` | новый `bus.UIStreamer.SetUIPayload`; publisher передаёт блок в финальный кадр |
+| pico | `pkg/channels/pico/pico.go`, `protocol.go` | `PayloadKeyUI="ui"`; объект в `message.create` и `message.update`; `picoStreamer` шлёт финальный update даже при неизменном тексте, если появился блок |
+| Правка placeholder | `pkg/channels/manager.go` | `outboundMessageEditPayload` кладёт `ui` объектом; обёртки стримеров (`finalizeHookStreamer`, `splitMarkerStreamer`) пробрасывают `SetUIPayload` |
+
+Тесты: `uiblock` 17, `agent` (glue + publish) 5, `pico` +3 (create/update/битый ui),
+`channels` +2 (payload правки), `tools/integration` +2 (карточка и вырезка без колбэка).
+
+### Что осталось по G1
+
+- Перезапуск gateway на новом бинаре и проверка, что Гена отвечает.
+- Ручной E2E: скилл печатает ```gena-ui``` → в кадре `ui`-объект, история чистая.
+- Клиентская половина (C0–C2): без неё блок игнорируется старым клиентом, текст остаётся чистым.
