@@ -543,6 +543,34 @@ const feed = computed<Message[]>(() =>
   withoutToolCalls(messages.value).filter((m) => m.id !== lifted.value?.message.id),
 );
 
+/**
+ * Сколько сообщений держим в DOM.
+ *
+ * Длинный диалог (сотни сообщений и мыслей) на телефоне иначе держит весь DOM
+ * и подвисает при скролле и стриме. Старое подгружается кнопкой «показать раньше»,
+ * индекс остаётся сквозной по `feed` — от него зависят блоки размышлений и длительности.
+ */
+const FEED_WINDOW = 80;
+const feedLimit = ref(FEED_WINDOW);
+
+const renderedFeed = computed(() => {
+  const list = feed.value;
+  const start = Math.max(0, list.length - feedLimit.value);
+  return list.slice(start).map((message, i) => ({ message, index: start + i }));
+});
+
+/** Сколько сообщений скрыто над окном рендера. */
+const hiddenCount = computed(() => Math.max(0, feed.value.length - feedLimit.value));
+
+function showEarlier(): void {
+  feedLimit.value += FEED_WINDOW;
+}
+
+// Переключились на другой диалог — окно снова последние сообщения.
+watch(activeSessionId, () => {
+  feedLimit.value = FEED_WINDOW;
+});
+
 /** Все мысли хода, который заканчивается ответом `index`. */
 function turnThoughts(index: number): Message[] {
   return collectTurnThoughts(feed.value, index);
@@ -2258,17 +2286,22 @@ function onRateChange(event: Event): void {
         @drop.prevent="onDrop"
       >
         <div ref="threadEl" class="chat-panel__thread">
-        <template v-for="(m, index) in feed" :key="m.id">
+        <div v-if="hiddenCount > 0" class="chat-panel__earlier">
+          <button type="button" class="chat-panel__earlier-btn" @click="showEarlier">
+            {{ t("chat.showEarlier", { count: hiddenCount }) }}
+          </button>
+        </div>
+        <template v-for="entry in renderedFeed" :key="entry.message.id">
           <div
-            v-if="m.role === 'assistant' && m.kind !== 'thought' && turnThoughtText(index)"
+            v-if="entry.message.role === 'assistant' && entry.message.kind !== 'thought' && turnThoughtText(entry.index)"
             class="chat-panel__thought"
-            :class="{ 'is-open': thoughtExpanded(m.id) }"
+            :class="{ 'is-open': thoughtExpanded(entry.message.id) }"
           >
             <button
               type="button"
               class="chat-panel__thought-toggle"
-              :aria-expanded="thoughtExpanded(m.id)"
-              @click="toggleThought(m.id)"
+              :aria-expanded="thoughtExpanded(entry.message.id)"
+              @click="toggleThought(entry.message.id)"
             >
               <svg
                 class="chat-panel__thought-chevron"
@@ -2285,35 +2318,35 @@ function onRateChange(event: Event): void {
                 <path d="M9 6l6 6-6 6" />
               </svg>
               <span>{{ t("chat.thought") }}</span>
-              <span class="chat-panel__thought-count">{{ turnThoughts(index).length }}</span>
+              <span class="chat-panel__thought-count">{{ turnThoughts(entry.index).length }}</span>
             </button>
             <div class="chat-panel__thought-body">
-              <div class="chat-panel__thought-inner">{{ turnThoughtText(index) }}</div>
+              <div class="chat-panel__thought-inner">{{ turnThoughtText(entry.index) }}</div>
             </div>
           </div>
           <article
-            v-if="m.kind !== 'thought'"
+            v-if="entry.message.kind !== 'thought'"
             class="chat-panel__message"
-            :class="`chat-panel__message--${m.role}`"
-            @click="onMessageClick($event, m)"
+            :class="`chat-panel__message--${entry.message.role}`"
+            @click="onMessageClick($event, entry.message)"
           >
             <span class="chat-panel__role">
-              <span class="chat-panel__time">{{ messageClock(m) }}</span>
-              <span class="chat-panel__role-name">{{ roleLabel(m) }}</span>
-              <span v-if="messageElapsed(index)" class="chat-panel__elapsed">
-                {{ messageElapsed(index) }}
+              <span class="chat-panel__time">{{ messageClock(entry.message) }}</span>
+              <span class="chat-panel__role-name">{{ roleLabel(entry.message) }}</span>
+              <span v-if="messageElapsed(entry.index)" class="chat-panel__elapsed">
+                {{ messageElapsed(entry.index) }}
               </span>
             </span>
             <div
-              v-if="m.content"
+              v-if="entry.message.content"
               class="chat-panel__content md"
               @click="onMarkdownClick"
-              v-html="mdHtml(m.content)"
+              v-html="mdHtml(entry.message.content)"
             ></div>
-            <details v-if="m.edits?.length" class="chat-panel__edits">
+            <details v-if="entry.message.edits?.length" class="chat-panel__edits">
               <summary>{{ t("chat.edited") }}</summary>
               <div
-                v-for="(v, i) in m.edits"
+                v-for="(v, i) in entry.message.edits"
                 :key="i"
                 class="chat-panel__content md"
                 @click="onMarkdownClick"
@@ -2321,12 +2354,12 @@ function onRateChange(event: Event): void {
               ></div>
             </details>
             <div
-              v-if="imagesOf(m).length"
+              v-if="imagesOf(entry.message).length"
               class="chat-panel__images"
-              :data-count="Math.min(imagesOf(m).length, 4)"
+              :data-count="Math.min(imagesOf(entry.message).length, 4)"
             >
               <button
-                v-for="(a, i) in imagesOf(m).slice(0, 4)"
+                v-for="(a, i) in imagesOf(entry.message).slice(0, 4)"
                 :key="i"
                 type="button"
                 class="chat-panel__image"
@@ -2335,9 +2368,9 @@ function onRateChange(event: Event): void {
                 <img :src="a.thumb" alt="" loading="lazy" @load="scrollToBottom()" />
               </button>
             </div>
-            <div v-if="filesOf(m).length" class="chat-panel__file-row">
+            <div v-if="filesOf(entry.message).length" class="chat-panel__file-row">
               <span
-                v-for="(a, i) in filesOf(m)"
+                v-for="(a, i) in filesOf(entry.message)"
                 :key="`file-${i}`"
                 class="chat-panel__file-badge"
                 :title="a.name"
@@ -2352,12 +2385,12 @@ function onRateChange(event: Event): void {
             </div>
             <div class="chat-panel__message-actions">
               <button
-                v-if="m.role === 'user' && !m.kind"
+                v-if="entry.message.role === 'user' && !entry.message.kind"
                 type="button"
                 class="chat-panel__action"
                 v-tip="t('chat.liftMessage')"
                 :aria-label="t('chat.liftMessage')"
-                @click="startEdit(m)"
+                @click="startEdit(entry.message)"
               >
                 <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="M4 20h4l10-10a2.8 2.8 0 1 0-4-4L4 16z" />
@@ -2366,11 +2399,11 @@ function onRateChange(event: Event): void {
               <button
                 type="button"
                 class="chat-panel__action"
-                v-tip="copiedId === m.id ? t('chat.copied') : t('chat.copyMessage')"
+                v-tip="copiedId === entry.message.id ? t('chat.copied') : t('chat.copyMessage')"
                 :aria-label="t('chat.copyMessage')"
-                @click="copyText(m.id, m.content)"
+                @click="copyText(entry.message.id, entry.message.content)"
               >
-                <svg v-if="copiedId === m.id" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <svg v-if="copiedId === entry.message.id" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="m5 13 4 4L19 7" />
                 </svg>
                 <svg v-else viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -2379,16 +2412,16 @@ function onRateChange(event: Event): void {
                 </svg>
               </button>
               <button
-                v-if="m.role === 'assistant' && speechAvailable"
+                v-if="entry.message.role === 'assistant' && speechAvailable"
                 type="button"
                 class="chat-panel__action"
-                :class="{ 'is-on': speakingId === m.id }"
-                v-tip="speakingId === m.id ? t('chat.stopSpeaking') : t('chat.speakReply')"
-                :aria-label="speakingId === m.id ? t('chat.stopSpeaking') : t('chat.speakReply')"
-                :aria-pressed="speakingId === m.id"
-                @click="toggleSpeech(m.id, m.content)"
+                :class="{ 'is-on': speakingId === entry.message.id }"
+                v-tip="speakingId === entry.message.id ? t('chat.stopSpeaking') : t('chat.speakReply')"
+                :aria-label="speakingId === entry.message.id ? t('chat.stopSpeaking') : t('chat.speakReply')"
+                :aria-pressed="speakingId === entry.message.id"
+                @click="toggleSpeech(entry.message.id, entry.message.content)"
               >
-                <svg v-if="speakingId === m.id" viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true">
+                <svg v-if="speakingId === entry.message.id" viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true">
                   <rect x="7" y="7" width="10" height="10" rx="2" />
                 </svg>
                 <svg v-else viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -2397,12 +2430,12 @@ function onRateChange(event: Event): void {
                 </svg>
               </button>
               <button
-                v-if="m.role === 'assistant' && index === feed.length - 1 && !busy"
+                v-if="entry.message.role === 'assistant' && entry.index === feed.length - 1 && !busy"
                 type="button"
                 class="chat-panel__action"
                 v-tip="t('chat.regenerate')"
                 :aria-label="t('chat.regenerate')"
-                @click="regenerate(m)"
+                @click="regenerate(entry.message)"
               >
                 <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="M20 12a8 8 0 1 1-2.34-5.66" />
@@ -3257,6 +3290,28 @@ function onRateChange(event: Event): void {
   flex-direction: column;
   gap: 10px;
   min-height: 100%;
+}
+
+/* Кнопка «показать раньше»: над окном рендера, по центру, ненавязчивая. */
+.chat-panel__earlier {
+  display: flex;
+  justify-content: center;
+  padding: 2px 0 4px;
+}
+
+.chat-panel__earlier-btn {
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.chat-panel__earlier-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
 }
 
 /* --- Пузыри: как .ai-chat-panel__message --------------------------------- */

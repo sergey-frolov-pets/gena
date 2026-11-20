@@ -89,4 +89,5 @@ export const chatMessages = {
   "chat.queue.imagesLost": "لم يتم حفظ صور قائمة الانتظار عند إغلاق التطبيق — يرجى إرفاقها مرة أخرى",
   "chat.error.emptyMessage": "الرسالة فارغة",
   "chat.regenerateConfirm": "سيُحذف الرد وكل الرسائل التالية. هل تريد إرسال الرسالة مرة أخرى؟",
+  "chat.showEarlier": "عرض الرسائل الأقدم ({count})",
 } as const satisfies LocaleMessages;

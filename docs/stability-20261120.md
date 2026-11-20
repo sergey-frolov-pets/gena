@@ -25,11 +25,11 @@ _2026-11-20. Разбор по коду ChatView / pico-ws / service worker._
 | `message.delete`: правки истории на стороне Pico доходят до ленты | `transports/pico-ws.ts`, `store.removeMessageByServerId` |
 | `serverId` у сообщений (нужен для `message.delete`) | `store.appendMessage`, `agent-client.ts` |
 | Плашка «Доступна новая версия» при смене service worker | `lib/version-update.ts`, `App.vue` |
+| Окно рендера ленты: 80 сообщений в DOM, остальное — кнопкой «показать раньше» | `ChatView.vue` (`FEED_WINDOW`) |
 
 ## Что стоит поменять дальше (по приоритету)
 
 2. **Серверный resume вместо повторной отправки.** Pico не отдаёт историю по `session_id`; догон — это повторный `message.send`, он дублирует реплику в контексте агента. Нужен кадр `message.history` / `turn.resume` в `pkg/channels/pico` (Go). Сборка Go на этой машине пока OOM — отложено.
-3. **Виртуализация ленты.** Длинный диалог (сотни сообщений и мыслей) держит весь DOM. Список с `IntersectionObserver`/окном ±50 сообщений снизит память и подвисания на телефоне.
 4. **Очередь и вложения: лимит хранения.** `localStorage` ~5 МБ; data-URL картинок туда не кладём. Для вложений — только миниатюры (уже так), плюс периодическая очистка осиротевших blob-URL.
 5. **Оценка хранилища.** `navigator.storage.estimate()` → предупреждение «мало места» до того, как IndexedDB начнёт падать с `QuotaExceededError`.
 10. **Отмена на сервере.** «Стоп» рвёт WebSocket; генерация на сервере может продолжаться. Кадр `cancel` (или HTTP `/cancel`) сэкономит токены и время.

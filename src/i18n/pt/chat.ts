@@ -89,4 +89,5 @@ export const chatMessages = {
   "chat.queue.imagesLost": "As imagens da fila não foram salvas ao fechar o aplicativo — anexe-as novamente",
   "chat.error.emptyMessage": "A mensagem está vazia",
   "chat.regenerateConfirm": "A resposta e todas as mensagens seguintes serão excluídas. Enviar a mensagem novamente?",
+  "chat.showEarlier": "Mostrar anteriores ({count})",
 } as const satisfies LocaleMessages;

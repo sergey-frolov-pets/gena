@@ -89,4 +89,5 @@ export const chatMessages = {
   "chat.queue.imagesLost": "Bilder aus der Warteschlange wurden beim Schließen der App nicht gespeichert – bitte erneut anhängen",
   "chat.error.emptyMessage": "Nachricht ist leer",
   "chat.regenerateConfirm": "Die Antwort und alle folgenden Nachrichten werden gelöscht. Nachricht erneut senden?",
+  "chat.showEarlier": "Frühere anzeigen ({count})",
 } as const satisfies LocaleMessages;

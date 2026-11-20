@@ -89,4 +89,5 @@ export const chatMessages = {
   "chat.queue.imagesLost": "キュー内の画像はアプリ終了時に保存されませんでした。もう一度添付してください",
   "chat.error.emptyMessage": "メッセージが空です",
   "chat.regenerateConfirm": "返信とそれ以降のメッセージは削除されます。もう一度送信しますか？",
+  "chat.showEarlier": "以前のメッセージを表示（{count}）",
 } as const satisfies LocaleMessages;

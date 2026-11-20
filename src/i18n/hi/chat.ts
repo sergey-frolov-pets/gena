@@ -89,4 +89,5 @@ export const chatMessages = {
   "chat.queue.imagesLost": "ऐप बंद होने पर कतार की तस्वीरें सहेजी नहीं गईं — कृपया उन्हें फिर से जोड़ें",
   "chat.error.emptyMessage": "संदेश खाली है",
   "chat.regenerateConfirm": "उत्तर और उसके बाद के सभी संदेश हट जाएँगे। संदेश फिर से भेजें?",
+  "chat.showEarlier": "पहले के संदेश दिखाएँ ({count})",
 } as const satisfies LocaleMessages;

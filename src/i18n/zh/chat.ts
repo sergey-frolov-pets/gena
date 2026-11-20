@@ -89,4 +89,5 @@ export const chatMessages = {
   "chat.queue.imagesLost": "关闭应用时队列中的图片未保存，请重新添加",
   "chat.error.emptyMessage": "消息为空",
   "chat.regenerateConfirm": "回复及其后的所有消息都将被删除。要重新发送这条消息吗？",
+  "chat.showEarlier": "显示更早的消息（{count}）",
 } as const satisfies LocaleMessages;

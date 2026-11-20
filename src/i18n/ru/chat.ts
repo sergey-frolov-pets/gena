@@ -89,4 +89,5 @@ export const chatMessages = {
   "chat.queue.imagesLost": "Картинки из очереди не сохранились при закрытии приложения — приложите их заново",
   "chat.error.emptyMessage": "Пустое сообщение",
   "chat.regenerateConfirm": "Ответ и все следующие сообщения будут удалены. Отправить реплику заново?",
+  "chat.showEarlier": "Показать раньше ({count})",
 } as const satisfies LocaleMessages;

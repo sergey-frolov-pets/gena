@@ -89,4 +89,5 @@ export const chatMessages = {
   "chat.queue.imagesLost": "Images from the queue were not saved when the app closed — please attach them again",
   "chat.error.emptyMessage": "Message is empty",
   "chat.regenerateConfirm": "The reply and all following messages will be deleted. Send the message again?",
+  "chat.showEarlier": "Show earlier ({count})",
 } as const satisfies LocaleMessages;
