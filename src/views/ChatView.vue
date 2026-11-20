@@ -25,7 +25,7 @@ import {
 } from "@/lib/store";
 import { newId } from "@/lib/id";
 import { isSendKey } from "@/lib/composer";
-import { sendToAgent, type TransportAttachment } from "@/lib/agent-client";
+import { listenToAgent, sendToAgent, type TransportAttachment } from "@/lib/agent-client";
 import { describeError } from "@/lib/errors";
 import { canCall, getCallCount, recordCall } from "@/storage/usage";
 import { listMessages } from "@/storage/db";
@@ -83,6 +83,18 @@ const busy = ref(false);
 const typing = ref(false);
 const error = ref("");
 const notice = ref("");
+/** Таймер автоскрытия строки статуса — плашка не должна висеть как ошибка. */
+let noticeTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Показать строку статуса (служебная плашка сервера, а не ошибка). */
+function showNotice(text: string, ttl = 12_000): void {
+  notice.value = text;
+  if (noticeTimer) clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => {
+    noticeTimer = null;
+    if (notice.value === text) notice.value = "";
+  }, ttl);
+}
 /** Сколько вызовов сделано сегодня у выбранного агента. */
 const usedToday = ref(0);
 /** Последний отправленный текст — для кнопки «Повторить». */
@@ -847,10 +859,90 @@ async function openLastSession(forAgent = agentId.value): Promise<void> {
 /** Диалоги, по которым уже идёт догон, — чтобы не отправить дважды. */
 const resuming = new Set<string>();
 
+/** Окно одного пассивного подключения. */
+const RESUME_LISTEN_MS = 8_000;
+/** Пока сервер подаёт признаки жизни, ждём ответ до этого предела. */
+const RESUME_LISTEN_MAX_MS = 3 * 60_000;
+
+/** Итог одного окна прослушивания сессии. */
+type ListenOutcome = "answered" | "alive" | "silent";
+
 /**
- * Догон незавершённого хода. Сервер Pico историю не отдаёт (контекст живёт
- * по `session_id`), поэтому повторяем исходный текст — но только если ответа
- * после этой реплики в истории ещё нет.
+ * Послушать сессию без отправки.
+ *
+ * Сервер Pico вещает кадры всем соединениям сессии (`broadcastToSession`),
+ * поэтому после закрытия приложения ответ идущего хода можно подобрать,
+ * не дублируя реплику в контексте агента.
+ */
+async function listenTurn(
+  session: Session,
+  agent: Agent,
+  history: Message[],
+  windowMs: number,
+): Promise<ListenOutcome> {
+  const key = await getAgentKey(agent);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), windowMs);
+  let heard = false;
+  const shown = () => session.id === activeSessionId.value;
+  try {
+    const response = await listenToAgent(agent, key, {
+      sessionId: session.id,
+      history,
+      signal: controller.signal,
+      events: {
+        onTyping: (on) => {
+          heard = true;
+          if (shown()) typing.value = on;
+        },
+        onDelta: (_id, chunk) => {
+          heard = true;
+          if (shown()) streamingText.value += chunk;
+        },
+        onMessage: async (m) => {
+          heard = true;
+          await appendMessage(session.id, "assistant", m.content, m.kind);
+        },
+        onUpdate: () => {
+          heard = true;
+        },
+        onNotice: (text) => {
+          heard = true;
+          if (shown()) showNotice(text);
+        },
+      },
+    });
+    const incoming = await collectIncoming(agent, key, response.attachments ?? []);
+    const reply = await appendMessage(
+      session.id,
+      "assistant",
+      response.reply,
+      undefined,
+      incoming,
+    );
+    // Ход на сервере всё-таки состоялся — засчитываем вызов.
+    await recordCall(agent.id);
+    await refreshUsage();
+    if (autoSpeak.value && response.reply.trim()) {
+      speak(reply.id, response.reply);
+    }
+    return "answered";
+  } catch {
+    return heard ? "alive" : "silent";
+  } finally {
+    clearTimeout(timer);
+    if (shown()) typing.value = false;
+    streamingText.value = "";
+  }
+}
+
+/**
+ * Догон незавершённого хода.
+ *
+ * 1. Сначала слушаем сессию: сервер отдаёт кадры всем соединениям, поэтому
+ *    закрытое приложение подбирает ответ без повторной отправки.
+ * 2. Ничего не пришло — ход потерян: повторяем исходный текст (как раньше),
+ *    но только если ответа после этой реплики в истории ещё нет.
  */
 async function resumePending(sessionId: string): Promise<void> {
   if (busy.value || resuming.has(sessionId)) return;
@@ -865,15 +957,36 @@ async function resumePending(sessionId: string): Promise<void> {
     return;
   }
   resuming.add(sessionId);
+  busy.value = true;
   notice.value = t("chat.resumeTurn");
+  const history = list.filter(
+    (m) => m.role !== "system" && (m.kind === undefined || m.kind === "text"),
+  );
+  let answered = false;
+  let alive = false;
+  const deadline = Date.now() + RESUME_LISTEN_MAX_MS;
   try {
-    const history = list.filter(
-      (m) => m.role !== "system" && (m.kind === undefined || m.kind === "text"),
-    );
-    await exchange(session, agent, pending.text, [], history);
+    while (!answered && Date.now() < deadline) {
+      const outcome = await listenTurn(session, agent, history, RESUME_LISTEN_MS);
+      if (outcome === "answered") {
+        answered = true;
+        break;
+      }
+      if (outcome === "silent") break;
+      alive = true;
+    }
   } finally {
+    busy.value = false;
+    notice.value = "";
     resuming.delete(sessionId);
   }
+  if (answered) {
+    forgetPending(sessionId, pending.text);
+    return;
+  }
+  // Ход жив, но ещё думает — повторно не отправляем, догоним в следующий раз.
+  if (alive) return;
+  await exchange(session, agent, pending.text, [], history);
 }
 
 /** Вернулись на вкладку — проверяем, не остался ли незавершённый ход. */
@@ -1217,6 +1330,10 @@ async function exchange(
           },
           onMessage: async (m) => {
             await appendMessage(session.id, "assistant", m.content, m.kind);
+          },
+          onNotice: (text) => {
+            // Служебная плашка сервера: показываем статусом, ответа не ждём молча.
+            if (shown()) showNotice(text);
           },
         },
       },

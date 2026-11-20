@@ -48,10 +48,21 @@ export interface TransportEvents {
   onMessage?: (m: TransportMessage) => void;
   onDelta?: (id: string, chunk: string) => void;
   onUpdate?: (id: string, content: string) => void;
+  /**
+   * Служебная плашка сервера («модель не ответила вовремя» и т.п.).
+   * Ход при этом продолжается — плашку показываем строкой статуса, а не ответом.
+   */
+  onNotice?: (text: string) => void;
 }
 
 export interface AgentTransport {
   send(req: TransportRequest, ev: TransportEvents): Promise<TransportReply>;
+  /**
+   * Подключиться к сессии и дождаться ответа уже идущего хода, ничего не отправляя.
+   * Нужен, чтобы после закрытия приложения подобрать ответ, а не дублировать реплику.
+   * Есть только у транспортов с постоянным соединением (`pico_ws`).
+   */
+  listen?(req: TransportRequest, ev: TransportEvents): Promise<TransportReply>;
   /** Освободить ресурсы (закрыть WebSocket и т.п.). */
   dispose?(): void;
 }

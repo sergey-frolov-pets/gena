@@ -206,7 +206,77 @@ describe("pico-ws transport", () => {
       type: "error",
       payload: { code: "empty_content", message: "no content" },
     });
+    // error-кадру даётся пауза: ход может продолжиться на резервной модели.
+    await vi.advanceTimersByTimeAsync(3100);
     await assertion;
+  });
+
+  it("служебная плашка не завершает ход: настоящий ответ приходит следом", async () => {
+    const onNotice = vi.fn();
+    const { p, ws } = await connect({ onNotice });
+
+    ws.frame({
+      type: "message.create",
+      payload: {
+        content: "⏳ Модель не ответила вовремя. Повтори сообщение — я переключусь на резервную модель.",
+        message_id: "n1",
+      },
+    });
+    await vi.advanceTimersByTimeAsync(QUIET);
+    expect(onNotice).toHaveBeenCalledTimes(1);
+
+    // Ход жив: идут размышления, затем настоящий ответ.
+    ws.frame({
+      type: "message.create",
+      payload: { kind: "thought", content: "думаю дальше", message_id: "t9" },
+    });
+    ws.frame({ type: "message.create", payload: { content: "ответ", message_id: "m10" } });
+    await vi.advanceTimersByTimeAsync(QUIET);
+
+    await expect(p).resolves.toEqual({ reply: "ответ" });
+  });
+
+  it("плашка без продолжения → реальная ошибка ws_timeout через 2 минуты", async () => {
+    const { p, ws } = await connect();
+
+    ws.frame({
+      type: "message.create",
+      payload: { content: "⚠️ Не смог обработать сообщение.", message_id: "n2" },
+    });
+    const assertion = expect(p).rejects.toMatchObject({ code: "ws_timeout" });
+    await vi.advanceTimersByTimeAsync(121_000);
+    await assertion;
+  });
+
+  it("error-кадр посреди живого хода не обрывает генерацию", async () => {
+    const { p, ws } = await connect();
+
+    ws.frame({ type: "error", payload: { code: "noise", message: "empty_content" } });
+    await vi.advanceTimersByTimeAsync(1000);
+    ws.frame({
+      type: "message.create",
+      payload: { kind: "thought", content: "всё ещё думаю", message_id: "t1" },
+    });
+    await vi.advanceTimersByTimeAsync(3000);
+    ws.frame({ type: "message.create", payload: { content: "ответ", message_id: "m2" } });
+    await vi.advanceTimersByTimeAsync(QUIET);
+
+    await expect(p).resolves.toEqual({ reply: "ответ" });
+  });
+
+  it("listen: ничего не отправляет и подбирает ответ идущего хода", async () => {
+    const transport = makePicoTransport(ctor);
+    const p = transport.listen!(req(), {});
+    const ws = FakeWebSocket.instances.at(-1)!;
+    ws.emit("open");
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(ws.sent).toHaveLength(0);
+    expect(ws.url).toBe("wss://pico.test/pico/ws?session_id=ses1");
+
+    ws.frame({ type: "message.create", payload: { content: "поздний ответ", message_id: "m5" } });
+    await vi.advanceTimersByTimeAsync(QUIET);
+    await expect(p).resolves.toEqual({ reply: "поздний ответ" });
   });
 
   it("обрыв до ответа → ws_closed", async () => {

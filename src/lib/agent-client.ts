@@ -60,3 +60,40 @@ export async function sendToAgent(
     opts.events ?? {},
   );
 }
+
+export interface ListenRequest {
+  sessionId: string;
+  history?: Message[];
+  signal: AbortSignal;
+  events?: TransportEvents;
+}
+
+/**
+ * Подключиться к сессии и дождаться ответа уже идущего хода, ничего не отправляя.
+ *
+ * Нужно после закрытия приложения: сервер Pico вещает кадры всем соединениям
+ * сессии, поэтому ответ можно подобрать, а не дублировать реплику.
+ * Есть только у транспортов с постоянным соединением — иначе бросает.
+ */
+export async function listenToAgent(
+  agent: Agent,
+  apiKey: string,
+  request: ListenRequest,
+): Promise<AgentResponse> {
+  const transport = getTransport(agent);
+  if (!transport.listen) {
+    throw new Error(`transport ${agent.protocol ?? "http_json"} does not support listening`);
+  }
+  return transport.listen(
+    {
+      agent,
+      apiKey,
+      sessionId: request.sessionId,
+      message: "",
+      history: request.history ?? [],
+      signal: request.signal,
+      fetchImpl: fetch,
+    },
+    request.events ?? {},
+  );
+}
