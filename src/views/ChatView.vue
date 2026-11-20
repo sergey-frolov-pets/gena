@@ -757,13 +757,13 @@ function nearBottom(el: HTMLElement): boolean {
   return el.scrollHeight - el.scrollTop - el.clientHeight < 48;
 }
 
-/* ── Стрелки прокрутки: видны при открытом вводе на телефоне ──────────── */
+/* ── Стрелки прокрутки: видны везде, где есть куда листать ────────────── */
 
-/** Шевроны нужны только там, где ввод открывается оверлеем (телефон). */
-const jumpVisible = computed(() => compact.value && composerOpen.value);
 /** Есть ли куда листать вверх/вниз — иначе шеврон бесполезен. */
 const canJumpTop = ref(false);
 const canJumpEnd = ref(false);
+/** Шевроны нужны на любом экране: показываем, когда есть куда прокрутить. */
+const jumpVisible = computed(() => canJumpTop.value || canJumpEnd.value);
 
 function updateJumpHints(): void {
   const el = messagesEl.value;
@@ -790,10 +790,15 @@ async function jumpToEnd(): Promise<void> {
   updateJumpHints();
 }
 
-// Открыли ввод — размеры ленты поменялись, пересчитываем доступные направления.
-watch(jumpVisible, (open) => {
-  if (open) void nextTick(updateJumpHints);
-});
+// Лента меняется (новые сообщения, стрим, «показать раньше») — пересчитываем
+// доступные направления, даже если читатель не у нижней границы.
+watch(
+  () => renderedFeed.value.length + hiddenCount.value + (liveStreaming.value ? 1 : 0),
+  () => {
+    void nextTick(updateJumpHints);
+  },
+  { flush: "post" },
+);
 
 function onMessagesScroll(): void {
   const el = messagesEl.value;
@@ -917,6 +922,7 @@ async function scrollToBottom(force = false): Promise<void> {
   if (!el || !stickBottom.value) return;
   el.scrollTop = el.scrollHeight;
   stickBottom.value = true;
+  updateJumpHints();
 }
 
 /**
@@ -1938,6 +1944,7 @@ function syncViewport(): void {
   const height = viewport?.height ?? window.innerHeight;
   document.documentElement.style.setProperty("--app-vvh", `${Math.round(height)}px`);
   void scrollToBottom();
+  void nextTick(updateJumpHints);
 }
 
 onMounted(() => {
@@ -2522,7 +2529,7 @@ function onRateChange(event: Event): void {
         </div>
       </div>
 
-      <div v-if="jumpVisible && (canJumpTop || canJumpEnd)" class="chat-panel__jump">
+      <div v-if="jumpVisible" class="chat-panel__jump">
         <button
           v-if="canJumpTop"
           type="button"
