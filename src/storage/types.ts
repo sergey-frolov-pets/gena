@@ -13,6 +13,8 @@ export interface AgentSettings {
   callLimit: number;
   /** Идентификатор LLM-модели на стороне агента. */
   llmModel: string;
+  /** Стандартные сообщения: кнопки над композером, отправляются одним тапом. */
+  quickReplies?: string[];
 }
 
 /** Протокол подключения к агенту. Нет поля `protocol` у старого агента → `http_json`. */
@@ -140,7 +142,37 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   contextSize: 20,
   callLimit: 0,
   llmModel: "",
+  quickReplies: [],
 };
+
+/** Сколько стандартных сообщений хранить у агента. */
+export const MAX_QUICK_REPLIES = 12;
+/** Предельная длина одного стандартного сообщения. */
+export const QUICK_REPLY_MAX_LEN = 200;
+
+/**
+ * Стандартные сообщения агента: одна строка — одна кнопка.
+ * Принимает и массив, и текст из формы; пустые строки, дубли и хвосты отбрасываются.
+ */
+export function normalizeQuickReplies(input: unknown): string[] {
+  const list = Array.isArray(input)
+    ? input
+    : typeof input === "string"
+      ? input.split("\n")
+      : [];
+  const out: string[] = [];
+  for (const item of list) {
+    const text = String(item ?? "")
+      .replace(/[\r\n\t]+/g, " ")
+      .replace(/\s{2,}/g, " ")
+      .trim()
+      .slice(0, QUICK_REPLY_MAX_LEN);
+    if (!text || out.includes(text)) continue;
+    out.push(text);
+    if (out.length >= MAX_QUICK_REPLIES) break;
+  }
+  return out;
+}
 
 /** Версия схемы для новых (мульти-протокольных) агентов. */
 export const SCHEMA_VERSION = 2;
@@ -152,6 +184,10 @@ export const SCHEMA_VERSION = 2;
 export function normalizeAgent(raw: Agent): Agent {
   return {
     ...raw,
+    settings: {
+      ...raw.settings,
+      quickReplies: normalizeQuickReplies(raw.settings?.quickReplies),
+    },
     protocol: raw.protocol ?? "http_json",
     config: raw.config ?? {},
     schemaVersion: raw.schemaVersion ?? (raw.protocol ? SCHEMA_VERSION : 1),

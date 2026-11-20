@@ -12,7 +12,7 @@ import type {
   Protocol,
   Session,
 } from "@/storage/types";
-import { DEFAULT_AGENT_SETTINGS, SCHEMA_VERSION, toCount } from "@/storage/types";
+import { DEFAULT_AGENT_SETTINGS, SCHEMA_VERSION, normalizeQuickReplies, toCount } from "@/storage/types";
 import {
   deleteAgent,
   deleteMessage,
@@ -35,6 +35,7 @@ function normalizeSettings(input: Partial<typeof DEFAULT_AGENT_SETTINGS>) {
     contextSize: toCount(merged.contextSize),
     callLimit: toCount(merged.callLimit),
     llmModel: String(merged.llmModel ?? "").trim(),
+    quickReplies: normalizeQuickReplies(merged.quickReplies),
   };
 }
 

@@ -12,7 +12,13 @@ import { checkConnection } from "@/lib/connection-check";
 import { validateAgentDraft, type AgentFormError } from "@/lib/agent-form";
 import { describeError } from "@/lib/errors";
 import { useLocale } from "@/i18n";
-import type { Agent, AgentConfig, Protocol } from "@/storage/types";
+import {
+  MAX_QUICK_REPLIES,
+  normalizeQuickReplies,
+  type Agent,
+  type AgentConfig,
+  type Protocol,
+} from "@/storage/types";
 import ConfirmModal from "@/components/ConfirmModal.vue";
 
 const { t } = useLocale();
@@ -23,6 +29,10 @@ const apiKey = ref("");
 const contextSize = ref(20);
 const callLimit = ref(0);
 const llmModel = ref("");
+/** Стандартные сообщения: textarea, одна строка — одна кнопка. */
+const quickRepliesText = ref("");
+/** Агент, у которого берём готовый набор стандартных сообщений. */
+const importFromId = ref("");
 const protocol = ref<Protocol>("http_json");
 const model = ref("");
 const systemPrompt = ref("");
@@ -42,6 +52,17 @@ const testStates = ref<Record<string, { state: "testing" | "ok" | "fail"; msg?: 
 
 /** Ключи для повторного ввода при обновлении (по agentId). */
 const keyDrafts = ref<Record<string, string>>({});
+
+/** Агенты с готовым набором стандартных сообщений (кроме редактируемого). */
+const agentsWithQuick = computed(() =>
+  agents.value.filter(
+    (agent) =>
+      agent.id !== editingId.value && (agent.settings.quickReplies?.length ?? 0) > 0,
+  ),
+);
+
+/** Сколько строк реально сохранится — для подсказки под полем. */
+const quickRepliesCount = computed(() => normalizeQuickReplies(quickRepliesText.value).length);
 
 const formTitle = computed(() =>
   editingId.value ? t("connections.editAgent") : t("connections.newAgent"),
@@ -70,6 +91,8 @@ function resetForm(): void {
   contextSize.value = 20;
   callLimit.value = 0;
   llmModel.value = "";
+  quickRepliesText.value = "";
+  importFromId.value = "";
   model.value = "";
   systemPrompt.value = "";
   protocol.value = "http_json";
@@ -83,6 +106,8 @@ function startEdit(agent: Agent): void {
   contextSize.value = agent.settings.contextSize;
   callLimit.value = agent.settings.callLimit;
   llmModel.value = agent.settings.llmModel;
+  quickRepliesText.value = (agent.settings.quickReplies ?? []).join("\n");
+  importFromId.value = "";
   protocol.value = agent.protocol ?? "http_json";
   const cfg = agent.config as { model?: string; systemPrompt?: string } | undefined;
   model.value = cfg?.model ?? "";
@@ -129,6 +154,7 @@ async function submit(): Promise<void> {
   const settings = {
     ...checked.values.settings,
     llmModel: protocol.value === "http_json" ? checked.values.settings.llmModel : "",
+    quickReplies: normalizeQuickReplies(quickRepliesText.value),
   };
 
   try {
@@ -156,6 +182,16 @@ async function submit(): Promise<void> {
   } catch (e) {
     error.value = describeError(e, t);
   }
+}
+
+/** Взять стандартные сообщения у другого агента. */
+function takeQuickReplies(): void {
+  const source = agents.value.find((agent) => agent.id === importFromId.value);
+  if (!source) return;
+  const list = source.settings.quickReplies ?? [];
+  if (list.length === 0) return;
+  quickRepliesText.value = list.join("\n");
+  notice.value = t("connections.quickImportDone", { name: source.name, count: list.length });
 }
 
 async function saveKey(agentId: string): Promise<void> {
@@ -259,6 +295,38 @@ function agentModel(agent: { settings: { llmModel: string }; config?: AgentConfi
         <div class="field" v-if="protocol === 'http_json'">
           <label>{{ t("connections.field.llmModel") }}</label>
           <input v-model="llmModel" :placeholder="t('connections.field.llmModelPlaceholder')" />
+        </div>
+      </div>
+
+      <div class="field">
+        <label>{{ t("connections.field.quickReplies") }}</label>
+        <textarea
+          v-model="quickRepliesText"
+          rows="4"
+          :placeholder="t('connections.field.quickRepliesPlaceholder')"
+        ></textarea>
+        <p class="muted small">
+          {{
+            t("connections.quickRepliesNote", {
+              count: quickRepliesCount,
+              max: MAX_QUICK_REPLIES,
+            })
+          }}
+        </p>
+      </div>
+
+      <div v-if="agentsWithQuick.length > 0" class="field">
+        <label>{{ t("connections.quickImport") }}</label>
+        <div class="key-row">
+          <select v-model="importFromId">
+            <option value="">{{ t("connections.quickImportPick") }}</option>
+            <option v-for="other in agentsWithQuick" :key="other.id" :value="other.id">
+              {{ other.name }}
+            </option>
+          </select>
+          <button type="button" :disabled="!importFromId" @click="takeQuickReplies">
+            {{ t("connections.quickImportTake") }}
+          </button>
         </div>
       </div>
 

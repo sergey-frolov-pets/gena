@@ -242,6 +242,43 @@ const compact = ref(
 );
 const composerOpen = ref(!compact.value);
 const composerForm = ref<HTMLFormElement | null>(null);
+
+/* ── Стандартные сообщения: кнопки над композером ─────────────────────── */
+
+/** Панель открыта (одна на док и на композер). */
+const quickOpen = ref(false);
+/** Стандартные сообщения выбранного агента — нормализованы при чтении/сохранении. */
+const quickReplies = computed(() => activeAgent.value?.settings.quickReplies ?? []);
+
+function toggleQuick(): void {
+  if (quickReplies.value.length === 0) return;
+  quickOpen.value = !quickOpen.value;
+}
+
+/** Тап по стандартному сообщению: сразу в чат, панель сворачивается. */
+async function sendQuick(text: string): Promise<void> {
+  quickOpen.value = false;
+  const value = String(text ?? "").trim();
+  if (!value) return;
+  // Набранный черновик не теряем: он вернётся в поле после отправки.
+  const before = draft.value;
+  draft.value = value;
+  await send();
+  if (!draft.value && before) draft.value = before;
+}
+
+/** Клик мимо панели сворачивает её — и на телефоне, и на десктопе. */
+function onQuickOutside(event: Event): void {
+  if (!quickOpen.value) return;
+  const target = event.target as HTMLElement | null;
+  if (!target?.closest) return;
+  if (target.closest("[data-quick-trigger]") || target.closest(".chat-panel__quick")) return;
+  quickOpen.value = false;
+}
+
+function onQuickKey(event: KeyboardEvent): void {
+  if (event.key === "Escape") quickOpen.value = false;
+}
 let compactQuery: MediaQueryList | null = null;
 /** Клик по кнопке внутри формы (файл, микрофон) не должен закрывать ввод. */
 let blurGuardUntil = 0;
@@ -257,6 +294,7 @@ function syncCompact(matches: boolean): void {
 
 function openComposer(): void {
   if (!compact.value) return;
+  quickOpen.value = false;
   composerOpen.value = true;
   void nextTick(() => composerEl.value?.focus());
 }
@@ -268,6 +306,11 @@ function closeComposer(): void {
 
 /** Тап по полотну чата открывает ввод; кнопки и ссылки не перехватываем. */
 function onChatTap(event: MouseEvent): void {
+  // Открытая панель стандартных сообщений: первый тап по полотну её сворачивает.
+  if (quickOpen.value) {
+    quickOpen.value = false;
+    return;
+  }
   if (!compact.value || composerOpen.value) return;
   const target = event.target as HTMLElement | null;
   if (target?.closest("button, a, input, textarea, select, details, summary")) return;
@@ -1701,6 +1744,8 @@ onMounted(() => {
   window.addEventListener("pagehide", restoreLiftOnHide);
   window.addEventListener("pagehide", flushQueue);
   document.addEventListener("visibilitychange", onVisibility);
+  document.addEventListener("pointerdown", onQuickOutside, true);
+  window.addEventListener("keydown", onQuickKey);
   // Постоянное хранилище: IndexedDB не должна вычищаться при нехватке места.
   void navigator.storage?.persist?.();
   // Контент вырос (картинки, раскрытые шаги, стрим) — держим низ, если читатель там.
@@ -1726,6 +1771,8 @@ onUnmounted(() => {
   window.removeEventListener("pagehide", restoreLiftOnHide);
   window.removeEventListener("pagehide", flushQueue);
   document.removeEventListener("visibilitychange", onVisibility);
+  document.removeEventListener("pointerdown", onQuickOutside, true);
+  window.removeEventListener("keydown", onQuickKey);
   threadObserver?.disconnect();
   threadObserver = null;
   document.documentElement.style.removeProperty("--app-vvh");
@@ -2291,17 +2338,45 @@ function onRateChange(event: Event): void {
         </ul>
       </div>
 
-      <button
-        v-if="compact && !composerOpen"
-        type="button"
-        class="chat-panel__open"
-        @click="openComposer"
+      <div v-if="compact && !composerOpen" class="chat-panel__open-row">
+        <button type="button" class="chat-panel__open" @click="openComposer">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 20h4l10-10a2.8 2.8 0 1 0-4-4L4 16z" />
+          </svg>
+          <span>{{ t("chat.write") }}</span>
+        </button>
+        <button
+          v-if="quickReplies.length > 0"
+          type="button"
+          class="chat-panel__quick-trigger"
+          data-quick-trigger
+          v-tip="t('chat.quickReplies')"
+          :aria-label="t('chat.quickReplies')"
+          :aria-expanded="quickOpen"
+          @click="toggleQuick"
+        >
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M13 2 5 13.5h6L10 22l9-12h-6z" />
+          </svg>
+        </button>
+      </div>
+
+      <div
+        v-if="quickOpen && quickReplies.length > 0"
+        class="chat-panel__quick"
+        role="group"
+        :aria-label="t('chat.quickReplies')"
       >
-        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M4 20h4l10-10a2.8 2.8 0 1 0-4-4L4 16z" />
-        </svg>
-        <span>{{ t("chat.write") }}</span>
-      </button>
+        <button
+          v-for="(text, i) in quickReplies"
+          :key="i"
+          type="button"
+          class="chat-panel__quick-item"
+          @click="sendQuick(text)"
+        >
+          {{ text }}
+        </button>
+      </div>
 
       <p v-if="lifted" class="chat-panel__lift" role="status">
         <span>{{ t("chat.lifted") }}</span>
@@ -2397,6 +2472,21 @@ function onRateChange(event: Event): void {
               <rect x="9" y="3" width="6" height="11" rx="3" />
               <path d="M5 11a7 7 0 0 0 14 0" />
               <path d="M12 18v3" />
+            </svg>
+          </button>
+          <button
+            v-if="quickReplies.length > 0"
+            type="button"
+            class="chat-panel__icon-btn"
+            data-quick-trigger
+            v-tip="t('chat.quickReplies')"
+            :aria-label="t('chat.quickReplies')"
+            :aria-expanded="quickOpen"
+            :disabled="composerDisabled"
+            @click="guardBlur(); toggleQuick()"
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M13 2 5 13.5h6L10 22l9-12h-6z" />
             </svg>
           </button>
           <button
@@ -3613,6 +3703,68 @@ function onRateChange(event: Event): void {
 }
 
 /* --- Телефон: ввод по тапу, поверх ленты -------------------------------- */
+.chat-panel__open-row {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.chat-panel__open-row .chat-panel__open {
+  flex: 1 1 auto;
+}
+
+.chat-panel__quick-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  padding: 0 13px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel-2);
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.chat-panel__quick-trigger:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.chat-panel__quick {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: calc(100% + 6px);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: min(50vh, 340px);
+  overflow-y: auto;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.22);
+}
+
+.chat-panel__quick-item {
+  flex: 0 0 auto;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.chat-panel__quick-item:hover {
+  border-color: var(--accent);
+}
+
 .chat-panel__open {
   display: flex;
   align-items: center;

@@ -3,6 +3,7 @@ import type { LocaleMessages } from "../types";
 export const chatMessages = {
   "chat.agent": "الوكيل",
   "chat.write": "اكتب رسالة…",
+  "chat.quickReplies": "رسائل جاهزة",
   "chat.attachFile": "إرفاق ملف أو صورة",
   "chat.resumeTurn": "متابعة الطلب السابق…",
   "chat.offline": "لا توجد شبكة — قد لا يصل الرد",
