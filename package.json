@@ -9,7 +9,9 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "version:bump": "node scripts/bump-version.mjs",
+    "build:release": "npm run version:bump && npm run build"
   },
   "dependencies": {
     "idb": "^8.0.0",

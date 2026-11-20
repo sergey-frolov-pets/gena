@@ -1,3 +1,7 @@
+---
+# Деплой на GitHub Pages. Перед сборкой версия поднимается автоматически
+# (scripts/bump-version.mjs): package.json, AppFooter.vue, public/sw.js.
+# Коммит версии уходит в main с [skip ci], поэтому кеш PWA меняется на каждый деплой.
 name: Deploy to GitHub Pages
 
 on:
@@ -15,10 +19,42 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  bump:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - id: bump
+        run: |
+          node scripts/bump-version.mjs | tee /tmp/bump.txt
+          echo "version=$(tail -n 1 /tmp/bump.txt)" >> "$GITHUB_OUTPUT"
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "версия не изменилась — коммит не нужен"
+            exit 0
+          fi
+          git commit -am "chore: bump version to ${{ steps.bump.outputs.version }} [skip ci]"
+          git push origin main
+
   build:
+    needs: bump
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
       - uses: actions/setup-node@v4
         with:
           node-version: 22
