@@ -197,6 +197,69 @@ const filteredSessions = computed<Session[]>(() => {
   });
 });
 
+/** Полоска недавних диалогов над чатом — как вкладки редактора в Cursor. */
+const TABS_STORAGE_KEY = "gena.chat.tabs";
+const MAX_TABS = 6;
+const tabIds = ref<string[]>(savedTabIds());
+
+function savedTabIds(): string[] {
+  try {
+    const raw = localStorage.getItem(TABS_STORAGE_KEY);
+    const list: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list.filter((id): id is string => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveTabIds(): void {
+  try {
+    localStorage.setItem(TABS_STORAGE_KEY, JSON.stringify(tabIds.value));
+  } catch {
+    // Приватный режим или отключённое хранилище — полоска живёт до перезагрузки.
+  }
+}
+
+/** Открыть диалог в полоске: свежие первыми, лишние вытесняются. */
+function rememberTab(id: string): void {
+  const next = [id, ...tabIds.value.filter((item) => item !== id)].slice(0, MAX_TABS);
+  if (next.join("|") === tabIds.value.join("|")) return;
+  tabIds.value = next;
+  saveTabIds();
+}
+
+/** Убрать вкладку из полоски (диалог остаётся в списке). */
+function forgetTab(id: string): void {
+  tabIds.value = tabIds.value.filter((item) => item !== id);
+  saveTabIds();
+}
+
+/** Вкладки текущего агента — только существующие диалоги, в порядке открытия. */
+const recentTabs = computed<Session[]>(() =>
+  tabIds.value
+    .map((id) => agentSessions.value.find((s) => s.id === id))
+    .filter((s): s is Session => Boolean(s)),
+);
+
+/** Сессии, где агент сейчас отвечает или ждёт своей очереди. */
+const busySessionIds = computed<Set<string>>(() => {
+  const ids = new Set<string>();
+  if (busy.value && streamSessionId.value) ids.add(streamSessionId.value);
+  for (const item of queue.value) {
+    if (item.sessionId) ids.add(item.sessionId);
+  }
+  return ids;
+});
+
+/** Пользователь у нижней границы диалога — новые сообщения можно подтягивать. */
+const stickBottom = ref(true);
+
+function onMessagesScroll(): void {
+  const el = messagesEl.value;
+  if (!el) return;
+  stickBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+}
+
 /** Диалог, у которого подтверждаем удаление. */
 const confirmDeleteId = ref("");
 /** Ответ, который подтверждаем перегенерировать вместе с хвостом. */
@@ -263,13 +326,15 @@ async function refreshUsage(): Promise<void> {
 
 watch([agentId, activeSessionId, agents], refreshUsage, { immediate: true });
 
-async function scrollToBottom(): Promise<void> {
+async function scrollToBottom(force = false): Promise<void> {
   await nextTick();
-  if (messagesEl.value) {
-    messagesEl.value.scrollTop = messagesEl.value.scrollHeight;
-  }
+  const el = messagesEl.value;
+  if (!el || (!force && !stickBottom.value)) return;
+  el.scrollTop = el.scrollHeight;
+  stickBottom.value = true;
 }
-watch([messages, streamingText, typing], scrollToBottom);
+// Появление сообщений и стрим подтягиваем только если читатель у нижней границы.
+watch([messages, streamingText, typing], () => void scrollToBottom(), { flush: "post" });
 
 /** Растущее поле ввода, как в AiChatPanel (до 4 строк). */
 async function autoGrow(): Promise<void> {
@@ -295,7 +360,10 @@ function newSession(): void {
 async function openSession(id: string): Promise<void> {
   stopDictation();
   await loadMessages(id);
+  rememberTab(id);
   historyOpen.value = false;
+  // Открываем диалог на последних сообщениях, а не на первых.
+  await scrollToBottom(true);
 }
 
 /** Последний агент запоминается, чтобы после перезагрузки открыть его диалог. */
@@ -335,6 +403,11 @@ watch(agentId, async (id) => {
   rememberAgent(id);
   if (activeSession.value?.agentId === id) return;
   await openLastSession(id);
+});
+
+// Открытый диалог попадает в полоску вкладок над чатом.
+watch(activeSessionId, (id) => {
+  if (id) rememberTab(id);
 });
 
 // Один агент в списке — выбираем сразу, чтобы можно было писать без настройки.
@@ -771,6 +844,7 @@ async function duplicate(session: Session): Promise<void> {
 
 async function removeDialog(sessionId: string): Promise<void> {
   confirmDeleteId.value = "";
+  forgetTab(sessionId);
   await removeSession(sessionId);
 }
 
@@ -898,6 +972,8 @@ function syncViewport(): void {
 
 onMounted(() => {
   syncViewport();
+  // Вернулись на вкладку чата — показываем конец диалога, а не начало.
+  void scrollToBottom(true);
   window.visualViewport?.addEventListener("resize", syncViewport);
   window.visualViewport?.addEventListener("scroll", syncViewport);
   window.addEventListener("resize", syncViewport);
@@ -1050,6 +1126,37 @@ function onRateChange(event: Event): void {
       <span v-if="limitLabel" class="chat-panel__usage">{{ limitLabel }}</span>
     </div>
 
+    <nav v-if="recentTabs.length" class="chat-panel__tabs" :aria-label="t('chat.dialogs')">
+      <div
+        v-for="s in recentTabs"
+        :key="s.id"
+        class="chat-panel__tab"
+        :class="{ 'is-active': s.id === activeSessionId, 'is-busy': busySessionIds.has(s.id) }"
+      >
+        <button
+          type="button"
+          class="chat-panel__tab-open"
+          :aria-current="s.id === activeSessionId ? 'true' : undefined"
+          :title="s.title"
+          @click="openSession(s.id)"
+        >
+          <span v-if="busySessionIds.has(s.id)" class="chat-panel__busy-dot" aria-hidden="true" />
+          <span class="chat-panel__tab-title">{{ s.title }}</span>
+        </button>
+        <button
+          type="button"
+          class="chat-panel__tab-close"
+          v-tip="t('chat.close')"
+          :aria-label="t('chat.close')"
+          @click.stop="forgetTab(s.id)"
+        >
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+      </div>
+    </nav>
+
     <div class="chat-panel__stage">
       <div
         v-if="historyOpen"
@@ -1091,10 +1198,20 @@ function onRateChange(event: Event): void {
             v-for="s in filteredSessions"
             :key="s.id"
             class="chat-panel__session"
-            :class="{ 'is-active': s.id === activeSessionId, 'is-pinned': s.pinned }"
+            :class="{
+              'is-active': s.id === activeSessionId,
+              'is-pinned': s.pinned,
+              'is-busy': busySessionIds.has(s.id),
+            }"
           >
             <button class="chat-panel__session-open" type="button" @click="openSession(s.id)">
-              <span class="chat-panel__session-title">{{ s.title }}</span>
+              <span class="chat-panel__session-title">
+                <span
+                  v-if="busySessionIds.has(s.id)"
+                  class="chat-panel__busy-dot"
+                  aria-hidden="true"
+                />{{ s.title }}
+              </span>
               <span class="chat-panel__session-count">{{ s.messageCount }}</span>
             </button>
 
@@ -1145,6 +1262,7 @@ function onRateChange(event: Event): void {
         class="chat-panel__messages"
         role="log"
         aria-live="polite"
+        @scroll="onMessagesScroll"
         @dragover.prevent
         @drop.prevent="onDrop"
       >
@@ -1206,7 +1324,7 @@ function onRateChange(event: Event): void {
                 class="chat-panel__image"
                 @click="openAttachment(a)"
               >
-                <img :src="a.thumb" alt="" loading="lazy" />
+                <img :src="a.thumb" alt="" loading="lazy" @load="scrollToBottom()" />
               </button>
             </div>
             <div v-if="filesOf(m).length" class="chat-panel__file-row">
@@ -1813,6 +1931,116 @@ function onRateChange(event: Event): void {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+/* --- Полоска недавних диалогов (как вкладки в Cursor) -------------------- */
+.chat-panel__tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.chat-panel__tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.chat-panel__tab {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  max-width: 13rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--muted);
+}
+
+.chat-panel__tab.is-active {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--text);
+}
+
+.chat-panel__tab-open {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 11rem;
+  padding: 4px 4px 4px 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.chat-panel__tab-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-panel__tab-close {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-inline-end: 4px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.chat-panel__tab-close:hover {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+}
+
+/* Агент отвечает (или реплика ждёт очереди) — диалог выделяем жирным. */
+.chat-panel__tab.is-busy .chat-panel__tab-title,
+.chat-panel__session.is-busy .chat-panel__session-title {
+  font-weight: 650;
+  color: var(--text);
+}
+
+.chat-panel__busy-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: gena-busy-pulse 1.1s ease-in-out infinite;
+}
+
+.chat-panel__session-title .chat-panel__busy-dot {
+  display: inline-block;
+  margin-inline-end: 6px;
+  vertical-align: middle;
+}
+
+@keyframes gena-busy-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-panel__busy-dot {
+    animation: none;
+    opacity: 1;
+  }
 }
 
 .chat-panel__search {
