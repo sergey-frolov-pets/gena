@@ -746,8 +746,32 @@ const recentTabs = computed<Session[]>(() => {
   return out.slice(0, MAX_TABS);
 });
 
-/** Сессии, где агент сейчас отвечает или ждёт своей очереди. */
-const busySessionIds = computed<Set<string>>(() => {
+/** Полоска вкладок: нужна ссылка, чтобы прокрутить активную вкладку в видимую зону. */
+const tabsEl = ref<HTMLElement | null>(null);
+
+/**
+ * Выбранная вкладка должна быть видна целиком: если она ушла за край полоски
+ * (часто на телефоне после открытия диалога из истории), прокручиваем её
+ * к центру. Вертикальную прокрутку страницы не трогаем.
+ */
+function revealActiveTab(): void {
+  const strip = tabsEl.value;
+  if (!strip) return;
+  const active = strip.querySelector<HTMLElement>(".chat-panel__tab.is-active");
+  if (!active) return;
+  const stripRect = strip.getBoundingClientRect();
+  const tabRect = active.getBoundingClientRect();
+  // Вкладка уже целиком в видимой части полоски — ничего не делаем.
+  if (tabRect.left >= stripRect.left && tabRect.right <= stripRect.right) return;
+  const centered =
+    tabRect.left - stripRect.left + strip.scrollLeft - (strip.clientWidth - tabRect.width) / 2;
+  strip.scrollLeft = Math.max(0, centered);
+}
+
+// Смена диалога или набора вкладок — активная вкладка снова на виду.
+watch([activeSessionId, recentTabs], () => void nextTick(revealActiveTab), { flush: "post" });
+
+/** Сессии, где агент сейчас отвечает или ждёт своей очереди. */const busySessionIds = computed<Set<string>>(() => {
   const ids = new Set<string>();
   if (busy.value && streamSessionId.value) ids.add(streamSessionId.value);
   for (const item of queue.value) {
@@ -2234,7 +2258,7 @@ function onRateChange(event: Event): void {
       <span v-if="limitLabel" class="chat-panel__usage">{{ limitLabel }}</span>
     </div>
 
-    <nav v-if="recentTabs.length" class="chat-panel__tabs" :aria-label="t('chat.dialogs')">
+    <nav ref="tabsEl" v-if="recentTabs.length" class="chat-panel__tabs" :aria-label="t('chat.dialogs')">
       <div
         v-for="s in recentTabs"
         :key="s.id"
@@ -3165,7 +3189,7 @@ function onRateChange(event: Event): void {
   position: relative;
   z-index: 1;
   align-items: center;
-  max-width: 13rem;
+  max-width: 10rem;
   border: 1px solid transparent;
   border-bottom-color: var(--border);
   border-radius: 8px 8px 0 0;
@@ -3188,13 +3212,13 @@ function onRateChange(event: Event): void {
 .chat-panel__tab-open {
   display: flex;
   align-items: center;
-  gap: 6px;
-  max-width: 11rem;
-  padding: 5px 4px 5px 10px;
+  gap: 5px;
+  max-width: 8rem;
+  padding: 5px 4px 5px 8px;
   border: 0;
   background: transparent;
   color: inherit;
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   cursor: pointer;
 }
 
@@ -3236,6 +3260,23 @@ function onRateChange(event: Event): void {
 .chat-panel__tab-close:hover {
   background: color-mix(in srgb, var(--danger) 14%, transparent);
   color: var(--danger);
+}
+
+/* Телефон: вкладки ещё уже — больше диалогов влезает в полоску. */
+@media (max-width: 720px) {
+  .chat-panel__tab {
+    max-width: 7rem;
+  }
+  .chat-panel__tab-open {
+    max-width: 5.5rem;
+    padding: 5px 2px 5px 7px;
+    font-size: 0.74rem;
+  }
+  .chat-panel__tab-close {
+    width: 18px;
+    height: 18px;
+    margin-inline-end: 2px;
+  }
 }
 
 /* Агент отвечает (или реплика ждёт очереди) — диалог выделяем жирным. */

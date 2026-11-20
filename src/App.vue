@@ -155,17 +155,20 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
   padding: 12px 20px;
   border-bottom: 1px solid var(--border);
   background: var(--panel);
-  flex-wrap: wrap;
+  /* Все элементы хедера — в одну строку: на телефоне сжимаем, а не переносим. */
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 
 .brand {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
 /* Название и подпись — двумя строками: «Gena» жирным, «AI chat» мельче и обычным. */
@@ -174,11 +177,16 @@ onMounted(async () => {
   flex-direction: column;
   justify-content: center;
   line-height: 1.15;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .brand-name {
   font-size: 1rem;
   font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .brand-sub {
@@ -186,6 +194,9 @@ onMounted(async () => {
   font-weight: 400;
   color: var(--muted);
   letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .brand-icon {
@@ -202,6 +213,7 @@ onMounted(async () => {
 .topbar nav {
   display: flex;
   gap: 8px;
+  flex: none;
 }
 
 .icon-btn {
@@ -265,5 +277,42 @@ onMounted(async () => {
 .update-bar__action:hover {
   background: var(--accent);
   color: #fff;
+}
+
+/* Телефон: хедер остаётся одной строкой — уменьшаем отступы и иконки,
+   язык показываем без глобуса и уже, чтобы всё влезло. */
+@media (max-width: 480px) {
+  .topbar {
+    --icon-btn-size: 30px;
+    gap: 6px;
+    padding: 8px 10px;
+  }
+  .brand {
+    gap: 6px;
+  }
+  .brand-icon {
+    width: 26px;
+    height: 26px;
+  }
+  .brand-name {
+    font-size: 0.9rem;
+  }
+  .brand-sub {
+    font-size: 0.6rem;
+  }
+  .topbar nav {
+    gap: 4px;
+  }
+  .topbar :deep(.theme-btn),
+  .topbar :deep(.install-btn) {
+    padding: 4px;
+  }
+}
+
+/* Совсем узкий экран: подпись бренда убираем, имя оставляем. */
+@media (max-width: 359px) {
+  .brand-sub {
+    display: none;
+  }
 }
 </style>

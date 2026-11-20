@@ -45,13 +45,31 @@ function onChange(event: Event): void {
   align-items: center;
   gap: 6px;
   margin: 0;
+  flex: none;
 }
 .lang-icon {
   flex: none;
 }
 .lang select {
   width: auto;
-  padding: 6px 8px;
+  max-width: 7.5rem;
+  padding: 5px 6px;
   line-height: 1.2;
+  font-size: 0.86rem;
+}
+
+/* Телефон: без глобуса и уже — чтобы хедер держался в одну строку. */
+@media (max-width: 480px) {
+  .lang {
+    gap: 0;
+  }
+  .lang-icon {
+    display: none;
+  }
+  .lang select {
+    max-width: 5rem;
+    padding: 4px 4px;
+    font-size: 0.74rem;
+  }
 }
 </style>
