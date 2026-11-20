@@ -53,9 +53,23 @@ export async function loadSessions(): Promise<void> {
   sessions.value = await listSessions();
 }
 
+/** Номер последнего запроса истории: ответ на устаревший запрос не применяем. */
+let messagesRequest = 0;
+
 export async function loadMessages(sessionId: string): Promise<void> {
+  const request = (messagesRequest += 1);
   activeSessionId.value = sessionId;
-  messages.value = await listMessages(sessionId);
+  const list = await listMessages(sessionId);
+  // Пока читали, открыли другой диалог — чужую историю не подставляем.
+  if (request !== messagesRequest) return;
+  messages.value = list;
+}
+
+/** Чистый лист: закрыть диалог и погасить незавершённые чтения истории. */
+export function clearMessages(): void {
+  messagesRequest += 1;
+  activeSessionId.value = null;
+  messages.value = [];
 }
 
 export async function createAgent(input: {
@@ -191,8 +205,7 @@ export async function duplicateSession(sessionId: string): Promise<Session | nul
 export async function removeSession(sessionId: string): Promise<void> {
   await deleteSession(sessionId);
   if (activeSessionId.value === sessionId) {
-    activeSessionId.value = null;
-    messages.value = [];
+    clearMessages();
   }
   await loadSessions();
 }

@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   activeSessionId,
   appendMessage,
+  clearMessages,
   createSession,
   loadMessages,
   messages,
@@ -47,5 +48,32 @@ describe("store: сессия и сообщения", () => {
     const stored = sessions.value.find((s) => s.id === session.id);
     expect(stored?.title).toBe("Новое имя");
     expect(stored?.pinned).toBe(true);
+  });
+
+  it("история закрытого диалога не подставляется в открытый", async () => {
+    const first = await createSession("agent-store-3", "Первый");
+    await appendMessage(first.id, "user", "из первого");
+    const second = await createSession("agent-store-3", "Второй");
+    await appendMessage(second.id, "user", "из второго");
+
+    // Открыли первый, тут же второй: поздний ответ на первый не должен всплыть.
+    const slow = loadMessages(first.id);
+    await loadMessages(second.id);
+    await slow;
+
+    expect(activeSessionId.value).toBe(second.id);
+    expect(messages.value.map((m) => m.content)).toEqual(["из второго"]);
+  });
+
+  it("clearMessages закрывает диалог и не даёт дочитать его историю", async () => {
+    const session = await createSession("agent-store-4", "Диалог");
+    await appendMessage(session.id, "user", "привет");
+
+    const pending = loadMessages(session.id);
+    clearMessages();
+    await pending;
+
+    expect(activeSessionId.value).toBeNull();
+    expect(messages.value).toEqual([]);
   });
 });

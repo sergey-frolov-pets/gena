@@ -9,6 +9,7 @@ import {
   activeSessionId,
   agents,
   appendMessage,
+  clearMessages,
   createSession,
   deleteMessagesFrom,
   duplicateSession,
@@ -425,8 +426,7 @@ function newSession(): void {
   error.value = "";
   notice.value = "";
   stopDictation();
-  activeSessionId.value = null;
-  messages.value = [];
+  clearMessages();
   historyOpen.value = false;
   void nextTick(() => composerEl.value?.focus());
 }
@@ -466,8 +466,7 @@ function savedAgentId(): string {
 async function openLastSession(forAgent = agentId.value): Promise<void> {
   const list = sessions.value.filter((s) => s.agentId === forAgent);
   if (list.length === 0) {
-    activeSessionId.value = null;
-    messages.value = [];
+    clearMessages();
     return;
   }
   const last = [...list].sort((a, b) => b.updatedAt - a.updatedAt)[0];
@@ -522,10 +521,36 @@ function takeComposer(): ComposerPayload | null {
   return { text, images, docs };
 }
 
-function enqueue(payload: ComposerPayload, persist = true): void {
+/** Заголовок нового диалога — первая строка реплики. */
+function sessionTitle(text: string): string {
+  const line = (text || "").split("\n")[0].slice(0, 60).trim();
+  return line || t("chat.newDialogTitle");
+}
+
+/** Создать диалог под реплику и открыть его (экран и так был пустым). */
+async function startSession(text: string): Promise<string | undefined> {
+  const agent = activeAgent.value;
+  if (!agent) return undefined;
+  const created = await createSession(agent.id, sessionTitle(text));
+  await loadMessages(created.id);
+  return created.id;
+}
+
+/**
+ * Поставить реплику в очередь. Диалог фиксируется в момент постановки:
+ * у реплики из «Нового диалога» он создаётся сразу, чтобы позже она
+ * не ушла в тот диалог, который окажется открытым.
+ */
+async function enqueue(
+  payload: ComposerPayload,
+  persist = true,
+  targetSessionId?: string,
+): Promise<void> {
+  const sessionId =
+    targetSessionId ?? activeSessionId.value ?? (await startSession(payload.text));
   queue.value = [
     ...queue.value,
-    { id: newId("q"), persist, sessionId: activeSessionId.value ?? undefined, ...payload },
+    { id: newId("q"), persist, sessionId, ...payload },
   ];
 }
 
@@ -541,7 +566,7 @@ async function send(): Promise<void> {
   if (!payload) return;
   // Агент занят — реплика встаёт в очередь, ответа не ждём.
   if (busy.value) {
-    enqueue(payload);
+    await enqueue(payload);
     return;
   }
   try {
@@ -562,10 +587,12 @@ async function dispatch(
   sessionId?: string,
 ): Promise<boolean> {
   const text = payload.text;
-  // Реплика из очереди адресована своему диалогу — открытый не переключаем.
+  // Диалог выбираем строго: у реплики из очереди он свой, и если его уже нет —
+  // в чужой открытый диалог реплика не переезжает. Открытый диалог не переключаем.
   let session =
-    (sessionId ? sessions.value.find((s) => s.id === sessionId) : undefined) ??
-    activeSession.value;
+    sessionId === undefined
+      ? activeSession.value
+      : sessions.value.find((s) => s.id === sessionId);
   const targetAgentId = session?.agentId || agentId.value;
   const agent = agents.value.find((a) => a.id === targetAgentId);
   if (!agent) {
@@ -579,9 +606,16 @@ async function dispatch(
   if (!(await withinLimit(agent))) return false;
 
   if (!session) {
-    const title = (text || t("chat.newDialogTitle")).split("\n")[0].slice(0, 60).trim();
-    session = await createSession(agent.id, title || t("chat.newDialogTitle"));
-    await loadMessages(session.id);
+    if (sessionId !== undefined) {
+      error.value = t("chat.error.noSession");
+      return false;
+    }
+    const title = sessionTitle(text);
+    session = await createSession(agent.id, title);
+    // Экран «Нового диалога» остаётся тем же — просто открываем созданную запись.
+    if (activeSessionId.value === null) {
+      await loadMessages(session.id);
+    }
   }
   const attachments: MessageAttachment[] = [
     ...payload.images.map((img) => ({
@@ -656,6 +690,12 @@ async function editQueued(id: string): Promise<void> {
 async function drainQueue(): Promise<void> {
   const head = queue.value[0];
   if (!head) return;
+  // Диалог удалили, пока реплика ждала: в другой её не переносим.
+  if (head.sessionId && !sessions.value.some((s) => s.id === head.sessionId)) {
+    queue.value = queue.value.slice(1);
+    error.value = t("chat.error.noSession");
+    return;
+  }
   queue.value = queue.value.slice(1);
   const sent = await dispatch(head, head.persist, head.sessionId);
   // Не ушло (нет ключа, лимит) — возвращаем в начало, чтобы не потерять.
@@ -796,9 +836,13 @@ function regenerate(m: Message): void {
 
 async function runRegenerate(m: Message): Promise<void> {
   if (busy.value) return;
-  const session = activeSession.value;
-  const agent = activeAgent.value;
-  if (!session || !agent) return;
+  // Повторяем ответ только в том диалоге, которому принадлежит сообщение.
+  const session = sessions.value.find((s) => s.id === m.sessionId);
+  const agent = agents.value.find((a) => a.id === session?.agentId);
+  if (!session || !agent) {
+    error.value = t("chat.error.noSession");
+    return;
+  }
   if (!agent.sealedKey) {
     error.value = t("chat.error.noKey");
     return;
@@ -821,7 +865,8 @@ async function runRegenerate(m: Message): Promise<void> {
   notice.value = "";
   if (!(await withinLimit(agent))) return;
   await deleteMessagesFrom(session.id, m.createdAt);
-  const history = messages.value.filter(
+  const visible = session.id === activeSessionId.value;
+  const history = (visible ? messages.value : await listMessages(session.id)).filter(
     (item) => item.role !== "system" && (item.kind === undefined || item.kind === "text"),
   );
   await exchange(session, agent, prompt, [], history);
@@ -864,10 +909,11 @@ async function commitEdit(m: Message): Promise<void> {
   notice.value = "";
   const payload: ComposerPayload = { text, images: [], docs: [] };
   if (busy.value) {
-    enqueue(payload, false);
+    // Правка адресована диалогу своего сообщения, а не тому, что открыт сейчас.
+    await enqueue(payload, false, m.sessionId);
     return;
   }
-  await dispatch(payload, false);
+  await dispatch(payload, false, m.sessionId);
 }
 
 async function retry(): Promise<void> {
@@ -929,6 +975,8 @@ async function duplicate(session: Session): Promise<void> {
 async function removeDialog(sessionId: string): Promise<void> {
   confirmDeleteId.value = "";
   forgetTab(sessionId);
+  // Реплики, ждавшие этого диалога, в чужой не переносим.
+  queue.value = queue.value.filter((q) => q.sessionId !== sessionId);
   await removeSession(sessionId);
 }
 
