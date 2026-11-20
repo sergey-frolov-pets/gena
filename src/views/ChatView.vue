@@ -2180,8 +2180,19 @@ function onRateChange(event: Event): void {
   margin-bottom: -6px;
   overflow-x: auto;
   scrollbar-width: none;
-  border-bottom: 1px solid var(--border);
   background: var(--panel-2);
+  position: relative;
+}
+
+/* Сплошная линия-разделитель под всей полосой; активная вкладка её перекрывает. */
+.chat-panel__tabs::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--border);
 }
 
 .chat-panel__tabs::-webkit-scrollbar {
@@ -2191,11 +2202,12 @@ function onRateChange(event: Event): void {
 .chat-panel__tab {
   display: flex;
   flex: 0 0 auto;
+  position: relative;
+  z-index: 1;
   align-items: center;
   max-width: 13rem;
-  margin-bottom: -1px;
   border: 1px solid transparent;
-  border-bottom: 0;
+  border-bottom-color: var(--border);
   border-radius: 8px 8px 0 0;
   background: transparent;
   color: var(--muted);
@@ -2205,10 +2217,10 @@ function onRateChange(event: Event): void {
   background: color-mix(in srgb, var(--panel) 55%, transparent);
 }
 
-/* Активная вкладка сливается с полотном чата и перекрывает линию-разделитель. */
+/* Активная вкладка сливается с полотном чата: её нижняя линия — цвета полотна. */
 .chat-panel__tab.is-active {
   border-color: var(--border);
-  border-bottom: 1px solid var(--panel);
+  border-bottom-color: var(--panel);
   background: var(--panel);
   color: var(--text);
 }
