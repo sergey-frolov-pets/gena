@@ -27,6 +27,7 @@ import { newId } from "@/lib/id";
 import { isSendKey } from "@/lib/composer";
 import { listenToAgent, sendToAgent, type TransportAttachment } from "@/lib/agent-client";
 import { describeError } from "@/lib/errors";
+import { renderMarkdown } from "@/lib/markdown";
 import { canCall, getCallCount, recordCall } from "@/storage/usage";
 import { listMessages } from "@/storage/db";
 import { useLocale } from "@/i18n";
@@ -1552,11 +1553,54 @@ function stop(): void {
  * Клик по своей реплике забирает её в поле ввода. Кнопки, картинки и
  * выделенный текст не перехватываем — там свои действия.
  */
+/** Markdown реплики → безопасный HTML (кеш внутри lib/markdown). */
+function mdHtml(text: string): string {
+  return renderMarkdown(text, { copy: t("chat.copyMessage") });
+}
+
+/**
+ * Делегированный клик по markdown: кнопка «Копировать» в шапке блока кода.
+ * Копирование не критично — при отказе браузера молчим, текст на экране есть.
+ */
+async function onMarkdownClick(event: MouseEvent): Promise<void> {
+  const target = event.target as HTMLElement | null;
+  const button = target?.closest(".md-code__copy");
+  if (!(button instanceof HTMLElement)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const code = button.closest(".md-code")?.querySelector("code")?.textContent ?? "";
+  if (!code) return;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(code);
+    } else {
+      copyFallback(code);
+    }
+    button.classList.add("md-code__copy--done");
+    window.setTimeout(() => button.classList.remove("md-code__copy--done"), 1400);
+  } catch {
+    copyFallback(code);
+  }
+}
+
+/** Копирование без Clipboard API (http, старые вебвью на телефоне). */
+function copyFallback(text: string): void {
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.setAttribute("readonly", "");
+  area.style.position = "fixed";
+  area.style.opacity = "0";
+  document.body.appendChild(area);
+  area.select();
+  document.execCommand("copy");
+  document.body.removeChild(area);
+}
+
 function onMessageClick(event: MouseEvent, m: Message): void {
   if (m.role !== "user" || m.kind) return;
   if (event.button !== 0) return;
   const target = event.target as HTMLElement | null;
-  if (target?.closest("button, a, img, summary, details, textarea, input")) return;
+  if (target?.closest("button, a, img, summary, details, textarea, input, .md-code, .md-table, pre, code")) return;
   if (window.getSelection()?.toString()) return;
   startEdit(m);
 }
@@ -2176,10 +2220,21 @@ function onRateChange(event: Event): void {
                 {{ messageElapsed(index) }}
               </span>
             </span>
-            <p v-if="m.content" class="chat-panel__content">{{ m.content }}</p>
+            <div
+              v-if="m.content"
+              class="chat-panel__content md"
+              @click="onMarkdownClick"
+              v-html="mdHtml(m.content)"
+            ></div>
             <details v-if="m.edits?.length" class="chat-panel__edits">
               <summary>{{ t("chat.edited") }}</summary>
-              <p v-for="(v, i) in m.edits" :key="i" class="chat-panel__content">{{ v }}</p>
+              <div
+                v-for="(v, i) in m.edits"
+                :key="i"
+                class="chat-panel__content md"
+                @click="onMarkdownClick"
+                v-html="mdHtml(v)"
+              ></div>
             </details>
             <div
               v-if="imagesOf(m).length"
@@ -2318,7 +2373,11 @@ function onRateChange(event: Event): void {
             <span class="chat-panel__role-name">{{ agentRoleLabel() }}</span>
             <span v-if="liveElapsed" class="chat-panel__elapsed">{{ liveElapsed }}</span>
           </span>
-          <p class="chat-panel__content">{{ liveStreaming }}</p>
+          <div
+            class="chat-panel__content md"
+            @click="onMarkdownClick"
+            v-html="mdHtml(liveStreaming)"
+          ></div>
         </article>
 
         <div
@@ -3136,6 +3195,200 @@ function onRateChange(event: Event): void {
   overflow-wrap: anywhere;
   line-height: 1.45;
   font-size: 0.88rem;
+}
+
+/* ---------- Markdown в ленте (lib/markdown.ts) ---------- */
+
+.chat-panel__content.md {
+  white-space: normal;
+}
+
+.chat-panel__content.md > :first-child {
+  margin-top: 0;
+}
+
+.chat-panel__content.md > :last-child {
+  margin-bottom: 0;
+}
+
+.md p,
+.md ul,
+.md ol,
+.md blockquote,
+.md .md-code,
+.md .md-table {
+  margin: 0 0 0.5em;
+}
+
+.md h1,
+.md h2,
+.md h3,
+.md h4,
+.md h5,
+.md h6 {
+  margin: 0.6em 0 0.35em;
+  line-height: 1.3;
+  font-weight: 600;
+}
+
+.md h1 {
+  font-size: 1.05rem;
+}
+
+.md h2 {
+  font-size: 1rem;
+}
+
+.md h3,
+.md h4,
+.md h5,
+.md h6 {
+  font-size: 0.92rem;
+}
+
+.md ul,
+.md ol {
+  padding-left: 1.15em;
+}
+
+.md li {
+  margin: 0.15em 0;
+}
+
+.md blockquote {
+  padding-left: 0.6em;
+  border-left: 2px solid var(--border);
+  color: var(--muted);
+}
+
+.md hr {
+  margin: 0.6em 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.md code {
+  padding: 0.05em 0.3em;
+  border-radius: 5px;
+  background: var(--panel-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82em;
+}
+
+.md a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+}
+
+/* Блок кода: отдельная панель, шапка с языком и кнопкой «Копировать». */
+.md-code {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+
+.md-code__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 1px 4px 1px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.66rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.md-code__copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.md-code__copy:hover,
+.md-code__copy:focus-visible {
+  background: rgba(127, 127, 127, 0.18);
+  color: var(--text);
+}
+
+.md-code__copy::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  background: currentColor;
+  -webkit-mask: var(--md-icon-copy) center / contain no-repeat;
+  mask: var(--md-icon-copy) center / contain no-repeat;
+}
+
+.md-code__copy--done {
+  color: var(--ok);
+}
+
+.md-code__copy--done::before {
+  -webkit-mask-image: var(--md-icon-check);
+  mask-image: var(--md-icon-check);
+}
+
+.md-code__pre {
+  margin: 0;
+  padding: 8px 10px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.md-code__pre code {
+  padding: 0;
+  background: none;
+  border-radius: 0;
+  white-space: pre;
+}
+
+/* Таблица: горизонтальный скролл внутри своего блока. */
+.md-table {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.md-table table {
+  border-collapse: collapse;
+  width: max-content;
+  min-width: 100%;
+  font-size: 0.8rem;
+}
+
+.md-table th,
+.md-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.md-table thead th {
+  background: var(--panel-2);
+  font-weight: 600;
+}
+
+.md-table tr:last-child td {
+  border-bottom: 0;
 }
 
 .chat-panel__message-actions {
