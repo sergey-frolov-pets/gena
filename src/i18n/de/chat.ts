@@ -20,7 +20,7 @@ export const chatMessages = {
   "chat.role.user": "Benutzer",
   "chat.role.assistant": "Assistent",
   "chat.role.system": "System",
-  "chat.typing": "Agent schreibt…",
+  "chat.typing": "{name} schreibt… (LLM)",
   "chat.thought": "Überlegung",
   "chat.toolCalls": "Tool-Aufrufe",
   "chat.steps.show": "Schritte anzeigen ({count})",

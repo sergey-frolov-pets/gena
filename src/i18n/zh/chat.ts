@@ -20,7 +20,7 @@ export const chatMessages = {
   "chat.role.user": "用户",
   "chat.role.assistant": "助手",
   "chat.role.system": "系统",
-  "chat.typing": "智能体正在输入…",
+  "chat.typing": "{name} 正在输入… (LLM)",
   "chat.thought": "推理",
   "chat.toolCalls": "工具调用",
   "chat.steps.show": "显示步骤（{count}）",

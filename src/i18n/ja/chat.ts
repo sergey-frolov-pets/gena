@@ -20,7 +20,7 @@ export const chatMessages = {
   "chat.role.user": "ユーザー",
   "chat.role.assistant": "アシスタント",
   "chat.role.system": "システム",
-  "chat.typing": "エージェントが入力中…",
+  "chat.typing": "{name} が入力中… (LLM)",
   "chat.thought": "思考",
   "chat.toolCalls": "ツール呼び出し",
   "chat.steps.show": "ステップを表示（{count}）",

@@ -286,6 +286,11 @@ const limitLabel = computed(() => {
   return t("chat.usage", { used: usedToday.value, limit: callLimit.value });
 });
 
+/** Кто именно печатает: имя агента, иначе нейтральное «Агент». */
+const typingLabel = computed(() =>
+  t("chat.typing", { name: activeAgent.value?.name?.trim() || t("chat.agent") }),
+);
+
 /** Писать можно сразу: сессия создастся при первом «Отправить». */
 const canSend = computed(
   () =>
@@ -1529,7 +1534,7 @@ function onRateChange(event: Event): void {
             </button>
           </div>
         </div>
-        <p v-if="liveTyping" class="chat-panel__thinking">{{ t("chat.typing") }}</p>
+        <p v-if="liveTyping" class="chat-panel__thinking">{{ typingLabel }}</p>
       </div>
     </div>
 
