@@ -78,6 +78,7 @@ export const chatMessages = {
   "chat.queue.sendNow": "Send now",
   "chat.queue.edit": "Back to composer",
   "chat.queue.remove": "Remove from queue",
+  "chat.queue.imagesLost": "Images from the queue were not saved when the app closed — please attach them again",
   "chat.error.emptyMessage": "Message is empty",
   "chat.regenerateConfirm": "The reply and all following messages will be deleted. Send the message again?",
 } as const satisfies LocaleMessages;

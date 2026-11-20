@@ -78,6 +78,7 @@ export const chatMessages = {
   "chat.queue.sendNow": "Enviar agora",
   "chat.queue.edit": "Voltar ao campo de texto",
   "chat.queue.remove": "Remover da fila",
+  "chat.queue.imagesLost": "As imagens da fila não foram salvas ao fechar o aplicativo — anexe-as novamente",
   "chat.error.emptyMessage": "A mensagem está vazia",
   "chat.regenerateConfirm": "A resposta e todas as mensagens seguintes serão excluídas. Enviar a mensagem novamente?",
 } as const satisfies LocaleMessages;

@@ -78,6 +78,7 @@ export const chatMessages = {
   "chat.queue.sendNow": "إرسال الآن",
   "chat.queue.edit": "إعادة إلى حقل الإدخال",
   "chat.queue.remove": "إزالة من الانتظار",
+  "chat.queue.imagesLost": "لم يتم حفظ صور قائمة الانتظار عند إغلاق التطبيق — يرجى إرفاقها مرة أخرى",
   "chat.error.emptyMessage": "الرسالة فارغة",
   "chat.regenerateConfirm": "سيُحذف الرد وكل الرسائل التالية. هل تريد إرسال الرسالة مرة أخرى؟",
 } as const satisfies LocaleMessages;

@@ -78,6 +78,7 @@ export const chatMessages = {
   "chat.queue.sendNow": "Jetzt senden",
   "chat.queue.edit": "Zurück ins Eingabefeld",
   "chat.queue.remove": "Aus der Warteschlange entfernen",
+  "chat.queue.imagesLost": "Bilder aus der Warteschlange wurden beim Schließen der App nicht gespeichert – bitte erneut anhängen",
   "chat.error.emptyMessage": "Nachricht ist leer",
   "chat.regenerateConfirm": "Die Antwort und alle folgenden Nachrichten werden gelöscht. Nachricht erneut senden?",
 } as const satisfies LocaleMessages;

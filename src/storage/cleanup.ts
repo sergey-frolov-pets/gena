@@ -16,6 +16,7 @@ import {
   listMessages,
   listSessions,
 } from "./db";
+import { clearQueued, listQueued, replaceQueued } from "./queue";
 
 export interface ClearResult {
   removedSessions: number;
@@ -43,6 +44,9 @@ export async function clearAll(removeAgents = false): Promise<ClearResult> {
     }
   }
 
+  // Очередь реплик живёт вместе с диалогами: удалили историю — нечего ждать.
+  await clearQueued();
+
   return {
     removedSessions: sessions.length,
     removedMessages,
@@ -69,6 +73,11 @@ export async function clearExcept(keepSessionIds: readonly string[]): Promise<Cl
     await deleteSession(session.id);
     removedSessions += 1;
   }
+
+  // Реплики в очереди, адресованные удалённым диалогам, больше не отправить.
+  const queued = await listQueued();
+  const keptQueue = queued.filter((item) => !item.sessionId || keep.has(item.sessionId));
+  if (keptQueue.length !== queued.length) await replaceQueued(keptQueue);
 
   return { removedSessions, removedMessages, removedAgents: 0 };
 }

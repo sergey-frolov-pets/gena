@@ -78,6 +78,7 @@ export const chatMessages = {
   "chat.queue.sendNow": "अभी भेजें",
   "chat.queue.edit": "इनपुट फ़ील्ड में वापस",
   "chat.queue.remove": "कतार से हटाएँ",
+  "chat.queue.imagesLost": "ऐप बंद होने पर कतार की तस्वीरें सहेजी नहीं गईं — कृपया उन्हें फिर से जोड़ें",
   "chat.error.emptyMessage": "संदेश खाली है",
   "chat.regenerateConfirm": "उत्तर और उसके बाद के सभी संदेश हट जाएँगे। संदेश फिर से भेजें?",
 } as const satisfies LocaleMessages;

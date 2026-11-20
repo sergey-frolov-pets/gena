@@ -78,6 +78,7 @@ export const chatMessages = {
   "chat.queue.sendNow": "立即发送",
   "chat.queue.edit": "放回输入框",
   "chat.queue.remove": "从队列中移除",
+  "chat.queue.imagesLost": "关闭应用时队列中的图片未保存，请重新添加",
   "chat.error.emptyMessage": "消息为空",
   "chat.regenerateConfirm": "回复及其后的所有消息都将被删除。要重新发送这条消息吗？",
 } as const satisfies LocaleMessages;

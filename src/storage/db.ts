@@ -1,22 +1,24 @@
 /**
  * Слой IndexedDB поверх `idb`.
  *
- * База `gena`, версия 2. Сторы:
+ * База `gena`, версия 3. Сторы:
  *   agents   (keyPath id)                       — подключения к агентам
  *   sessions (keyPath id, index by-agent, by-updated) — диалоги
  *   messages (keyPath id, index by-session)     — сообщения
  *   usage    (keyPath agentId)                  — счётчик вызовов агента за сутки
+ *   queue    (keyPath id)                       — реплики, ждущие ответа агента
  *
  * Все функции тонкие; бизнес-логика (шифрование, бэкап, очистка) — выше.
- * Миграция v1 → v2 идемпотентна: существующие данные не трогаются,
- * добавляется только стор `usage`.
+ * Миграции идемпотентны: существующие данные не трогаются, добавляются
+ * только новые сторы (v2 — `usage`, v3 — `queue`).
  */
 
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import { normalizeAgent, type Agent, type Message, type Session, type UsageRecord } from "./types";
+import type { QueuedRecord } from "./queue";
 
 const DB_NAME = "gena";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 interface GenaDB extends DBSchema {
   agents: {
@@ -43,6 +45,10 @@ interface GenaDB extends DBSchema {
     key: string;
     value: UsageRecord;
   };
+  queue: {
+    key: string;
+    value: QueuedRecord;
+  };
 }
 
 let dbPromise: Promise<IDBPDatabase<GenaDB>> | null = null;
@@ -66,6 +72,9 @@ export function getDb(): Promise<IDBPDatabase<GenaDB>> {
         }
         if (!db.objectStoreNames.contains("usage")) {
           db.createObjectStore("usage", { keyPath: "agentId" });
+        }
+        if (!db.objectStoreNames.contains("queue")) {
+          db.createObjectStore("queue", { keyPath: "id" });
         }
       },
     });

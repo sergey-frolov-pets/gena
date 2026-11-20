@@ -78,6 +78,7 @@ export const chatMessages = {
   "chat.queue.sendNow": "今すぐ送信",
   "chat.queue.edit": "入力欄に戻す",
   "chat.queue.remove": "キューから削除",
+  "chat.queue.imagesLost": "キュー内の画像はアプリ終了時に保存されませんでした。もう一度添付してください",
   "chat.error.emptyMessage": "メッセージが空です",
   "chat.regenerateConfirm": "返信とそれ以降のメッセージは削除されます。もう一度送信しますか？",
 } as const satisfies LocaleMessages;

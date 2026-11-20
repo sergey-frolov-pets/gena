@@ -21,6 +21,7 @@ import {
   removeSession,
   renameSession,
   sessions,
+  sessionsLoaded,
 } from "@/lib/store";
 import { newId } from "@/lib/id";
 import { isSendKey } from "@/lib/composer";
@@ -69,6 +70,8 @@ import {
   shouldResume,
   type PendingTurn,
 } from "@/lib/resume";
+import { readQueued, toPersisted, type RestoredQueue } from "@/lib/queue";
+import { listQueued, replaceQueued } from "@/storage/queue";
 import ConfirmModal from "@/components/ConfirmModal.vue";
 import TextModal from "@/components/TextModal.vue";
 
@@ -299,10 +302,110 @@ interface QueuedMessage extends ComposerPayload {
   persist: boolean;
   /** Диалог, в который реплика была написана: очередь переживает переключение. */
   sessionId?: string;
+  /** Когда реплику поставили в очередь — по этому времени восстанавливается порядок. */
+  at: number;
 }
 
 /** Очередь при занятом агенте: можно отправить, изменить или убрать. */
 const queue = ref<QueuedMessage[]>([]);
+
+/* ── Очередь в IndexedDB: закрыл вкладку — реплики не пропали ──────────── */
+
+const QUEUE_SAVE_DELAY = 150;
+let queueSaveTimer: ReturnType<typeof setTimeout> | null = null;
+/** Очередь прочитана из базы; до этого сохранённое не перезаписываем. */
+let queueLoaded = false;
+/** Сессии прочитаны — можно проверять, живы ли диалоги из очереди. */
+let sessionsReady = false;
+
+function scheduleQueueSave(): void {
+  if (!queueLoaded) return;
+  if (queueSaveTimer) clearTimeout(queueSaveTimer);
+  queueSaveTimer = setTimeout(() => {
+    queueSaveTimer = null;
+    void saveQueue();
+  }, QUEUE_SAVE_DELAY);
+}
+
+async function saveQueue(): Promise<void> {
+  const now = Date.now();
+  try {
+    await replaceQueued(queue.value.map((item) => toPersisted(item, now)));
+  } catch {
+    // Хранилище недоступно или переполнено — очередь продолжает жить в памяти.
+  }
+}
+
+/** Записать очередь немедленно — перед закрытием вкладки. */
+function flushQueue(): void {
+  if (queueSaveTimer) {
+    clearTimeout(queueSaveTimer);
+    queueSaveTimer = null;
+  }
+  void saveQueue();
+}
+
+function toQueuedMessage(item: RestoredQueue): QueuedMessage {
+  return {
+    id: item.id,
+    persist: item.persist,
+    sessionId: item.sessionId,
+    at: item.at,
+    text: item.text,
+    // Картинки в IndexedDB не сохраняются — см. `lib/queue.ts`.
+    images: [],
+    docs: item.docs,
+  };
+}
+
+/**
+ * Отправить первую реплику восстановленной очереди — но только когда
+ * известно, что её диалог ещё существует.
+ */
+function drainRestored(): void {
+  if (!queueLoaded || !sessionsReady || busy.value) return;
+  if (queue.value.length > 0) void drainQueue();
+}
+
+/** Поднять очередь из IndexedDB: текст, документы и порядок реплик. */
+async function restoreQueue(): Promise<void> {
+  let raw: unknown = [];
+  try {
+    raw = await listQueued();
+  } catch {
+    raw = [];
+  }
+  const { items, lostImages, skipped } = readQueued(raw);
+  queueLoaded = true;
+  if (items.length > 0) {
+    queue.value = [...items.map(toQueuedMessage), ...queue.value];
+    if (lostImages > 0) notice.value = t("chat.queue.imagesLost");
+  }
+  // Битые записи или потерянные картинки — привести стор в порядок.
+  if (skipped > 0 || lostImages > 0) void saveQueue();
+  drainRestored();
+}
+
+/** Диалог реплики удалён — в другой её не переносим. */
+function pruneQueue(): void {
+  if (sessions.value.length === 0) return;
+  const alive = new Set(sessions.value.map((s) => s.id));
+  const kept = queue.value.filter((item) => !item.sessionId || alive.has(item.sessionId));
+  if (kept.length !== queue.value.length) queue.value = kept;
+}
+
+watch(queue, scheduleQueueSave, { deep: true });
+watch(() => sessions.value.length, pruneQueue);
+watch(
+  sessionsLoaded,
+  (loaded) => {
+    if (!loaded) return;
+    sessionsReady = true;
+    pruneQueue();
+    drainRestored();
+  },
+  { immediate: true },
+);
 /** «Отправить сейчас»: прерываем текущий ход и шлём эту реплику. */
 const immediate = ref<QueuedMessage | null>(null);
 /** Сообщение, которое сейчас правим. */
@@ -843,7 +946,7 @@ async function enqueue(
     targetSessionId ?? activeSessionId.value ?? (await startSession(payload.text));
   queue.value = [
     ...queue.value,
-    { id: newId("q"), persist, sessionId, ...payload },
+    { id: newId("q"), persist, sessionId, at: Date.now(), ...payload },
   ];
 }
 
@@ -1423,6 +1526,8 @@ function syncViewport(): void {
 
 onMounted(() => {
   syncViewport();
+  // Реплики, ждавшие ответа, поднимаем из IndexedDB — закрытие вкладки их не теряет.
+  void restoreQueue();
   // Вернулись на вкладку чата — показываем конец диалога, а не начало.
   void scrollToBottom(true);
   settleToBottom();
@@ -1437,6 +1542,7 @@ onMounted(() => {
   window.addEventListener("offline", onOffline);
   window.addEventListener("beforeunload", onBeforeUnload);
   window.addEventListener("pagehide", flushDraft);
+  window.addEventListener("pagehide", flushQueue);
   document.addEventListener("visibilitychange", onVisibility);
   // Постоянное хранилище: IndexedDB не должна вычищаться при нехватке места.
   void navigator.storage?.persist?.();
@@ -1460,6 +1566,7 @@ onUnmounted(() => {
   window.removeEventListener("offline", onOffline);
   window.removeEventListener("beforeunload", onBeforeUnload);
   window.removeEventListener("pagehide", flushDraft);
+  window.removeEventListener("pagehide", flushQueue);
   document.removeEventListener("visibilitychange", onVisibility);
   threadObserver?.disconnect();
   threadObserver = null;

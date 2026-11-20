@@ -44,6 +44,8 @@ export const messages = ref<Message[]>([]);
 export const activeSessionId = ref<string | null>(null);
 /** Отмеченные сессии для «очистить, кроме выбранных». */
 export const selectedSessionIds = ref<Set<string>>(new Set());
+/** Сессии прочитаны из базы — можно решать, существуют ли диалоги из очереди. */
+export const sessionsLoaded = ref(false);
 
 export async function loadAgents(): Promise<void> {
   agents.value = await listAgents();
@@ -51,6 +53,7 @@ export async function loadAgents(): Promise<void> {
 
 export async function loadSessions(): Promise<void> {
   sessions.value = await listSessions();
+  sessionsLoaded.value = true;
 }
 
 /** Номер последнего запроса истории: ответ на устаревший запрос не применяем. */
