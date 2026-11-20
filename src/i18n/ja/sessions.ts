@@ -32,4 +32,11 @@ export const sessionsMessages = {
   "sessions.cancel": "キャンセル",
   "sessions.cleanup.confirmAllText": "すべてのセッションとメッセージが完全に削除されます。エージェントは保持されます。",
   "sessions.cleanup.confirmExceptText": "選択した {keep} 件のセッションのみ残ります。それ以外のセッションとメッセージは完全に削除されます。",
+  "sessions.size.title": "データサイズ",
+  "sessions.size.recalc": "再計算",
+  "sessions.size.measuring": "計算中…",
+  "sessions.size.total": "合計: {size}",
+  "sessions.size.breakdown": "エージェント {agents} · セッション {sessions} · メッセージ {messages}",
+  "sessions.size.hint": "サイズはボタンで計算します。IndexedDB の全メッセージを走査するため少し時間がかかります。",
+  "sessions.size.item": "· {size}",
 } as const satisfies LocaleMessages;

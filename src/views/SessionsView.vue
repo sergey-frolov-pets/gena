@@ -25,6 +25,8 @@ import {
   putSession,
 } from "@/storage/db";
 import { clearAll, clearExcept } from "@/storage/cleanup";
+import { measureStorage, type StorageSizes } from "@/storage/sizes";
+import { formatSize } from "@/lib/sizes";
 import { useLocale } from "@/i18n";
 import type { Message, Session } from "@/storage/types";
 import ConfirmModal from "@/components/ConfirmModal.vue";
@@ -38,6 +40,42 @@ const onlySelectedForBackup = ref(false);
 /** Какое подтверждение сейчас показано в модалке. */
 type CleanupMode = "" | "all" | "except";
 const confirmMode = ref<CleanupMode>("");
+
+/** Размеры данных: считаются только по кнопке, до этого в списке прочерк. */
+const sizes = ref<StorageSizes | null>(null);
+const measuring = ref(false);
+
+async function recalcSizes(): Promise<void> {
+  error.value = "";
+  measuring.value = true;
+  try {
+    sizes.value = await measureStorage();
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    measuring.value = false;
+  }
+}
+
+/** Размер одной сессии (всё вместе: запись + сообщения) или пустая строка. */
+function sessionSize(sessionId: string): string {
+  const entry = sizes.value?.sessions[sessionId];
+  return entry ? formatSize(entry.totalBytes) : "";
+}
+
+/** Общий размер базы (агенты + сессии + сообщения). */
+const totalSize = computed(() => (sizes.value ? formatSize(sizes.value.totalBytes) : "—"));
+
+/** Разбивка по видам записей. */
+const sizeBreakdown = computed(() =>
+  sizes.value
+    ? t("sessions.size.breakdown", {
+        agents: formatSize(sizes.value.agentBytes),
+        sessions: formatSize(sizes.value.sessionBytes),
+        messages: formatSize(sizes.value.messageBytes),
+      })
+    : "",
+);
 
 const confirmTitle = computed(() =>
   confirmMode.value === "all"
@@ -151,6 +189,7 @@ async function importBackup(event: Event): Promise<void> {
     for (const message of messagesMerge.toWrite) await putMessage(message);
 
     await loadSessions();
+    sizes.value = null; // данные изменились — старые размеры недействительны
 
     const skipped = sessionsMerge.skipped + messagesMerge.skipped;
     const parts = [
@@ -178,6 +217,7 @@ async function cleanupExceptSelected(): Promise<void> {
     const keep = [...selectedSessionIds.value];
     const result = await clearExcept(keep);
     await loadSessions();
+    sizes.value = null; // данные изменились — старые размеры недействительны
     clearSessionSelection();
     notice.value = t("sessions.cleanup.removed", {
       sessions: result.removedSessions,
@@ -196,6 +236,7 @@ async function cleanupAll(): Promise<void> {
   try {
     const result = await clearAll(false);
     await loadSessions();
+    sizes.value = null; // данные изменились — старые размеры недействительны
     clearSessionSelection();
     notice.value = t("sessions.cleanup.removedAll", {
       sessions: result.removedSessions,
@@ -251,6 +292,9 @@ async function runConfirmedCleanup(): Promise<void> {
                 })
               }}
             </span>
+            <span v-if="sessionSize(s.id)" class="muted small">
+              {{ t("sessions.size.item", { size: sessionSize(s.id) }) }}
+            </span>
           </span>
         </label>
         <button
@@ -264,6 +308,18 @@ async function runConfirmedCleanup(): Promise<void> {
         </button>
       </li>
     </ul>
+
+    <div class="card">
+      <h3>{{ t("sessions.size.title") }}</h3>
+      <div class="actions">
+        <button class="primary" :disabled="measuring" @click="recalcSizes">
+          {{ measuring ? t("sessions.size.measuring") : t("sessions.size.recalc") }}
+        </button>
+        <span class="muted">{{ t("sessions.size.total", { size: totalSize }) }}</span>
+      </div>
+      <p v-if="sizes" class="muted small">{{ sizeBreakdown }}</p>
+      <p v-else class="muted small">{{ t("sessions.size.hint") }}</p>
+    </div>
 
     <div class="card">
       <h3>{{ t("sessions.backup.title") }}</h3>
@@ -378,6 +434,9 @@ async function runConfirmedCleanup(): Promise<void> {
 }
 .small {
   font-size: 12px;
+}
+.list .small + .small {
+  margin-left: 6px;
 }
 .danger-zone {
   border-color: var(--danger);

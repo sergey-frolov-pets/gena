@@ -33,4 +33,11 @@ export const sessionsMessages = {
   "sessions.cancel": "Cancelar",
   "sessions.cleanup.confirmAllText": "Todas las sesiones y mensajes se eliminarán de forma permanente. Los agentes se conservan.",
   "sessions.cleanup.confirmExceptText": "Solo quedarán las {keep} sesiones seleccionadas. El resto de sesiones y mensajes se eliminará de forma permanente.",
+  "sessions.size.title": "Tamaño de los datos",
+  "sessions.size.recalc": "Recalcular",
+  "sessions.size.measuring": "Calculando…",
+  "sessions.size.total": "Total: {size}",
+  "sessions.size.breakdown": "Agentes {agents} · sesiones {sessions} · mensajes {messages}",
+  "sessions.size.hint": "El tamaño se calcula a demanda: recorrer todos los mensajes de IndexedDB tarda un momento.",
+  "sessions.size.item": "· {size}",
 } as const satisfies LocaleMessages;

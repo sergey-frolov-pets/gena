@@ -166,6 +166,12 @@ export async function listMessages(sessionId: string): Promise<Message[]> {
   ));
 }
 
+/** Все сообщения базы — для подсчёта размеров и полного бэкапа. */
+export async function listAllMessages(): Promise<Message[]> {
+  const db = await getDb();
+  return db.getAll("messages");
+}
+
 export async function deleteMessage(id: string): Promise<void> {
   const db = await getDb();
   await db.delete("messages", id);

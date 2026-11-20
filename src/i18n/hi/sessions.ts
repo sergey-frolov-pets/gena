@@ -31,4 +31,11 @@ export const sessionsMessages = {
   "sessions.cancel": "रद्द करें",
   "sessions.cleanup.confirmAllText": "सभी सत्र और संदेश स्थायी रूप से हटा दिए जाएँगे। एजेंट सुरक्षित रहेंगे।",
   "sessions.cleanup.confirmExceptText": "केवल चुने गए {keep} सत्र बचेंगे। बाकी सभी सत्र और संदेश स्थायी रूप से हटा दिए जाएँगे।",
+  "sessions.size.title": "डेटा आकार",
+  "sessions.size.recalc": "फिर से गिनें",
+  "sessions.size.measuring": "गिन रहे हैं…",
+  "sessions.size.total": "कुल: {size}",
+  "sessions.size.breakdown": "एजेंट {agents} · सत्र {sessions} · संदेश {messages}",
+  "sessions.size.hint": "आकार माँग पर गिना जाता है: IndexedDB के सभी संदेशों पर चलने में थोड़ा समय लगता है।",
+  "sessions.size.item": "· {size}",
 } as const satisfies LocaleMessages;

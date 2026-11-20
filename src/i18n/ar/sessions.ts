@@ -31,4 +31,11 @@ export const sessionsMessages = {
   "sessions.cancel": "إلغاء",
   "sessions.cleanup.confirmAllText": "ستُحذف جميع الجلسات والرسائل نهائيًا. يتم الاحتفاظ بالوكلاء.",
   "sessions.cleanup.confirmExceptText": "ستبقى الجلسات المحددة فقط ({keep}). وستُحذف بقية الجلسات والرسائل نهائيًا.",
+  "sessions.size.title": "حجم البيانات",
+  "sessions.size.recalc": "إعادة الحساب",
+  "sessions.size.measuring": "جارٍ الحساب…",
+  "sessions.size.total": "الإجمالي: {size}",
+  "sessions.size.breakdown": "الوكلاء {agents} · الجلسات {sessions} · الرسائل {messages}",
+  "sessions.size.hint": "يُحسب الحجم عند الطلب: المرور على كل الرسائل في IndexedDB يستغرق لحظات.",
+  "sessions.size.item": "· {size}",
 } as const satisfies LocaleMessages;

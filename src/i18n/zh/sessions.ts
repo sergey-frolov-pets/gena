@@ -31,4 +31,11 @@ export const sessionsMessages = {
   "sessions.cancel": "取消",
   "sessions.cleanup.confirmAllText": "所有会话和消息将被永久删除，智能体保留。",
   "sessions.cleanup.confirmExceptText": "仅保留所选的 {keep} 个会话，其余会话和消息将被永久删除。",
+  "sessions.size.title": "数据大小",
+  "sessions.size.recalc": "重新计算",
+  "sessions.size.measuring": "正在计算…",
+  "sessions.size.total": "合计：{size}",
+  "sessions.size.breakdown": "智能体 {agents} · 会话 {sessions} · 消息 {messages}",
+  "sessions.size.hint": "大小按需计算：遍历 IndexedDB 中的全部消息需要一点时间。",
+  "sessions.size.item": "· {size}",
 } as const satisfies LocaleMessages;
