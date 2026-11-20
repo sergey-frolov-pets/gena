@@ -4,8 +4,16 @@
  * Auth — subprotocol `token.<token>`; `session_id` — query-параметр при коннекте
  * (история не шлётся: сервер хранит контекст по session_id).
  *
- * Конец хода: `typing.stop` после ≥1 финального `message.create` (без `kind`).
- * Запасные варианты: 3 с тишины после финального сообщения и жёсткий таймаут 120 с.
+ * Как сервер отдаёт ход (см. pkg/channels/pico в PicoClaw):
+ * 1. `typing.start`;
+ * 2. `message.create` с `placeholder: true` — заглушка «думаю…», это НЕ ответ;
+ * 3. `message.create` с `kind: thought|tool_calls` — шаги хода;
+ * 4. `typing.stop` — приходит ДО финального ответа (preSend гасит индикатор);
+ * 5. `message.create` без `kind` — финальный ответ, дальше `message.update`
+ *    с тем же `message_id`, пока идёт стриминг.
+ *
+ * Поэтому конец хода — не `typing.stop`, а тишина после финального сообщения:
+ * стрим обновляет один и тот же ответ и сдвигает «тихий» таймер.
  */
 
 import { newId } from "@/lib/id";
@@ -21,10 +29,21 @@ import type {
   TransportReply,
 } from "./types";
 
-const HARD_TIMEOUT_MS = 120_000;
-const SILENCE_TIMEOUT_MS = 3_000;
+/** Тишина после финального сообщения — считаем ход законченным. */
+const QUIET_MS = 1_500;
+/** Ни одного кадра столько времени — агент завис (долгие инструменты шлют шаги). */
+const IDLE_TIMEOUT_MS = 15 * 60_000;
+/** Абсолютный потолок одного хода, чтобы очередь не встала навсегда. */
+const HARD_TIMEOUT_MS = 45 * 60_000;
 const CONNECT_ATTEMPTS = 3;
 const CONNECT_BACKOFF_MS = 1_000;
+
+/** Один финальный ответ (сообщение или его стрим-обновление). */
+interface FinalFrame {
+  id: string;
+  content: string;
+  attachments?: TransportAttachment[];
+}
 
 export function buildWsUrl(address: string, sessionId: string): string {
   let url = address.trim();
@@ -37,6 +56,15 @@ export function buildWsUrl(address: string, sessionId: string): string {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function str(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+/** Заглушка «думаю…» — не ответ, в историю она попадать не должна. */
+function isPlaceholder(payload: Record<string, unknown>): boolean {
+  return payload.placeholder === true;
 }
 
 export function makePicoTransport(ctor?: PicoSocketCtor): AgentTransport {
@@ -67,28 +95,39 @@ export function makePicoTransport(ctor?: PicoSocketCtor): AgentTransport {
       const maxAttempts = cfg.reconnect === false ? 1 : CONNECT_ATTEMPTS;
       const url = buildWsUrl(agent.address, req.sessionId);
       const conn = new PicoConnection(socketCtor);
+      const requestId = newId();
 
       return new Promise<TransportReply>((resolve, reject) => {
-        let reply: string | null = null;
-        /** Вложения финального сообщения — из `message.create.payload.attachments`. */
-        let replyAttachments: TransportAttachment[] = [];
+        /** Финальный ответ; `null` — ответа ещё не было (только заглушка/шаги). */
+        let reply: FinalFrame | null = null;
         let settled = false;
-        let silenceTimer: ReturnType<typeof setTimeout> | null = null;
+        let quietTimer: ReturnType<typeof setTimeout> | null = null;
+        let idleTimer: ReturnType<typeof setTimeout> | null = null;
+        /** Шаги хода, уже отданные наверх — обновления по ним не дублируем. */
+        const seenAux = new Set<string>();
 
         const hardTimer = setTimeout(() => {
-          finish(reject, new AgentClientError("no response from agent", undefined, "ws_timeout"));
+          finish(
+            reject,
+            new AgentClientError("turn is too long, aborted by timeout", undefined, "ws_timeout"),
+          );
         }, HARD_TIMEOUT_MS);
 
         function withAttachments(): TransportReply {
-          return replyAttachments.length > 0
-            ? { reply: reply ?? "", attachments: replyAttachments }
-            : { reply: reply ?? "" };
+          return reply && reply.attachments && reply.attachments.length > 0
+            ? { reply: reply.content, attachments: reply.attachments }
+            : { reply: reply?.content ?? "" };
         }
 
         function clearTimers(): void {
           clearTimeout(hardTimer);
-          if (silenceTimer) {
-            clearTimeout(silenceTimer);
+          if (quietTimer) {
+            clearTimeout(quietTimer);
+            quietTimer = null;
+          }
+          if (idleTimer) {
+            clearTimeout(idleTimer);
+            idleTimer = null;
           }
         }
 
@@ -102,15 +141,66 @@ export function makePicoTransport(ctor?: PicoSocketCtor): AgentTransport {
           fn(value);
         }
 
-        function resetSilence(): void {
-          if (silenceTimer) {
-            clearTimeout(silenceTimer);
+        /** Кадр пришёл — агент жив, сдвигаем watchdog. */
+        function touch(): void {
+          if (idleTimer) {
+            clearTimeout(idleTimer);
           }
-          silenceTimer = setTimeout(() => {
+          idleTimer = setTimeout(() => {
+            finish(
+              reject,
+              new AgentClientError("no events from agent", undefined, "ws_timeout"),
+            );
+          }, IDLE_TIMEOUT_MS);
+        }
+
+        /**
+         * Конец хода — тишина после финального сообщения. Стрим-обновления
+         * и шаги хода сдвигают таймер, поэтому длинный ответ не обрывается.
+         */
+        function armQuiet(): void {
+          if (quietTimer) {
+            clearTimeout(quietTimer);
+          }
+          quietTimer = setTimeout(() => {
             if (reply !== null) {
               finish(resolve, withAttachments());
             }
-          }, SILENCE_TIMEOUT_MS);
+          }, QUIET_MS);
+        }
+
+        /** Финальное сообщение или его обновление: заменяем ответ, стримим прирост. */
+        function setFinal(id: string, content: string, attachments?: TransportAttachment[]): void {
+          const previous = reply && reply.id === id ? reply.content : "";
+          const chunk = content.startsWith(previous) ? content.slice(previous.length) : content;
+          if (chunk) {
+            ev.onDelta?.(id, chunk);
+          }
+          reply = {
+            id,
+            content,
+            ...(attachments && attachments.length > 0 ? { attachments } : {}),
+          };
+          armQuiet();
+        }
+
+        /** Шаг хода (мысль/вызовы инструментов): отдаём один раз, обновления — тихо. */
+        function setAux(payload: Record<string, unknown>, kind: string): void {
+          const id = str(payload.message_id);
+          const content = str(payload.content);
+          if (!id || !content) return;
+          if (seenAux.has(id)) {
+            ev.onUpdate?.(id, content);
+            return;
+          }
+          seenAux.add(id);
+          ev.onMessage?.({
+            id,
+            kind: kind as "thought" | "tool_calls",
+            content,
+            model: str(payload.model_name) || undefined,
+            usage: payload.usage,
+          });
         }
 
         const onAbort = () => {
@@ -122,43 +212,49 @@ export function makePicoTransport(ctor?: PicoSocketCtor): AgentTransport {
 
         conn.setHandlers({
           onMessage(frame: PicoFrame) {
+            touch();
             const type = frame.type;
-            const payload = frame.payload ?? {};
+            const payload = (frame.payload ?? {}) as Record<string, unknown>;
+            const kind = str(payload.kind);
 
             if (type === "typing.start") {
               ev.onTyping?.(true);
               return;
             }
             if (type === "typing.stop") {
+              // Индикатор гаснет перед финальным ответом — ход это не завершает.
               ev.onTyping?.(false);
-              if (reply !== null) {
-                finish(resolve, withAttachments());
-              }
               return;
             }
             if (type === "error") {
-              const code = typeof payload.code === "string" ? payload.code : undefined;
-              const msg = typeof payload.message === "string" ? payload.message : "agent error";
+              const request = str(payload.request_id);
+              if (request && request !== requestId) {
+                return;
+              }
+              const code = str(payload.code) || undefined;
+              const msg = str(payload.message) || "agent error";
               finish(reject, new AgentClientError(msg, undefined, "pico_error", code));
               return;
             }
-            if (type === "message.create") {
-              const kind = payload.kind;
-              const content = typeof payload.content === "string" ? payload.content : "";
-              if (kind === "thought" || kind === "tool_calls") {
-                ev.onMessage?.({
-                  id: String(payload.message_id ?? ""),
-                  kind,
-                  content,
-                  model: typeof payload.model_name === "string" ? payload.model_name : undefined,
-                  usage: payload.usage,
-                });
-                return;
-              }
-              reply = content;
-              replyAttachments = parseIncomingAttachments(payload.attachments);
-              resetSilence();
+            if (type !== "message.create" && type !== "message.update") {
+              return;
             }
+            if (isPlaceholder(payload)) {
+              return;
+            }
+            if (kind === "thought" || kind === "tool_calls") {
+              setAux(payload, kind);
+              return;
+            }
+            if (kind) {
+              return;
+            }
+            const id = str(payload.message_id);
+            // Обновление чужого финального сообщения игнорируем.
+            if (reply && id && reply.id && id !== reply.id) {
+              return;
+            }
+            setFinal(id, str(payload.content), parseIncomingAttachments(payload.attachments));
           },
           onClose() {
             if (settled) {
@@ -172,6 +268,9 @@ export function makePicoTransport(ctor?: PicoSocketCtor): AgentTransport {
           },
         });
 
+        // Первый watchdog: агент должен подать хоть один кадр за IDLE_TIMEOUT_MS.
+        touch();
+
         void (async () => {
           let lastErr: unknown = null;
           for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -182,7 +281,7 @@ export function makePicoTransport(ctor?: PicoSocketCtor): AgentTransport {
               await conn.connect(url, req.apiKey);
               conn.send({
                 type: "message.send",
-                id: newId(),
+                id: requestId,
                 timestamp: Date.now(),
                 payload: {
                   content: req.message,

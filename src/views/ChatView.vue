@@ -232,24 +232,74 @@ function saveTabIds(): void {
 
 /** Открыть диалог в полоске: свежие первыми, лишние вытесняются. */
 function rememberTab(id: string): void {
+  // Открыли закрытую вкладку — она снова видна.
+  if (hiddenTabIds.value.includes(id)) {
+    hiddenTabIds.value = hiddenTabIds.value.filter((item) => item !== id);
+    try {
+      localStorage.setItem(TABS_HIDDEN_KEY, JSON.stringify(hiddenTabIds.value));
+    } catch {
+      // Приватный режим — не критично.
+    }
+  }
   const next = [id, ...tabIds.value.filter((item) => item !== id)].slice(0, MAX_TABS);
   if (next.join("|") === tabIds.value.join("|")) return;
   tabIds.value = next;
   saveTabIds();
 }
 
-/** Убрать вкладку из полоски (диалог остаётся в списке). */
-function forgetTab(id: string): void {
-  tabIds.value = tabIds.value.filter((item) => item !== id);
-  saveTabIds();
+/** Закрытые вкладки: диалог живёт в списке, но в полоске его не показываем. */
+const TABS_HIDDEN_KEY = "gena.chat.tabs.hidden";
+const hiddenTabIds = ref<string[]>(savedHiddenTabIds());
+
+function savedHiddenTabIds(): string[] {
+  try {
+    const raw = localStorage.getItem(TABS_HIDDEN_KEY);
+    const list: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list.filter((id): id is string => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
-/** Вкладки текущего агента — только существующие диалоги, в порядке открытия. */
-const recentTabs = computed<Session[]>(() =>
-  tabIds.value
-    .map((id) => agentSessions.value.find((s) => s.id === id))
-    .filter((s): s is Session => Boolean(s)),
-);
+/** Убрать вкладку из полоски (диалог остаётся в списке и вернётся при открытии). */
+function forgetTab(id: string): void {
+  tabIds.value = tabIds.value.filter((item) => item !== id);
+  if (!hiddenTabIds.value.includes(id)) {
+    hiddenTabIds.value = [...hiddenTabIds.value, id];
+  }
+  saveTabIds();
+  try {
+    localStorage.setItem(TABS_HIDDEN_KEY, JSON.stringify(hiddenTabIds.value));
+  } catch {
+    // Приватный режим — скрытие живёт до перезагрузки.
+  }
+}
+
+/**
+ * Полоска вкладок: сверху названия диалогов текущего агента.
+ * Порядок — открытые вкладки, активный диалог, дальше свежие по времени.
+ * Закрытая вкладка не возвращается сама, пока диалог не откроют снова.
+ */
+const recentTabs = computed<Session[]>(() => {
+  const out: Session[] = [];
+  const seen = new Set<string>();
+  const hidden = new Set(hiddenTabIds.value);
+  const push = (session: Session | undefined): void => {
+    if (!session || seen.has(session.id) || hidden.has(session.id)) return;
+    seen.add(session.id);
+    out.push(session);
+  };
+  for (const id of tabIds.value) {
+    push(agentSessions.value.find((s) => s.id === id));
+  }
+  push(agentSessions.value.find((s) => s.id === activeSessionId.value));
+  const fresh = [...agentSessions.value].sort((a, b) => b.updatedAt - a.updatedAt);
+  for (const session of fresh) {
+    if (out.length >= MAX_TABS) break;
+    push(session);
+  }
+  return out.slice(0, MAX_TABS);
+});
 
 /** Сессии, где агент сейчас отвечает или ждёт своей очереди. */
 const busySessionIds = computed<Set<string>>(() => {

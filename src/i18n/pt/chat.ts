@@ -8,7 +8,7 @@ export const chatMessages = {
   "chat.sessionName": "Nome do diálogo",
   "chat.selectOrCreate": "Selecione ou crie um diálogo",
   "chat.messagesEmpty": "Ainda não há mensagens.",
-  "chat.composerPlaceholder": "Mensagem… (Ctrl+Enter para enviar)",
+  "chat.composerPlaceholder": "Mensagem… (Shift+Enter para enviar, Enter para nova linha)",
   "chat.send": "Enviar",
   "chat.usage": "{used} / {limit} chamadas hoje",
   "chat.remaining": "Chamadas restantes hoje: {remaining}",

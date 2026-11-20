@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makePicoTransport } from "./pico-ws";
 import type { PicoSocketCtor } from "./pico-connection";
 import type { Agent, Message } from "@/storage/types";
@@ -36,6 +36,9 @@ class FakeWebSocket {
     if (type === "open") this.readyState = 1;
     for (const fn of this.listeners[type] ?? []) fn(ev);
   }
+  frame(payload: unknown): void {
+    this.emit("message", { data: JSON.stringify(payload) });
+  }
 }
 
 function agent(overrides: Partial<Agent> = {}): Agent {
@@ -66,93 +69,124 @@ function req(overrides: Partial<Parameters<ReturnType<typeof makePicoTransport>[
   };
 }
 
-async function tick(): Promise<void> {
-  await new Promise((r) => setTimeout(r, 0));
+const ctor = FakeWebSocket as unknown as PicoSocketCtor;
+
+/** Открыть соединение и дать `message.send` уйти. */
+async function connect(ev = {}) {
+  const transport = makePicoTransport(ctor);
+  const p = transport.send(req(), ev);
+  const ws = FakeWebSocket.instances.at(-1)!;
+  ws.emit("open");
+  await vi.advanceTimersByTimeAsync(0);
+  return { p, ws };
 }
 
-const ctor = FakeWebSocket as unknown as PicoSocketCtor;
+/** Сколько времени нужно, чтобы тишина после ответа закрыла ход. */
+const QUIET = 1600;
 
 describe("pico-ws transport", () => {
   beforeEach(() => {
     FakeWebSocket.instances = [];
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("handshake: subprotocol token.*, session_id в URL, шлёт message.send", async () => {
-    const transport = makePicoTransport(ctor);
-    const p = transport.send(req(), {});
+    const { p, ws } = await connect();
 
-    const ws = FakeWebSocket.instances.at(-1)!;
     expect(ws.protocols).toEqual(["token.secret"]);
-    expect(ws.url).toContain("session_id=ses1");
     expect(ws.url).toBe("wss://pico.test/pico/ws?session_id=ses1");
 
-    ws.emit("open");
-    await tick();
     expect(ws.sent).toHaveLength(1);
     const frame = JSON.parse(ws.sent[0]);
     expect(frame.type).toBe("message.send");
     expect(frame.payload.content).toBe("hi");
 
-    ws.emit("message", {
-      data: JSON.stringify({ type: "message.create", payload: { content: "ответ" } }),
-    });
-    ws.emit("message", { data: JSON.stringify({ type: "typing.stop" }) });
+    ws.frame({ type: "message.create", payload: { content: "ответ", message_id: "m2" } });
+    await vi.advanceTimersByTimeAsync(QUIET);
     await expect(p).resolves.toEqual({ reply: "ответ" });
   });
 
-  it("thought → onMessage, final → resolve, typing.stop завершает ход", async () => {
-    const onMessage = vi.fn();
-    const onTyping = vi.fn();
-    const transport = makePicoTransport(ctor);
-    const p = transport.send(req(), { onMessage, onTyping });
-
-    const ws = FakeWebSocket.instances.at(-1)!;
-    ws.emit("open");
-    await tick();
-
-    ws.emit("message", {
-      data: JSON.stringify({ type: "typing.start" }),
-    });
-    ws.emit("message", {
-      data: JSON.stringify({
-        type: "message.create",
-        payload: { kind: "thought", content: "думаю", message_id: "m1" },
-      }),
-    });
-    expect(onTyping).toHaveBeenCalledWith(true);
-    expect(onMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: "thought", content: "думаю" }),
+  it("заглушка «думаю…» не считается ответом и не завершает ход", async () => {
+    const { p, ws } = await connect();
+    let done = false;
+    void p.then(
+      () => (done = true),
+      () => (done = true),
     );
 
-    ws.emit("message", {
-      data: JSON.stringify({ type: "message.create", payload: { content: "ответ", message_id: "m2" } }),
+    ws.frame({ type: "typing.start" });
+    ws.frame({
+      type: "message.create",
+      payload: { content: "Думаю…", message_id: "ph1", placeholder: true },
     });
-    ws.emit("message", { data: JSON.stringify({ type: "typing.stop" }) });
+    // typing.stop приходит ДО финального ответа — это не конец хода.
+    ws.frame({ type: "typing.stop" });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(done).toBe(false);
+
+    ws.frame({ type: "message.create", payload: { content: "готово", message_id: "m1" } });
+    await vi.advanceTimersByTimeAsync(QUIET);
+    await expect(p).resolves.toEqual({ reply: "готово" });
+  });
+
+  it("message.update продлевает ход и стримит прирост в onDelta", async () => {
+    const onDelta = vi.fn();
+    const { p, ws } = await connect({ onDelta });
+
+    ws.frame({ type: "message.create", payload: { content: "При", message_id: "m1" } });
+    await vi.advanceTimersByTimeAsync(1000);
+    ws.frame({ type: "message.update", payload: { content: "Привет", message_id: "m1" } });
+    await vi.advanceTimersByTimeAsync(1000);
+    ws.frame({ type: "message.update", payload: { content: "Привет, мир", message_id: "m1" } });
+    await vi.advanceTimersByTimeAsync(QUIET);
+
+    await expect(p).resolves.toEqual({ reply: "Привет, мир" });
+    expect(onDelta.mock.calls.map((c) => c[1])).toEqual(["При", "вет", ", мир"]);
+  });
+
+  it("шаг хода отдаётся один раз, обновления не дублируются", async () => {
+    const onMessage = vi.fn();
+    const onUpdate = vi.fn();
+    const { p, ws } = await connect({ onMessage, onUpdate });
+
+    ws.frame({
+      type: "message.create",
+      payload: { kind: "thought", content: "думаю", message_id: "t1" },
+    });
+    ws.frame({
+      type: "message.update",
+      payload: { kind: "thought", content: "думаю дальше", message_id: "t1" },
+    });
+    expect(onMessage).toHaveBeenCalledTimes(1);
+    expect(onMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "t1", kind: "thought", content: "думаю" }),
+    );
+    expect(onUpdate).toHaveBeenCalledWith("t1", "думаю дальше");
+
+    ws.frame({ type: "message.create", payload: { content: "ответ", message_id: "m1" } });
+    await vi.advanceTimersByTimeAsync(QUIET);
     await expect(p).resolves.toEqual({ reply: "ответ" });
-    expect(onTyping).toHaveBeenCalledWith(false);
   });
 
   it("вложения финального сообщения → attachments в ответе (только изображения)", async () => {
-    const transport = makePicoTransport(ctor);
-    const p = transport.send(req(), {});
-    const ws = FakeWebSocket.instances.at(-1)!;
-    ws.emit("open");
-    await tick();
+    const { p, ws } = await connect();
 
-    ws.emit("message", {
-      data: JSON.stringify({
-        type: "message.create",
-        payload: {
-          content: "вот фото",
-          message_id: "m3",
-          attachments: [
-            { type: "image", url: "/pico/media/r1", content_type: "image/jpeg" },
-            { type: "file", url: "/pico/media/r2", filename: "doc.pdf" },
-          ],
-        },
-      }),
+    ws.frame({
+      type: "message.create",
+      payload: {
+        content: "вот фото",
+        message_id: "m3",
+        attachments: [
+          { type: "image", url: "/pico/media/r1", content_type: "image/jpeg" },
+          { type: "file", url: "/pico/media/r2", filename: "doc.pdf" },
+        ],
+      },
     });
-    ws.emit("message", { data: JSON.stringify({ type: "typing.stop" }) });
+    await vi.advanceTimersByTimeAsync(QUIET);
 
     await expect(p).resolves.toEqual({
       reply: "вот фото",
@@ -160,31 +194,26 @@ describe("pico-ws transport", () => {
     });
   });
 
-  it("error-кадр → pico_error с кодом", async () => {
-    const transport = makePicoTransport(ctor);
-    const p = transport.send(req(), {});
-    const ws = FakeWebSocket.instances.at(-1)!;
-    ws.emit("open");
-    await tick();
+  it("error-кадр → pico_error с кодом, чужой request_id игнорируется", async () => {
+    const { p, ws } = await connect();
 
-    ws.emit("message", {
-      data: JSON.stringify({
-        type: "error",
-        payload: { code: "empty_content", message: "no content" },
-      }),
+    ws.frame({
+      type: "error",
+      payload: { code: "other", message: "не наш", request_id: "another" },
     });
-    await expect(p).rejects.toMatchObject({ code: "pico_error", detail: "empty_content" });
+    const assertion = expect(p).rejects.toMatchObject({ code: "pico_error", detail: "empty_content" });
+    ws.frame({
+      type: "error",
+      payload: { code: "empty_content", message: "no content" },
+    });
+    await assertion;
   });
 
   it("обрыв до ответа → ws_closed", async () => {
-    const transport = makePicoTransport(ctor);
-    const p = transport.send(req(), {});
-    const ws = FakeWebSocket.instances.at(-1)!;
-    ws.emit("open");
-    await tick();
-
+    const { p, ws } = await connect();
+    const assertion = expect(p).rejects.toMatchObject({ code: "ws_closed" });
     ws.emit("close");
-    await expect(p).rejects.toMatchObject({ code: "ws_closed" });
+    await assertion;
   });
 
   it("abort → network/aborted", async () => {
@@ -193,9 +222,31 @@ describe("pico-ws transport", () => {
     const p = transport.send(req({ signal: ac.signal }), {});
     const ws = FakeWebSocket.instances.at(-1)!;
     ws.emit("open");
-    await tick();
+    await vi.advanceTimersByTimeAsync(0);
 
+    const assertion = expect(p).rejects.toMatchObject({ code: "network", detail: "aborted" });
     ac.abort();
-    await expect(p).rejects.toMatchObject({ code: "network", detail: "aborted" });
+    await assertion;
+  });
+
+  it("молчание агента дольше 15 минут → ws_timeout, а не вечное ожидание", async () => {
+    const { p } = await connect();
+    const assertion = expect(p).rejects.toMatchObject({ code: "ws_timeout" });
+    await vi.advanceTimersByTimeAsync(15 * 60_000);
+    await assertion;
+  });
+
+  it("долгий ход с шагами не обрывается по 120 секундам", async () => {
+    const { p, ws } = await connect();
+    for (let i = 0; i < 6; i++) {
+      ws.frame({
+        type: "message.create",
+        payload: { kind: "tool_calls", content: `шаг ${i}`, message_id: `tc${i}` },
+      });
+      await vi.advanceTimersByTimeAsync(30_000);
+    }
+    ws.frame({ type: "message.create", payload: { content: "итог", message_id: "m9" } });
+    await vi.advanceTimersByTimeAsync(QUIET);
+    await expect(p).resolves.toEqual({ reply: "итог" });
   });
 });

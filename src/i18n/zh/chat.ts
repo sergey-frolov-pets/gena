@@ -8,7 +8,7 @@ export const chatMessages = {
   "chat.sessionName": "对话名称",
   "chat.selectOrCreate": "请选择或新建对话",
   "chat.messagesEmpty": "还没有消息。",
-  "chat.composerPlaceholder": "消息…（Ctrl+Enter 发送）",
+  "chat.composerPlaceholder": "消息…（Shift+Enter 发送，Enter 换行）",
   "chat.send": "发送",
   "chat.usage": "今日已调用 {used} / {limit} 次",
   "chat.remaining": "今日剩余调用次数：{remaining}",
