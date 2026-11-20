@@ -9,6 +9,7 @@ import {
   appendMessage,
   clearMessages,
   createSession,
+  deleteMessagesFrom,
   loadMessages,
   messages,
   pinSession,
@@ -63,6 +64,21 @@ describe("store: сессия и сообщения", () => {
 
     expect(activeSessionId.value).toBe(second.id);
     expect(messages.value.map((m) => m.content)).toEqual(["из второго"]);
+  });
+
+  it("«Повторить ответ» в закрытом диалоге чистит хвост именно своего диалога", async () => {
+    const first = await createSession("agent-store-5", "Первый");
+    const question = await appendMessage(first.id, "user", "вопрос");
+    await appendMessage(first.id, "assistant", "ответ");
+    const second = await createSession("agent-store-5", "Второй");
+    await appendMessage(second.id, "user", "другое");
+    // Открыт другой диалог: `messages` держит только его сообщения.
+    await loadMessages(second.id);
+
+    await deleteMessagesFrom(first.id, question.createdAt);
+
+    expect(await listMessages(first.id)).toEqual([]);
+    expect((await listMessages(second.id)).map((m) => m.content)).toEqual(["другое"]);
   });
 
   it("clearMessages закрывает диалог и не даёт дочитать его историю", async () => {

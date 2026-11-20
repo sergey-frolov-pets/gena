@@ -274,7 +274,11 @@ export async function deleteMessagesFrom(
   sessionId: string,
   createdAt: number,
 ): Promise<void> {
-  const doomed = messages.value.filter(
+  // Сообщения берём из своего диалога: `messages` хранит только открытый,
+  // иначе «Повторить ответ» в другом диалоге не удалил бы ничего.
+  const source =
+    activeSessionId.value === sessionId ? messages.value : await listMessages(sessionId);
+  const doomed = source.filter(
     (m) => m.sessionId === sessionId && m.createdAt >= createdAt,
   );
   for (const message of doomed) {
