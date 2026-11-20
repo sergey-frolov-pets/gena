@@ -387,20 +387,28 @@ async function scrollToBottom(force = false): Promise<void> {
 
 /**
  * Догнать низ после смены раскладки: клавиатура, шрифты, картинки,
- * раскрытые шаги. Несколько кадров — высота контента успевает измениться.
+ * раскрытые шаги, стрим. Планировщик — не чаще одного прохода за кадр,
+ * чтобы поток сообщений не запускал десятки циклов за секунду.
  */
-async function settleToBottom(): Promise<void> {
-  for (let i = 0; i < 4; i += 1) {
-    await nextTick();
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+let settleQueued = false;
+
+function settleToBottom(): void {
+  if (settleQueued) return;
+  settleQueued = true;
+  window.setTimeout(() => {
+    settleQueued = false;
     const el = messagesEl.value;
     if (!el || !stickBottom.value) return;
     el.scrollTop = el.scrollHeight;
-  }
+    requestAnimationFrame(() => {
+      const next = messagesEl.value;
+      if (next && stickBottom.value) next.scrollTop = next.scrollHeight;
+    });
+  }, 16);
 }
 
 // Появление сообщений и стрим подтягиваем только если читатель у нижней границы.
-watch([messages, streamingText, typing], () => void settleToBottom(), { flush: "post" });
+watch([messages, streamingText, typing], () => settleToBottom(), { flush: "post" });
 
 /** Растущее поле ввода, как в AiChatPanel (до 4 строк). */
 async function autoGrow(): Promise<void> {
@@ -432,7 +440,7 @@ async function openSession(id: string): Promise<void> {
   historyOpen.value = false;
   // Открываем диалог на последних сообщениях, а не на первых.
   await scrollToBottom(true);
-  void settleToBottom();
+  settleToBottom();
 }
 
 /** Последний агент запоминается, чтобы после перезагрузки открыть его диалог. */
@@ -467,7 +475,7 @@ async function openLastSession(forAgent = agentId.value): Promise<void> {
   await loadMessages(last.id);
   // После перезагрузки и смены агента диалог тоже открывается с конца.
   await scrollToBottom(true);
-  void settleToBottom();
+  settleToBottom();
 }
 
 // Агент выбран (вручную или автоматически) — поднимаем его последний диалог.
@@ -1050,13 +1058,13 @@ onMounted(() => {
   syncViewport();
   // Вернулись на вкладку чата — показываем конец диалога, а не начало.
   void scrollToBottom(true);
-  void settleToBottom();
+  settleToBottom();
   window.visualViewport?.addEventListener("resize", syncViewport);
   window.visualViewport?.addEventListener("scroll", syncViewport);
   window.addEventListener("resize", syncViewport);
   // Контент вырос (картинки, раскрытые шаги, стрим) — держим низ, если читатель там.
   if (typeof ResizeObserver !== "undefined") {
-    threadObserver = new ResizeObserver(() => void settleToBottom());
+    threadObserver = new ResizeObserver(() => settleToBottom());
     if (threadEl.value) threadObserver.observe(threadEl.value);
   }
 });
