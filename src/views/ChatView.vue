@@ -174,11 +174,9 @@ function toggleLiveSteps(): void {
   stepOpen.value = setStepsOpen(stepOpen.value, liveSteps.value, !liveStepsExpanded.value);
 }
 
-/** Ручное раскрытие одного облачка шага подхватываем в общее состояние. */
-function onStepToggle(id: string, event: Event): void {
-  const open = (event.target as HTMLDetailsElement).open;
-  if (open === (stepOpen.value[id] === true)) return;
-  stepOpen.value = setStepOpen(stepOpen.value, id, open);
+/** Ручное раскрытие одного блока размышлений (как строка «Reasoning» в Cursor). */
+function toggleStep(id: string): void {
+  stepOpen.value = setStepOpen(stepOpen.value, id, stepOpen.value[id] !== true);
 }
 
 const agentSessions = computed<Session[]>(() =>
@@ -1487,15 +1485,37 @@ function onRateChange(event: Event): void {
       >
         <div ref="threadEl" class="chat-panel__thread">
         <template v-for="(m, index) in feed" :key="m.id">
-          <details
+          <div
             v-if="m.kind === 'thought'"
-            class="chat-panel__aux"
-            :open="stepOpen[m.id] === true"
-            @toggle="onStepToggle(m.id, $event)"
+            class="chat-panel__thought"
+            :class="{ 'is-open': stepOpen[m.id] === true }"
           >
-            <summary>{{ t("chat.thought") }}</summary>
-            <div class="chat-panel__content">{{ m.content }}</div>
-          </details>
+            <button
+              type="button"
+              class="chat-panel__thought-toggle"
+              :aria-expanded="stepOpen[m.id] === true"
+              @click="toggleStep(m.id)"
+            >
+              <svg
+                class="chat-panel__thought-chevron"
+                viewBox="0 0 24 24"
+                width="13"
+                height="13"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M9 6l6 6-6 6" />
+              </svg>
+              <span>{{ t("chat.thought") }}</span>
+            </button>
+            <div class="chat-panel__thought-body">
+              <div class="chat-panel__thought-inner">{{ m.content }}</div>
+            </div>
+          </div>
           <article v-else class="chat-panel__message" :class="`chat-panel__message--${m.role}`">
             <span class="chat-panel__role">{{ t(`chat.role.${m.role}` as never) }}</span>
             <div v-if="editingId === m.id" class="chat-panel__edit">
@@ -2151,14 +2171,17 @@ function onRateChange(event: Event): void {
   gap: 4px;
 }
 
-/* --- Полоска недавних диалогов (как вкладки в Cursor) -------------------- */
+/* --- Полоска недавних диалогов: вкладки как в редакторе (Cursor/VS Code) -- */
 .chat-panel__tabs {
   display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 8px 6px;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 6px 8px 0;
+  margin-bottom: -6px;
   overflow-x: auto;
   scrollbar-width: none;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
 }
 
 .chat-panel__tabs::-webkit-scrollbar {
@@ -2170,15 +2193,23 @@ function onRateChange(event: Event): void {
   flex: 0 0 auto;
   align-items: center;
   max-width: 13rem;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--panel-2);
+  margin-bottom: -1px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
   color: var(--muted);
 }
 
+.chat-panel__tab:hover {
+  background: color-mix(in srgb, var(--panel) 55%, transparent);
+}
+
+/* Активная вкладка сливается с полотном чата и перекрывает линию-разделитель. */
 .chat-panel__tab.is-active {
-  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: var(--border);
+  border-bottom: 1px solid var(--panel);
+  background: var(--panel);
   color: var(--text);
 }
 
@@ -2187,7 +2218,7 @@ function onRateChange(event: Event): void {
   align-items: center;
   gap: 6px;
   max-width: 11rem;
-  padding: 4px 4px 4px 10px;
+  padding: 5px 4px 5px 10px;
   border: 0;
   background: transparent;
   color: inherit;
@@ -2213,6 +2244,21 @@ function onRateChange(event: Event): void {
   background: transparent;
   color: var(--muted);
   cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+/* Крестик появляется у активной вкладки и при наведении — как в редакторе. */
+.chat-panel__tab.is-active .chat-panel__tab-close,
+.chat-panel__tab:hover .chat-panel__tab-close,
+.chat-panel__tab-close:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .chat-panel__tab-close {
+    opacity: 0.7;
+  }
 }
 
 .chat-panel__tab-close:hover {
@@ -2461,24 +2507,68 @@ function onRateChange(event: Event): void {
   font-variant-numeric: tabular-nums;
 }
 
-.chat-panel__aux {
+/* --- Размышления: строка с шевроном, текст приглушённый (как в Cursor) --- */
+.chat-panel__thought {
   align-self: stretch;
-  padding: 6px 10px;
-  border: 1px dashed var(--border);
-  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.chat-panel__thought-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px 2px 2px;
+  border: 0;
+  border-radius: 6px;
   background: transparent;
-}
-
-.chat-panel__aux summary {
-  cursor: pointer;
   color: var(--muted);
-  font-size: 0.75rem;
+  font-size: 0.76rem;
+  cursor: pointer;
 }
 
-.chat-panel__aux .chat-panel__content {
-  margin-top: 6px;
-  opacity: 0.85;
+.chat-panel__thought-toggle:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--panel-2) 65%, transparent);
+}
+
+.chat-panel__thought-chevron {
+  flex: 0 0 auto;
+  transition: transform 0.15s ease;
+}
+
+.chat-panel__thought.is-open .chat-panel__thought-chevron {
+  transform: rotate(90deg);
+}
+
+.chat-panel__thought-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  align-self: stretch;
+  transition: grid-template-rows 0.18s ease;
+}
+
+.chat-panel__thought.is-open .chat-panel__thought-body {
+  grid-template-rows: 1fr;
+}
+
+.chat-panel__thought-inner {
+  overflow: hidden;
+  min-height: 0;
+  margin-left: 7px;
+  padding-left: 10px;
+  border-left: 2px solid color-mix(in srgb, var(--border) 80%, transparent);
+  color: var(--muted);
   font-size: 0.8rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chat-panel__thought.is-open .chat-panel__thought-inner {
+  padding-top: 4px;
+  padding-bottom: 2px;
 }
 
 .chat-panel__muted {
