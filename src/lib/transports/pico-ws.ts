@@ -75,6 +75,21 @@ const PING_INTERVAL_MS = 25_000;
 const PING_SILENCE_MS = 75_000;
 /** Подтверждение `cancel` ждём недолго: локальный обрыв нужен всё равно. */
 const CANCEL_ACK_MS = 2_500;
+/**
+ * Паузы перед попытками молчаливого переподключения.
+ *
+ * Потеря WebSocket посреди хода — почти всегда не ошибка, а фон: мобильный
+ * браузер закрывает сокет при сворачивании вкладки и блокировке экрана.
+ * Сервер копит кадры хода (200 кадров / 2 МБ, 6 ч), поэтому после
+ * переподключения пропущенное добирается кадром `turn.resume`.
+ */
+const RECOVER_DELAYS_MS = [500, 1_000, 2_000, 4_000, 8_000, 15_000];
+/** Сколько раз за один ход восстанавливаем связь (защита от «мигания»). */
+const MAX_RECOVERIES = 6;
+/** В фоне ждём возвращения на вкладку, прежде чем пробовать снова. */
+const HIDDEN_WAIT_MS = 20_000;
+/** Отступ назад при запросе пропущенных кадров: расхождение часов клиента и сервера. */
+const RESUME_MARGIN_MS = 60_000;
 
 /**
  * Активные ходы текущей вкладки. По ним кнопка «Стоп» просит сервер
@@ -146,6 +161,48 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Вкладка скрыта: телефон может спать, сеть приостановлена — ошибкой это не считаем. */
+function pageHidden(): boolean {
+  try {
+    return typeof document !== "undefined" && document.visibilityState === "hidden";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Дождаться возвращения на вкладку (или просто выждать паузу, если браузера нет).
+ * Пока приложение в фоне, попытки переподключения бессмысленны: сеть выключена.
+ */
+function whenVisible(ms: number): Promise<void> {
+  if (!pageHidden()) {
+    return delay(ms);
+  }
+  return new Promise<void>((resolve) => {
+    let done = false;
+    const finishWait = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try {
+        document.removeEventListener("visibilitychange", onVisible);
+      } catch {
+        // Документа нет — обработчик и не добавлялся.
+      }
+      resolve();
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") finishWait();
+    };
+    const timer = setTimeout(finishWait, ms);
+    try {
+      document.addEventListener("visibilitychange", onVisible);
+    } catch {
+      finishWait();
+    }
+  });
+}
+
 function str(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
@@ -210,6 +267,16 @@ function runTurn(
     let pendingError: AgentClientError | null = null;
     /** Соединение реально открылось — до этого close не считается концом хода. */
     let opened = false;
+    /** Соединение открыто прямо сейчас (а не «открывалось когда-то»). */
+    let linkUp = false;
+    /** Когда отправили реплику: с этого момента просим у сервера пропущенные кадры. */
+    let sentAt = 0;
+    /** Идущее молчаливое переподключение (одно на ход). */
+    let recovering: Promise<boolean> | null = null;
+    /** Сколько раз уже восстанавливали связь в этом ходе. */
+    let recoveries = 0;
+    /** Потолок хода: в фоне сдвигается, а не рубит работу. */
+    let hardTimer: ReturnType<typeof setTimeout> | null = null;
     /** Шаги хода, уже отданные наверх — обновления по ним не дублируем. */
     const seenAux = new Set<string>();
     /** Ожидающее подтверждение `cancel` (кнопка «Стоп»). */
@@ -257,12 +324,24 @@ function runTurn(
       return cancelPromise;
     }
 
-    const hardTimer = setTimeout(() => {
-      finish(
-        reject,
-        new AgentClientError("turn is too long, aborted by timeout", undefined, "ws_timeout"),
-      );
-    }, HARD_TIMEOUT_MS);
+    /**
+     * Потолок хода. В фоне не срабатывает: таймеры придерживаются, а работа
+     * агента на сервере идёт — поэтому проваливаемся дальше по кругу.
+     */
+    function armHard(): void {
+      hardTimer = setTimeout(function hardCheck() {
+        if (settled) return;
+        if (pageHidden()) {
+          armHard();
+          return;
+        }
+        finish(
+          reject,
+          new AgentClientError("turn is too long, aborted by timeout", undefined, "ws_timeout"),
+        );
+      }, HARD_TIMEOUT_MS);
+    }
+    armHard();
 
     function withAttachments(): TransportReply {
       const base: TransportReply = { reply: reply?.content ?? "" };
@@ -276,7 +355,10 @@ function runTurn(
     }
 
     function clearTimers(): void {
-      clearTimeout(hardTimer);
+      if (hardTimer) {
+        clearTimeout(hardTimer);
+        hardTimer = null;
+      }
       if (pingTimer) {
         clearInterval(pingTimer);
         pingTimer = null;
@@ -320,6 +402,24 @@ function runTurn(
       pendingError = null;
     }
 
+    /**
+     * Watchdog молчания. В фоне не срабатывает: вкладка спит, а ход на сервере
+     * идёт, поэтому таймер продлевается до возвращения.
+     */
+    function armIdle(): void {
+      if (idleTimer) {
+        clearTimeout(idleTimer);
+      }
+      idleTimer = setTimeout(function idleCheck() {
+        if (settled) return;
+        if (pageHidden()) {
+          armIdle();
+          return;
+        }
+        finish(reject, new AgentClientError("no events from agent", undefined, "ws_timeout"));
+      }, IDLE_TIMEOUT_MS);
+    }
+
     /** Кадр пришёл — агент жив, сдвигаем watchdog и снимаем «шумовые» таймеры. */
     function touch(): void {
       lastFrameAt = Date.now();
@@ -328,15 +428,7 @@ function runTurn(
         clearTimeout(noticeTimer);
         noticeTimer = null;
       }
-      if (idleTimer) {
-        clearTimeout(idleTimer);
-      }
-      idleTimer = setTimeout(() => {
-        finish(
-          reject,
-          new AgentClientError("no events from agent", undefined, "ws_timeout"),
-        );
-      }, IDLE_TIMEOUT_MS);
+      armIdle();
     }
 
     /**
@@ -348,7 +440,14 @@ function runTurn(
         return;
       }
       pingTimer = setInterval(() => {
-        if (settled || conn.readyState !== WS_OPEN) {
+        if (settled) return;
+        if (pageHidden()) {
+          // В фоне таймеры придерживаются, а сеть у телефона может быть выключена:
+          // тишина здесь ничего не доказывает, проверяем связь после возвращения.
+          lastFrameAt = Date.now();
+          return;
+        }
+        if (conn.readyState !== WS_OPEN) {
           return;
         }
         if (Date.now() - lastFrameAt >= PING_SILENCE_MS) {
@@ -360,6 +459,68 @@ function runTurn(
         }
         conn.send({ type: "ping", id: newId(), timestamp: Date.now() });
       }, PING_INTERVAL_MS);
+    }
+
+    /**
+     * Молчаливое восстановление связи.
+     *
+     * Потеря WebSocket посреди хода — обычно не ошибка, а фон (вкладку свернули,
+     * телефон уснул). Переподключаемся и просим у сервера кадры с момента
+     * отправки реплики: сервер вещает их всем соединениям сессии и копит в буфере.
+     * Только если восстановиться так и не удалось, ход падает ошибкой `ws_closed`.
+     */
+    function recover(): Promise<boolean> {
+      if (recovering) {
+        return recovering;
+      }
+      if (recoveries >= MAX_RECOVERIES) {
+        return Promise.resolve(false);
+      }
+      recoveries += 1;
+      ev.onLinkState?.("reconnecting");
+      recovering = (async () => {
+        try {
+          for (const wait of RECOVER_DELAYS_MS) {
+            if (settled) return true;
+            // В фоне сеть выключена — ждём возвращения на вкладку,
+            // а не жжём попытки впустую.
+            if (pageHidden()) {
+              await whenVisible(HIDDEN_WAIT_MS);
+            } else {
+              await delay(wait);
+            }
+            if (settled) return true;
+            try {
+              await withTimeout(
+                conn.connect(url, req.apiKey),
+                CONNECT_TIMEOUT_MS,
+                "WebSocket connect timeout",
+              );
+            } catch {
+              conn.close();
+              continue;
+            }
+            linkUp = true;
+            opened = true;
+            lastFrameAt = Date.now();
+            startPings();
+            const from = (shouldSend ? sentAt : req.resumeSince ?? sentAt) || Date.now();
+            conn.send({
+              type: "turn.resume",
+              id: newId(),
+              timestamp: Date.now(),
+              payload: { since: Math.max(0, from - RESUME_MARGIN_MS), limit: 200 },
+            });
+            armIdle();
+            ev.onLinkState?.("restored");
+            return true;
+          }
+          return false;
+        } finally {
+          recovering = null;
+        }
+      })();
+      return recovering;
     }
 
     /**
@@ -420,8 +581,14 @@ function runTurn(
       if (noticeTimer) {
         clearTimeout(noticeTimer);
       }
-      noticeTimer = setTimeout(() => {
-        if (!settled && reply === null) {
+      noticeTimer = setTimeout(function noticeCheck() {
+        if (settled) return;
+        if (pageHidden()) {
+          // Плашка пришла перед уходом в фон — там ждать ответа некому.
+          noticeTimer = setTimeout(noticeCheck, NOTICE_IDLE_MS);
+          return;
+        }
+        if (reply === null) {
           finish(
             reject,
             new AgentClientError("turn ended with a notice", undefined, "ws_timeout"),
@@ -471,7 +638,11 @@ function runTurn(
           if (!active && reply === null) {
             finish(
               reject,
-              new AgentClientError("turn is not running", undefined, "no_active_turn"),
+              new AgentClientError(
+                "turn is not running",
+                undefined,
+                shouldSend ? "ws_closed" : "no_active_turn",
+              ),
             );
           }
           return;
@@ -557,9 +728,14 @@ function runTurn(
         handleFrame(frame);
       },
       onClose() {
-        if (settled || !opened) {
+        if (settled) {
           return;
         }
+        // Сокет закрыли мы сами (конец хода, неудачная попытка) — не ошибка.
+        if (!linkUp) {
+          return;
+        }
+        linkUp = false;
         if (pendingError) {
           finish(reject, pendingError);
           return;
@@ -568,7 +744,14 @@ function runTurn(
           finish(resolve, withAttachments());
           return;
         }
-        finish(reject, new AgentClientError("connection closed", undefined, "ws_closed"));
+        // Связь пропала до ответа. В фоне это штатное поведение браузера:
+        // молча переподключаемся и добираем кадры хода, ошибку показываем
+        // только если восстановиться не удалось.
+        void recover().then((ok) => {
+          if (settled) return;
+          if (ok) return;
+          finish(reject, new AgentClientError("connection closed", undefined, "ws_closed"));
+        });
       },
     });
 
@@ -588,6 +771,8 @@ function runTurn(
             "WebSocket connect timeout",
           );
           opened = true;
+          linkUp = true;
+          lastFrameAt = Date.now();
           // Связь проверяем прикладным ping и в пассивном ожидании тоже.
           startPings();
           registered = { key: turnKey(agent.address, req.sessionId), cancel: requestCancel };
@@ -615,6 +800,7 @@ function runTurn(
               ...(req.media && req.media.length > 0 ? { media: req.media } : {}),
             },
           });
+          sentAt = Date.now();
           return;
         } catch (err) {
           lastErr = err;

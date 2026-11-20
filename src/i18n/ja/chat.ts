@@ -37,6 +37,8 @@ export const chatMessages = {
   "chat.steps.hide": "ステップを閉じる（{count}）",
   "chat.stop": "停止",
   "chat.stopped": "停止しました",
+  "chat.link.reconnecting": "接続が切れました。再接続中…",
+  "chat.link.restored": "接続が回復しました",
   "chat.jumpTop": "先頭へ",
   "chat.jumpEnd": "最新へ",
   "chat.retry": "再試行",

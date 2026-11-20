@@ -87,6 +87,15 @@ export interface TransportEvents {
    * `active: false` и ноль кадров — ответа не будет, реплику надо повторить.
    */
   onTurnState?: (state: { active: boolean; frames: number }) => void;
+  /**
+   * Состояние связи по ходу дела.
+   *
+   * `reconnecting` — соединение пропало (частая история в фоне: телефон уснул,
+   * вкладку свернули) и транспорт молча переподключается; `restored` — связь
+   * вернулась и пропущенные кадры хода добраны. Это не ошибка, поэтому UI
+   * показывает такие состояния строкой статуса, а не красной плашкой.
+   */
+  onLinkState?: (state: "reconnecting" | "restored") => void;
 }
 
 export interface AgentTransport {

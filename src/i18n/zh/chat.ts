@@ -37,6 +37,8 @@ export const chatMessages = {
   "chat.steps.hide": "收起步骤（{count}）",
   "chat.stop": "停止",
   "chat.stopped": "已停止",
+  "chat.link.reconnecting": "连接中断，正在重新连接…",
+  "chat.link.restored": "连接已恢复",
   "chat.jumpTop": "回到开头",
   "chat.jumpEnd": "回到最新",
   "chat.retry": "重试",

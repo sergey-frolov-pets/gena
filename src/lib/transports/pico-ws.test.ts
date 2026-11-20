@@ -308,10 +308,43 @@ describe("pico-ws transport", () => {
     await expect(p).resolves.toMatchObject({ reply: "поздний ответ" });
   });
 
-  it("обрыв до ответа → ws_closed", async () => {
+  it("обрыв до ответа: молча переподключается и добирает кадры хода", async () => {
     const { p, ws } = await connect();
-    const assertion = expect(p).rejects.toMatchObject({ code: "ws_closed" });
     ws.emit("close");
+    await vi.advanceTimersByTimeAsync(600);
+
+    const second = FakeWebSocket.instances.at(-1)!;
+    expect(second).not.toBe(ws);
+    second.emit("open");
+    await vi.advanceTimersByTimeAsync(0);
+
+    const ask = second.sent.map((raw) => JSON.parse(raw)).find((f) => f.type === "turn.resume");
+    expect(ask).toBeTruthy();
+    second.frame({ type: "message.create", payload: { content: "догнал", message_id: "m7" } });
+    await vi.advanceTimersByTimeAsync(QUIET);
+
+    await expect(p).resolves.toMatchObject({ reply: "догнал" });
+  });
+
+  it("обрыв и связи нет → ws_closed только после попыток восстановления", async () => {
+    let offline = false;
+    class Override extends FakeWebSocket {
+      constructor(url: string, protocols?: string | string[]) {
+        super(url, protocols);
+        if (offline) setTimeout(() => this.emit("error", { message: "offline" }), 0);
+      }
+    }
+    const transport = makePicoTransport(Override as unknown as PicoSocketCtor);
+    const p = transport.send(req(), {});
+    const ws = FakeWebSocket.instances.at(-1)!;
+    ws.emit("open");
+    await vi.advanceTimersByTimeAsync(0);
+
+    const assertion = expect(p).rejects.toMatchObject({ code: "ws_closed" });
+    offline = true;
+    ws.emit("close");
+    // Шесть попыток с паузами 0.5…15 с — обрывается только после них.
+    await vi.advanceTimersByTimeAsync(200_000);
     await assertion;
   });
 
@@ -448,8 +481,10 @@ describe("pico-ws: cancel и turn.resume", () => {
 
     // Сервер прекратил ход — кадров больше не будет, соединение закрывается.
     ws.frame({ type: "typing.stop" });
+    const assertion = expect(p).rejects.toMatchObject({ code: "ws_closed" });
     ws.emit("close");
-    await expect(p).rejects.toMatchObject({ code: "ws_closed" });
+    await vi.advanceTimersByTimeAsync(200_000);
+    await assertion;
   });
 
   it("нет активного соединения — cancel честно говорит no_active_turn", async () => {
@@ -467,6 +502,7 @@ describe("pico-ws: cancel и turn.resume", () => {
     await vi.advanceTimersByTimeAsync(3_000);
     await expect(promise).resolves.toEqual({ accepted: false, reason: "timeout" });
     ws.emit("close");
+    await vi.advanceTimersByTimeAsync(200_000);
     await guard;
   });
 

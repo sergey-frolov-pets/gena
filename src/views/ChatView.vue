@@ -1101,6 +1101,14 @@ async function listenTurn(
           heard = true;
           if (shown()) showNotice(text);
         },
+        onLinkState: (state) => {
+          if (!shown()) return;
+          if (state === "restored") {
+            showNotice(t("chat.link.restored"), 4_000);
+          } else {
+            showNotice(t("chat.link.reconnecting"), 30_000);
+          }
+        },
         onTurnState: (state) => {
           resumeState.value = state;
           if (state.active || state.frames > 0) heard = true;
@@ -1554,6 +1562,15 @@ async function exchange(
           onNotice: (text) => {
             // Служебная плашка сервера: показываем статусом, ответа не ждём молча.
             if (shown()) showNotice(text);
+          },
+          onLinkState: (state) => {
+            // Обрыв связи в фоне — не ошибка: строка статуса вместо красной плашки.
+            if (!shown()) return;
+            if (state === "restored") {
+              showNotice(t("chat.link.restored"), 4_000);
+            } else {
+              showNotice(t("chat.link.reconnecting"), 30_000);
+            }
           },
         },
       },

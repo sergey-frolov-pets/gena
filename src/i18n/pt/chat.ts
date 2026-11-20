@@ -37,6 +37,8 @@ export const chatMessages = {
   "chat.steps.hide": "Ocultar passos ({count})",
   "chat.stop": "Parar",
   "chat.stopped": "Interrompido",
+  "chat.link.reconnecting": "Conexão interrompida — reconectando…",
+  "chat.link.restored": "Conexão restabelecida",
   "chat.jumpTop": "Para o início",
   "chat.jumpEnd": "Para o fim",
   "chat.retry": "Tentar novamente",

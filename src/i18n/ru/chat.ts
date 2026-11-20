@@ -37,6 +37,8 @@ export const chatMessages = {
   "chat.steps.hide": "Свернуть шаги ({count})",
   "chat.stop": "Стоп",
   "chat.stopped": "Остановлено",
+  "chat.link.reconnecting": "Связь прервалась — переподключаюсь…",
+  "chat.link.restored": "Связь восстановлена",
   "chat.jumpTop": "В начало",
   "chat.jumpEnd": "В конец",
   "chat.retry": "Повторить",
