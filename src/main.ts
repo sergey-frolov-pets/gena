@@ -28,11 +28,33 @@ window.addEventListener("error", (event) => {
 app.directive("tip", vTip).directive("longpress", vLongPress).mount("#app");
 
 if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  let registration: ServiceWorkerRegistration | null = null;
+
+  /**
+   * Принудительная проверка обновления.
+   *
+   * Браузер сам заглядывает за новым `sw.js` редко (и почти никогда — пока
+   * приложение висит в фоне на телефоне), поэтому установленная PWA может
+   * месяцами работать на старом бандле: без новых кнопок и без времени хода.
+   */
+  const checkForUpdate = () => {
+    void registration?.update().catch(() => undefined);
+  };
+
   window.addEventListener("load", () => {
     navigator.serviceWorker
       .register(`${import.meta.env.BASE_URL}sw.js`)
+      .then((reg) => {
+        registration = reg;
+        checkForUpdate();
+      })
       .catch(() => {
         // Офлайн-режим не критичен — молча пропускаем.
       });
+  });
+
+  // Вернулись в приложение — сразу проверяем сборку, не дожидаясь суток.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") checkForUpdate();
   });
 }
