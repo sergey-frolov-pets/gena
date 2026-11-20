@@ -2220,25 +2220,8 @@ function onRateChange(event: Event): void {
           v-longpress="() => showTitle(s.title)"
           @click="onTabClick(s.id)"
         >
-          <span
-            v-if="busySessionIds.has(s.id) && streamSessionId !== s.id"
-            class="chat-panel__busy-dot"
-            aria-hidden="true"
-          />
+          <span v-if="busySessionIds.has(s.id)" class="chat-panel__busy-dot" aria-hidden="true" />
           <span class="chat-panel__tab-title">{{ s.title }}</span>
-        </button>
-        <button
-          v-if="streamSessionId === s.id"
-          type="button"
-          class="chat-panel__tab-stop"
-          v-tip="t('chat.stop')"
-          :aria-label="t('chat.stop')"
-          :disabled="stopping"
-          @click.stop="stop"
-        >
-          <svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" aria-hidden="true">
-            <rect x="7" y="7" width="10" height="10" rx="2" />
-          </svg>
         </button>
         <button
           type="button"
@@ -2309,7 +2292,7 @@ function onRateChange(event: Event): void {
             >
               <span class="chat-panel__session-title">
                 <span
-                  v-if="busySessionIds.has(s.id) && streamSessionId !== s.id"
+                  v-if="busySessionIds.has(s.id)"
                   class="chat-panel__busy-dot"
                   aria-hidden="true"
                 />{{ s.title }}
@@ -2318,19 +2301,6 @@ function onRateChange(event: Event): void {
             </button>
 
             <div class="chat-panel__session-actions">
-              <button
-                v-if="streamSessionId === s.id"
-                type="button"
-                class="chat-panel__action is-stop"
-                v-tip="t('chat.stop')"
-                :aria-label="t('chat.stop')"
-                :disabled="stopping"
-                @click.stop="stop"
-              >
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">
-                  <rect x="7" y="7" width="10" height="10" rx="2" />
-                </svg>
-              </button>
               <button
                 type="button"
                 class="chat-panel__action"
@@ -3239,29 +3209,6 @@ function onRateChange(event: Event): void {
   color: var(--danger);
 }
 
-/* Стоп прямо на вкладке: ход идёт в этом диалоге, переключаться не нужно. */
-.chat-panel__tab-stop {
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--danger) 14%, transparent);
-  color: var(--danger);
-  cursor: pointer;
-}
-
-.chat-panel__tab-stop:hover {
-  background: color-mix(in srgb, var(--danger) 24%, transparent);
-}
-
-.chat-panel__tab-stop:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
 /* Агент отвечает (или реплика ждёт очереди) — диалог выделяем жирным. */
 .chat-panel__tab.is-busy .chat-panel__tab-title,
 .chat-panel__session.is-busy .chat-panel__session-title {
@@ -3354,21 +3301,6 @@ function onRateChange(event: Event): void {
 .chat-panel__action.is-danger:hover {
   color: var(--danger);
   background: color-mix(in srgb, var(--danger) 14%, transparent);
-}
-
-/* Остановить ход из списка диалогов — тот же вид, что и в доке. */
-.chat-panel__action.is-stop {
-  color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
-}
-
-.chat-panel__action.is-stop:hover {
-  background: color-mix(in srgb, var(--danger) 22%, transparent);
-}
-
-.chat-panel__action:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 
 .chat-panel__link.is-danger {
