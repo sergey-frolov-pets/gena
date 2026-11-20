@@ -17,6 +17,14 @@ export function isStepMessage(message: Pick<Message, "kind">): boolean {
 }
 
 /**
+ * Лента для показа: без вызовов инструментов. В хранилище они остаются —
+ * скрытие чисто презентационное.
+ */
+export function withoutToolCalls(list: readonly Message[]): Message[] {
+  return list.filter((message) => message.kind !== "tool_calls");
+}
+
+/**
  * Шаги ответа с индексом `answerIndex` в ленте: непрерывная цепочка шагов
  * непосредственно перед ответом. Всё, что дальше вверх (реплика пользователя
  * или предыдущий ответ), к этому ходу уже не относится.

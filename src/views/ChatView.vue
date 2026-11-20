@@ -61,6 +61,7 @@ import {
   anyStepOpen,
   collectTrailingSteps,
   collectTurnSteps,
+  withoutToolCalls,
   setStepOpen,
   setStepsOpen,
   type StepOpenMap,
@@ -146,9 +147,12 @@ const editError = ref("");
  */
 const stepOpen = ref<StepOpenMap>({});
 
+/** Лента без облачков «Вызовы инструментов»: показываем только мысли и ответы. */
+const feed = computed<Message[]>(() => withoutToolCalls(messages.value));
+
 /** Шаги, относящиеся к ответу с индексом `index` в ленте. */
 function turnSteps(index: number): Message[] {
-  return collectTurnSteps(messages.value, index);
+  return collectTurnSteps(feed.value, index);
 }
 
 /** Развёрнут ли хотя бы один шаг этого ответа. */
@@ -162,7 +166,7 @@ function toggleTurn(index: number): void {
 }
 
 /** Шаги текущего (ещё не завершённого) хода — те, что идут в конце ленты. */
-const liveSteps = computed<Message[]>(() => collectTrailingSteps(messages.value));
+const liveSteps = computed<Message[]>(() => collectTrailingSteps(feed.value));
 const liveStepsExpanded = computed<boolean>(() => anyStepOpen(stepOpen.value, liveSteps.value));
 
 function toggleLiveSteps(): void {
@@ -1414,7 +1418,7 @@ function onRateChange(event: Event): void {
         @drop.prevent="onDrop"
       >
         <div ref="threadEl" class="chat-panel__thread">
-        <template v-for="(m, index) in messages" :key="m.id">
+        <template v-for="(m, index) in feed" :key="m.id">
           <details
             v-if="m.kind === 'thought'"
             class="chat-panel__aux"
@@ -1422,15 +1426,6 @@ function onRateChange(event: Event): void {
             @toggle="onStepToggle(m.id, $event)"
           >
             <summary>{{ t("chat.thought") }}</summary>
-            <div class="chat-panel__content">{{ m.content }}</div>
-          </details>
-          <details
-            v-else-if="m.kind === 'tool_calls'"
-            class="chat-panel__aux"
-            :open="stepOpen[m.id] === true"
-            @toggle="onStepToggle(m.id, $event)"
-          >
-            <summary>{{ t("chat.toolCalls") }}</summary>
             <div class="chat-panel__content">{{ m.content }}</div>
           </details>
           <article v-else class="chat-panel__message" :class="`chat-panel__message--${m.role}`">
@@ -1585,7 +1580,7 @@ function onRateChange(event: Event): void {
                 </svg>
               </button>
               <button
-                v-if="m.role === 'assistant' && index === messages.length - 1 && !busy"
+                v-if="m.role === 'assistant' && index === feed.length - 1 && !busy"
                 type="button"
                 class="chat-panel__action"
                 v-tip="t('chat.regenerate')"

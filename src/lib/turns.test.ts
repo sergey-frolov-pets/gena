@@ -5,6 +5,7 @@ import {
   collectTrailingSteps,
   collectTurnSteps,
   isStepMessage,
+  withoutToolCalls,
   setStepOpen,
   setStepsOpen,
 } from "./turns";
@@ -80,5 +81,24 @@ describe("шаги хода", () => {
     const opened = setStepOpen({}, "t1", true);
     expect(opened).toEqual({ t1: true });
     expect(setStepOpen(opened, "t1", false)).toEqual({});
+  });
+
+  it("в ленте нет вызовов инструментов, мысли и ответы остаются", () => {
+    const list = [
+      msg("u1", "user"),
+      msg("t1", "assistant", "thought"),
+      msg("c1", "assistant", "tool_calls"),
+      msg("a1", "assistant"),
+    ];
+    expect(withoutToolCalls(list).map((m) => m.id)).toEqual(["u1", "t1", "a1"]);
+  });
+
+  it("счётчик шагов считает только показанные шаги", () => {
+    const list = withoutToolCalls([
+      msg("t1", "assistant", "thought"),
+      msg("c1", "assistant", "tool_calls"),
+      msg("a1", "assistant"),
+    ]);
+    expect(collectTurnSteps(list, list.length - 1).map((m) => m.id)).toEqual(["t1"]);
   });
 });
