@@ -3189,6 +3189,7 @@ function onRateChange(event: Event): void {
   position: relative;
   z-index: 1;
   align-items: center;
+  min-height: 2.15rem;
   max-width: 10rem;
   border: 1px solid transparent;
   border-bottom-color: var(--border);
@@ -3213,8 +3214,9 @@ function onRateChange(event: Event): void {
   display: flex;
   align-items: center;
   gap: 5px;
+  min-height: 2.15rem;
   max-width: 8rem;
-  padding: 5px 4px 5px 8px;
+  padding: 0 4px 0 8px;
   border: 0;
   background: transparent;
   color: inherit;
@@ -3265,11 +3267,13 @@ function onRateChange(event: Event): void {
 /* Телефон: вкладки ещё уже — больше диалогов влезает в полоску. */
 @media (max-width: 720px) {
   .chat-panel__tab {
+    min-height: 2rem;
     max-width: 7rem;
   }
   .chat-panel__tab-open {
+    min-height: 2rem;
     max-width: 5.5rem;
-    padding: 5px 2px 5px 7px;
+    padding: 0 2px 0 7px;
     font-size: 0.74rem;
   }
   .chat-panel__tab-close {
