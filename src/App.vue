@@ -31,7 +31,10 @@ onMounted(async () => {
     <header class="topbar">
       <div class="brand">
         <img class="brand-icon" :src="brandIcon" alt="" aria-hidden="true" />
-        <strong>{{ t("app.name") }}</strong>
+        <div class="brand-text">
+          <strong class="brand-name">{{ t("app.name") }}</strong>
+          <span class="brand-sub">AI chat</span>
+        </div>
       </div>
       <nav :aria-label="t('app.nav.main')">
         <button
@@ -147,6 +150,26 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* Название и подпись — двумя строками: «Gena» жирным, «AI chat» мельче и обычным. */
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  line-height: 1.15;
+}
+
+.brand-name {
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.brand-sub {
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--muted);
+  letter-spacing: 0.02em;
 }
 
 .brand-icon {

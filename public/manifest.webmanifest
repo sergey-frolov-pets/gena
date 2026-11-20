@@ -1,6 +1,6 @@
 {
-  "name": "Gena",
-  "short_name": "Gena",
+  "name": "Gena (AI Chat)",
+  "short_name": "Gena (AI Chat)",
   "description": "Serverless messenger for AI agents",
   "start_url": "./",
   "scope": "./",
