@@ -8,7 +8,7 @@ const logo = `${import.meta.env.BASE_URL}fsvibe-logo.svg`;
 const GITHUB = "https://github.com/sergey-frolov-pets/gena";
 const LICENSE = "https://github.com/sergey-frolov-pets/gena/blob/main/LICENSE";
 const DONATE = "https://github.com/sponsors/sergey-frolov-pets";
-const VERSION = "0.1.15";
+const VERSION = "0.1.16";
 </script>
 
 <template>
