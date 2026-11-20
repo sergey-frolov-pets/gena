@@ -302,6 +302,23 @@ const compact = ref(
 const composerOpen = ref(!compact.value);
 const composerForm = ref<HTMLFormElement | null>(null);
 
+/* Низ ленты не должен уезжать под ввод: на телефоне док ложится поверх чата. */
+const dockEl = ref<HTMLElement | null>(null);
+/** Сколько места занял док-оверлей (px) — на столько поднимаем низ ленты. */
+const dockSpace = ref(0);
+let dockObserver: ResizeObserver | null = null;
+
+function syncDockSpace(): void {
+  const el = dockEl.value;
+  const overlay = compact.value && composerOpen.value;
+  const next = overlay && el ? Math.round(el.getBoundingClientRect().height) + 8 : 0;
+  if (next === dockSpace.value) return;
+  dockSpace.value = next;
+  settleToBottom();
+}
+
+watch([compact, composerOpen], () => void nextTick(syncDockSpace), { flush: "post" });
+
 /* ── Стандартные сообщения: кнопки над композером ─────────────────────── */
 
 /** Панель открыта (одна на док и на композер). */
@@ -2093,6 +2110,12 @@ onMounted(() => {
     threadObserver = new ResizeObserver(() => settleToBottom());
     if (threadEl.value) threadObserver.observe(threadEl.value);
   }
+  // Док-оверлей меняет высоту (растёт поле ввода, очередь, подсказки) — держим запас ленты в актуальном виде.
+  if (typeof ResizeObserver !== "undefined") {
+    dockObserver = new ResizeObserver(() => syncDockSpace());
+    if (dockEl.value) dockObserver.observe(dockEl.value);
+  }
+  syncDockSpace();
 });
 
 function onCompactChange(event: MediaQueryListEvent): void {
@@ -2117,6 +2140,8 @@ onUnmounted(() => {
   window.removeEventListener("keydown", onQuickKey);
   threadObserver?.disconnect();
   threadObserver = null;
+  dockObserver?.disconnect();
+  dockObserver = null;
   document.documentElement.style.removeProperty("--app-vvh");
   abortCtrl.value?.abort();
 });
@@ -2402,6 +2427,7 @@ function onRateChange(event: Event): void {
       <div
         ref="messagesEl"
         class="chat-panel__messages"
+        :style="dockSpace > 0 ? { paddingBottom: `${dockSpace}px` } : null"
         role="log"
         aria-live="polite"
         @scroll="onMessagesScroll"
@@ -2674,7 +2700,11 @@ function onRateChange(event: Event): void {
       </div>
     </div>
 
-        <div class="chat-panel__dock" :class="{ 'is-overlay': compact && composerOpen }">
+        <div
+          ref="dockEl"
+          class="chat-panel__dock"
+          :class="{ 'is-overlay': compact && composerOpen }"
+        >
       <p v-if="!online" class="chat-panel__warning" role="alert">{{ t("chat.offline") }}</p>
       <p v-if="dictationListening" class="chat-panel__recording" role="status" aria-live="polite">
         <span class="chat-panel__recording-dot" aria-hidden="true" />
