@@ -308,6 +308,10 @@ const composerForm = ref<HTMLFormElement | null>(null);
 const quickOpen = ref(false);
 /** Стандартные сообщения выбранного агента — нормализованы при чтении/сохранении. */
 const quickReplies = computed(() => activeAgent.value?.settings.quickReplies ?? []);
+/** «Стоп» в доке виден, только когда работает открытый диалог. */
+const canStopHere = computed(
+  () => busy.value && streamSessionId.value === activeSessionId.value,
+);
 
 function toggleQuick(): void {
   if (quickReplies.value.length === 0) return;
@@ -2738,23 +2742,20 @@ function onRateChange(event: Event): void {
         </ul>
       </div>
 
-      <div v-if="compact && !composerOpen" class="chat-panel__open-row">
-        <button type="button" class="chat-panel__open" @click="openComposer">
-          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M4 20h4l10-10a2.8 2.8 0 1 0-4-4L4 16z" />
-          </svg>
-          <span>{{ t("chat.write") }}</span>
-        </button>
+      <div
+        v-if="compact && !composerOpen && (canStopHere || quickReplies.length > 0)"
+        class="chat-panel__open-row"
+      >
         <button
-          v-if="busy && streamSessionId === activeSessionId"
+          v-if="canStopHere"
           type="button"
           class="chat-panel__open-stop"
           v-tip="t('chat.stop')"
           :aria-label="t('chat.stop')"
           @click="stop"
         >
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true">
-            <rect x="7" y="7" width="10" height="10" rx="2" />
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true">
+            <rect x="6" y="6" width="12" height="12" rx="3" />
           </svg>
         </button>
         <button
@@ -4374,12 +4375,9 @@ function onRateChange(event: Event): void {
 /* --- Телефон: ввод по тапу, поверх ленты -------------------------------- */
 .chat-panel__open-row {
   display: flex;
-  gap: 6px;
-  align-items: stretch;
-}
-
-.chat-panel__open-row .chat-panel__open {
-  flex: 1 1 auto;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .chat-panel__quick-trigger {
@@ -4387,35 +4385,46 @@ function onRateChange(event: Event): void {
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  padding: 0 13px;
+  width: 46px;
+  height: 46px;
+  padding: 0;
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 50%;
   background: var(--panel-2);
   color: var(--accent);
+  opacity: 0.62;
   cursor: pointer;
+  transition: opacity 0.15s ease, border-color 0.15s ease;
 }
 
-.chat-panel__quick-trigger:hover {
+.chat-panel__quick-trigger:hover,
+.chat-panel__quick-trigger:focus-visible {
+  opacity: 1;
   color: var(--text);
   border-color: var(--accent);
 }
 
-/* «Стоп» в доке: стоит между «Написать сообщение…» и молнией */
+/* «Стоп» в доке: полупрозрачная круглая кнопка, видна пока агент работает */
 .chat-panel__open-stop {
   display: flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  min-width: 46px;
-  padding: 0 12px;
+  width: 46px;
+  height: 46px;
+  padding: 0;
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 50%;
   background: var(--panel-2);
   color: var(--danger);
+  opacity: 0.62;
   cursor: pointer;
+  transition: opacity 0.15s ease, border-color 0.15s ease;
 }
 
-.chat-panel__open-stop:hover {
+.chat-panel__open-stop:hover,
+.chat-panel__open-stop:focus-visible {
+  opacity: 1;
   border-color: var(--danger);
   color: var(--text);
 }
@@ -4489,25 +4498,6 @@ function onRateChange(event: Event): void {
 
 .chat-panel__quick-item:hover {
   border-color: var(--accent);
-}
-
-.chat-panel__open {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  width: 100%;
-  padding: 11px 14px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--panel-2);
-  color: var(--muted);
-  font: inherit;
-  cursor: pointer;
-}
-
-.chat-panel__open:hover {
-  color: var(--text);
 }
 
 .chat-panel__dock.is-overlay {
