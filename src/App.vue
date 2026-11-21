@@ -8,6 +8,24 @@ import ThemeSwitcher from "./components/ThemeSwitcher.vue";
 import InstallButton from "./components/InstallButton.vue";
 import AppFooter from "./components/AppFooter.vue";
 import { agentId } from "./lib/active-agent";
+import { currentLanguageCode } from "./lib/dictation";
+import {
+  loadSpeechVoices,
+  setSpeechPitch,
+  setSpeechRate,
+  setSpeechVoice,
+  setSpeechVolume,
+  speak,
+  speechPitch,
+  speechRate,
+  speechVoiceId,
+  speechVoiceTick,
+  speechVoices,
+  speechVolume,
+  voiceKey,
+  voiceMatchesLanguage,
+  voiceProvider,
+} from "./lib/speech";
 import { agents, loadAgents, loadSessions } from "./lib/store";
 import { useTheme } from "./lib/theme";
 import { watchForUpdate } from "./lib/version-update";
@@ -30,7 +48,7 @@ function onPointerDown(event: PointerEvent): void {
   if (target instanceof Node && menuRoot.value?.contains(target)) return;
   menuOpen.value = false;
 }
-const { t } = useLocale();
+const { t, locale } = useLocale();
 const { theme } = useTheme();
 /** Иконка бренда: на тёмной теме — тёмный фон и светло-зелёный логотип. */
 const brandIcon = computed(
@@ -51,19 +69,44 @@ function applyUpdate(): void {
   window.location.reload();
 }
 
-/** Системный экран голосов: Windows, Android (TTS), macOS. */
-function openSystemVoiceSettings(): void {
+const voiceOpen = ref(false);
+const voiceProviderId = ref("");
+
+const languageVoices = computed(() => {
+  speechVoiceTick.value;
+  locale.value;
+  const lang = currentLanguageCode();
+  return speechVoices().filter((voice) => voiceMatchesLanguage(voice, lang));
+});
+
+const providers = computed(() => {
+  const names = new Set(languageVoices.value.map((voice) => voiceProvider(voice)));
+  return [...names];
+});
+
+const visibleVoices = computed(() =>
+  languageVoices.value.filter(
+    (voice) => !voiceProviderId.value || voiceProvider(voice) === voiceProviderId.value,
+  ),
+);
+
+function openVoice(): void {
   menuOpen.value = false;
-  const ua = navigator.userAgent;
-  let url = "";
-  if (/Android/i.test(ua)) {
-    url = "intent:#Intent;action=com.android.settings.TTS_SETTINGS;end";
-  } else if (/Windows/i.test(ua)) {
-    url = "ms-settings:speech";
-  } else if (/Macintosh|Mac OS X/i.test(ua)) {
-    url = "x-apple.systempreferences:com.apple.preference.speech";
-  }
-  if (url) window.location.assign(url);
+  loadSpeechVoices();
+  voiceOpen.value = true;
+}
+
+function chooseVoice(id: string): void {
+  setSpeechVoice(id);
+}
+
+function previewVoice(): void {
+  speak("voice-preview", t("chat.voice.sample"));
+}
+
+function onRange(apply: (value: number) => void, event: Event): void {
+  const value = Number((event.target as HTMLInputElement).value);
+  if (Number.isFinite(value)) apply(value);
 }
 onMounted(async () => {
   document.addEventListener("pointerdown", onPointerDown);
@@ -138,7 +181,7 @@ onBeforeUnmount(() => {
           </svg>
           {{ t("app.nav.chat") }}
         </button>
-        <button type="button" role="menuitem" @click="openSystemVoiceSettings">
+        <button type="button" role="menuitem" @click="openVoice">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M11 5 6 9H3v6h3l5 4z" />
             <path d="M16 9a4 4 0 0 1 0 6" />
@@ -169,6 +212,90 @@ onBeforeUnmount(() => {
     </main>
 
     <AppFooter v-if="tab !== 'chat'" />
+
+    <div v-if="voiceOpen" class="voice-sheet" role="dialog" :aria-label="t('chat.voice')">
+      <button type="button" class="voice-sheet__backdrop" :aria-label="t('chat.close')" @click="voiceOpen = false" />
+      <div class="voice-sheet__panel">
+        <div class="voice-sheet__head">
+          <strong>{{ t("chat.voice") }}</strong>
+          <button type="button" class="voice-sheet__close" @click="voiceOpen = false">×</button>
+        </div>
+
+        <p class="voice-sheet__label">{{ t("chat.voice.provider") }}</p>
+        <div class="voice-sheet__chips">
+          <button type="button" :class="{ 'is-on': voiceProviderId === '' }" @click="voiceProviderId = ''">
+            {{ t("chat.voice.default") }}
+          </button>
+          <button
+            v-for="name in providers"
+            :key="name"
+            type="button"
+            :class="{ 'is-on': voiceProviderId === name }"
+            @click="voiceProviderId = name"
+          >
+            {{ name }}
+          </button>
+        </div>
+
+        <p class="voice-sheet__label">{{ t("chat.voice") }}</p>
+        <div class="voice-sheet__voices">
+          <p v-if="visibleVoices.length === 0" class="voice-sheet__empty">{{ t("chat.voice.empty") }}</p>
+          <button
+            type="button"
+            :class="{ 'is-on': speechVoiceId === '' }"
+            @click="chooseVoice('')"
+          >
+            {{ t("chat.voice.default") }}
+          </button>
+          <button
+            v-for="voice in visibleVoices"
+            :key="voiceKey(voice)"
+            type="button"
+            :class="{ 'is-on': speechVoiceId === voiceKey(voice) }"
+            @click="chooseVoice(voiceKey(voice))"
+          >
+            {{ voice.name }}
+          </button>
+        </div>
+
+        <label class="voice-sheet__slider">
+          <span>{{ t("chat.speechRate") }} · {{ speechRate }}×</span>
+          <input
+            type="range"
+            min="0.5"
+            max="2"
+            step="0.25"
+            :value="speechRate"
+            @input="onRange(setSpeechRate, $event)"
+          />
+        </label>
+        <label class="voice-sheet__slider">
+          <span>{{ t("chat.voice.pitch") }} · {{ speechPitch }}</span>
+          <input
+            type="range"
+            min="0.5"
+            max="2"
+            step="0.1"
+            :value="speechPitch"
+            @input="onRange(setSpeechPitch, $event)"
+          />
+        </label>
+        <label class="voice-sheet__slider">
+          <span>{{ t("chat.voice.volume") }} · {{ Math.round(speechVolume * 100) }}%</span>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.1"
+            :value="speechVolume"
+            @input="onRange(setSpeechVolume, $event)"
+          />
+        </label>
+        <button type="button" class="voice-sheet__preview" @click="previewVoice">
+          {{ t("chat.voice.preview") }}
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -459,6 +586,117 @@ onBeforeUnmount(() => {
   .topbar :deep(.install-btn) {
     padding: 4px;
   }
+}
+
+.voice-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.voice-sheet__backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgb(0 0 0 / 45%);
+}
+
+.voice-sheet__panel {
+  position: relative;
+  width: min(520px, 100%);
+  max-height: min(80vh, 640px);
+  overflow: auto;
+  padding: 16px 16px 24px;
+  border-radius: 16px 16px 0 0;
+  background: var(--panel);
+}
+
+.voice-sheet__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.voice-sheet__close {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font-size: 1.4rem;
+  cursor: pointer;
+}
+
+.voice-sheet__label {
+  margin: 12px 0 6px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.voice-sheet__chips,
+.voice-sheet__voices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.voice-sheet__voices {
+  flex-direction: column;
+  align-items: stretch;
+  max-height: 28vh;
+  overflow: auto;
+}
+
+.voice-sheet__chips button,
+.voice-sheet__voices button,
+.voice-sheet__preview {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.voice-sheet__chips button.is-on,
+.voice-sheet__voices button.is-on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.voice-sheet__empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.voice-sheet__slider {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 14px;
+  font-size: 0.86rem;
+}
+
+.voice-sheet__slider input {
+  width: 100%;
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+.voice-sheet__preview {
+  margin-top: 16px;
+  width: 100%;
+  text-align: center;
+  font-weight: 600;
 }
 
 </style>

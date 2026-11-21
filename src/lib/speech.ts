@@ -80,13 +80,14 @@ export function speak(id: string, text: string): void {
 
   synth.cancel();
   const utterance = new SpeechSynthesisUtterance(spoken);
-  utterance.lang = speechTag(currentLanguageCode());
+  const lang = currentLanguageCode();
+  utterance.lang = speechTag(lang);
   utterance.rate = speechRate.value;
-  const voices = synth.getVoices();
-  const chosen = speechVoiceId.value
-    ? voices.find((voice) => voice.voiceURI === speechVoiceId.value)
-    : undefined;
-  const matching = chosen ?? voices.find((voice) => voice.lang === utterance.lang);
+  utterance.pitch = speechPitch.value;
+  utterance.volume = speechVolume.value;
+  const pool = speechVoices().filter((voice) => voiceMatchesLanguage(voice, lang));
+  const chosen = pool.find((voice) => voiceKey(voice) === speechVoiceId.value);
+  const matching = chosen ?? pool.find((voice) => voice.lang.replace("_", "-") === utterance.lang) ?? pool[0];
   if (matching) utterance.voice = matching;
 
   const done = (): void => {
@@ -158,6 +159,69 @@ export function setSpeechVoice(voiceURI: string): void {
 
 export function speechVoices(): SpeechSynthesisVoice[] {
   return synthesizer()?.getVoices() ?? [];
+}
+
+/** Стабильный ключ: на Android `voiceURI` часто пустой. */
+export function voiceKey(voice: SpeechSynthesisVoice): string {
+  return voice.voiceURI || `${voice.name}|${voice.lang}`;
+}
+
+export function voiceMatchesLanguage(voice: SpeechSynthesisVoice, lang: string): boolean {
+  const code = voice.lang.toLowerCase().replace("_", "-");
+  const wanted = lang.toLowerCase();
+  return code === wanted || code.startsWith(`${wanted}-`);
+}
+
+/** Движок, насколько его можно прочитать из голоса. Отдельного API провайдера нет. */
+export function voiceProvider(voice: SpeechSynthesisVoice): string {
+  const blob = `${voice.voiceURI} ${voice.name}`.toLowerCase();
+  if (blob.includes("google")) return "Google";
+  if (blob.includes("samsung")) return "Samsung";
+  if (blob.includes("pico")) return "Pico";
+  if (blob.includes("espeak")) return "eSpeak";
+  if (blob.includes("microsoft") || blob.includes("edge")) return "Microsoft";
+  if (blob.includes("apple") || blob.includes("siri")) return "Apple";
+  return voice.localService ? "Local" : "Network";
+}
+
+export function loadSpeechVoices(): void {
+  refreshAvailable();
+}
+
+const PITCH_KEY = "gena-speech-pitch";
+const VOLUME_KEY = "gena-speech-volume";
+
+function readUnit(key: string, fallback: number, min: number, max: number): number {
+  try {
+    const raw = Number(localStorage.getItem(key));
+    if (!Number.isFinite(raw)) return fallback;
+    return Math.min(max, Math.max(min, raw));
+  } catch {
+    return fallback;
+  }
+}
+
+function writeUnit(key: string, value: number): void {
+  try {
+    localStorage.setItem(key, String(value));
+  } catch {
+    // Приватный режим — настройка просто не запомнится.
+  }
+}
+
+/** Тембр: 1 — как раньше, ниже — глуше, выше — тоньше. */
+export const speechPitch = ref(readUnit(PITCH_KEY, 1, 0.5, 2));
+/** Громкость 0…1. По умолчанию полная, как у браузера. */
+export const speechVolume = ref(readUnit(VOLUME_KEY, 1, 0, 1));
+
+export function setSpeechPitch(value: number): void {
+  speechPitch.value = Math.min(2, Math.max(0.5, value));
+  writeUnit(PITCH_KEY, speechPitch.value);
+}
+
+export function setSpeechVolume(value: number): void {
+  speechVolume.value = Math.min(1, Math.max(0, value));
+  writeUnit(VOLUME_KEY, speechVolume.value);
 }
 
 export function setSpeechRate(value: number): void {
