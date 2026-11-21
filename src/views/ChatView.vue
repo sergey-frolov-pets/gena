@@ -3008,8 +3008,8 @@ function onRateChange(event: Event): void {
               :aria-label="t('chat.stop')"
               @click="stop"
             >
-              <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true">
-                <rect x="7" y="7" width="10" height="10" rx="2" />
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+                <rect x="5" y="5" width="14" height="14" rx="2.5" />
               </svg>
             </button>
             <button
