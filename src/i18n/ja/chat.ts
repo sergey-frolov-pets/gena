@@ -31,6 +31,7 @@ export const chatMessages = {
   "chat.time.h": "時間",
   "chat.time.m": "分",
   "chat.time.s": "秒",
+  "chat.turnElapsed": "実行中 · {time}",
   "chat.thought": "思考",
   "chat.toolCalls": "ツール呼び出し",
   "chat.steps.show": "ステップを表示（{count}）",

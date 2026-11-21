@@ -154,6 +154,11 @@ const liveElapsed = computed(() => {
   return formatDuration(Math.max(0, clockNow.value - turnStartedAt.value), durationUnits.value);
 });
 
+/** Время работы агента в этом диалоге: плашка над полем ввода. */
+const turnElapsed = computed(() =>
+  busy.value && streamSessionId.value === activeSessionId.value ? liveElapsed.value : "",
+);
+
 /** Время сообщения: часы появления в чате. */
 function messageClock(message: Message): string {
   return formatClock(message.createdAt);
@@ -2823,9 +2828,16 @@ function onRateChange(event: Event): void {
       </div>
 
       <div
-        v-if="compact && !composerOpen && (canStopHere || quickReplies.length > 0)"
+        v-if="compact && !composerOpen && (canStopHere || quickReplies.length > 0 || turnElapsed)"
         class="chat-panel__open-row"
       >
+        <span v-if="turnElapsed" class="chat-panel__turn is-dock" role="status">
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 7.5V12l3 2" />
+          </svg>
+          <span>{{ t("chat.turnElapsed", { time: turnElapsed }) }}</span>
+        </span>
         <button
           v-if="canStopHere"
           type="button"
@@ -2876,6 +2888,14 @@ function onRateChange(event: Event): void {
         <button type="button" class="chat-panel__link" @click="cancelLift">
           {{ t("chat.cancel") }}
         </button>
+      </p>
+
+      <p v-if="turnElapsed && (!compact || composerOpen)" class="chat-panel__turn" role="status">
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 7.5V12l3 2" />
+        </svg>
+        <span>{{ t("chat.turnElapsed", { time: turnElapsed }) }}</span>
       </p>
 
       <form
@@ -3609,6 +3629,39 @@ function onRateChange(event: Event): void {
   opacity: 0.75;
 }
 
+/* Живой счётчик хода: виден всё время, пока агент работает. */
+.chat-panel__turn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 6px;
+  padding: 3px 10px;
+  align-self: flex-start;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.chat-panel__turn svg {
+  flex: 0 0 auto;
+  opacity: 0.8;
+}
+
+/* На телефоне без открытого поля ввода — в доке, рядом со «Стоп». */
+.chat-panel__turn.is-dock {
+  margin: 0;
+  align-self: center;
+  padding: 6px 12px;
+  font-size: 0.74rem;
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+  color: var(--text);
+}
+
 /* Длительность ответа: «42 с», «1 мин 05 с». */
 .chat-panel__elapsed {
   font-size: 0.62rem;
@@ -3787,31 +3840,30 @@ function onRateChange(event: Event): void {
   display: flex;
   align-items: flex-end;
   gap: 6px;
-  padding: 6px 6px 6px 10px;
+  padding: 5px 6px 5px 10px;
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--panel-2);
 }
 
-/* Правая часть: микрофон над молнией — так под текст остаётся больше места
-   по ширине, а высоту столбик не отнимает (кнопки мелкие). */
+/* Кнопки — в один ряд с полем: по умолчанию ввод ровно в одну строку. */
 .chat-panel__composer-stack {
   display: flex;
   flex: 0 0 auto;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  gap: 2px;
+  gap: 3px;
 }
 
 .chat-panel__composer-stack .chat-panel__icon-btn {
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border-radius: 9px;
 }
 
 .chat-panel__composer-stack .chat-panel__icon-btn svg {
-  width: 17px;
-  height: 17px;
+  width: 16px;
+  height: 16px;
 }
 
 /* «Очистить» появляется над отправкой, когда в поле больше одной строки. */

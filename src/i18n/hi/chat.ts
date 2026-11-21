@@ -31,6 +31,7 @@ export const chatMessages = {
   "chat.time.h": "घं",
   "chat.time.m": "मि",
   "chat.time.s": "से",
+  "chat.turnElapsed": "काम कर रहा है · {time}",
   "chat.thought": "विचार",
   "chat.toolCalls": "टूल कॉल",
   "chat.steps.show": "चरण दिखाएँ ({count})",

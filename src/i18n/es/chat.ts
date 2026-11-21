@@ -31,6 +31,7 @@ export const chatMessages = {
   "chat.time.h": "h",
   "chat.time.m": "min",
   "chat.time.s": "s",
+  "chat.turnElapsed": "Trabajando · {time}",
   "chat.thought": "Razonamiento",
   "chat.toolCalls": "Llamadas a herramientas",
   "chat.steps.show": "Mostrar pasos ({count})",
