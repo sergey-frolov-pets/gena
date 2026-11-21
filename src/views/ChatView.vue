@@ -97,10 +97,9 @@ import {
 import { canTakeNext, idleTurn, stepTurn, type TurnState } from "@/turn/machine";
 import ConfirmModal from "@/components/ConfirmModal.vue";
 import TextModal from "@/components/TextModal.vue";
+import { agentId } from "@/lib/active-agent";
 
 const { t } = useLocale();
-
-const agentId = ref("");
 const draft = ref("");
 const busy = ref(false);
 const typing = ref(false);
@@ -1026,6 +1025,10 @@ function clearComposer(): void {
 
 /** «Новый диалог» — просто чистый лист: запись в БД появится после первой отправки. */
 function newSession(): void {
+  if (!agentId.value && agents.value.length > 0) {
+    agentId.value = agents.value[0].id;
+  }
+  if (!agentId.value) return;
   error.value = "";
   notice.value = "";
   stopDictation();
@@ -2231,11 +2234,6 @@ function useStarter(n: number): void {
   composerEl.value?.focus();
 }
 
-function protocolLabel(): string {
-  const p = activeAgent.value?.protocol ?? "http_json";
-  return t(("connections.protocol." + p) as never);
-}
-
 /** Что принимает файловый input: документы + (для Pico) изображения. */
 const DOC_ACCEPT = ".pdf,.docx,.xlsx,.txt,.md,.markdown,.csv,.tsv,.json,.log,.yml,.yaml";
 const DOC_ACCEPT_IMAGES = `image/*,${DOC_ACCEPT}`;
@@ -2292,7 +2290,7 @@ function onRateChange(event: Event): void {
           class="chat-panel__tool"
           v-tip="t('chat.newDialog')"
           :aria-label="t('chat.newDialog')"
-          :disabled="!agentId"
+          :disabled="agents.length === 0"
           @click="newSession"
         >
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
@@ -2357,14 +2355,6 @@ function onRateChange(event: Event): void {
         </select>
       </template>
     </div>
-
-    <Teleport to="#topbar-agent">
-      <select v-model="agentId" class="chat-panel__agent" :aria-label="t('chat.agent')">
-        <option value="">{{ t("chat.selectAgent") }}</option>
-        <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
-      </select>
-      <span v-if="activeAgent" class="chat-panel__badge">{{ protocolLabel() }}</span>
-    </Teleport>
 
     <div v-if="limitLabel" class="chat-panel__agentbar">
       <span class="chat-panel__usage">{{ limitLabel }}</span>
