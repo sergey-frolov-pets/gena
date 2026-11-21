@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import ConnectionsView from "./views/ConnectionsView.vue";
 import ChatView from "./views/ChatView.vue";
 import SessionsView from "./views/SessionsView.vue";
@@ -15,9 +15,18 @@ import { useLocale } from "./i18n";
 type Tab = "connections" | "chat" | "sessions";
 const tab = ref<Tab>("chat");
 const menuOpen = ref(false);
+/** Кнопка «···» и само меню: клик внутри не считается внешним. */
+const menuRoot = ref<HTMLElement | null>(null);
 
 function openTab(next: Tab): void {
   tab.value = next;
+  menuOpen.value = false;
+}
+
+function onPointerDown(event: PointerEvent): void {
+  if (!menuOpen.value) return;
+  const target = event.target;
+  if (target instanceof Node && menuRoot.value?.contains(target)) return;
   menuOpen.value = false;
 }
 const { t } = useLocale();
@@ -35,8 +44,13 @@ function applyUpdate(): void {
   window.location.reload();
 }
 onMounted(async () => {
+  document.addEventListener("pointerdown", onPointerDown);
   await loadAgents();
   await loadSessions();
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener("pointerdown", onPointerDown);
 });
 </script>
 
@@ -59,6 +73,7 @@ onMounted(async () => {
       >
         {{ t("app.nav.chat") }}
       </button>
+      <div ref="menuRoot" class="menu-anchor">
       <button
         type="button"
         class="icon-btn menu-btn"
@@ -96,6 +111,7 @@ onMounted(async () => {
           <ThemeSwitcher />
           <InstallButton />
         </div>
+      </div>
       </div>
     </header>
 
@@ -156,6 +172,10 @@ onMounted(async () => {
   font: inherit;
   padding: 8px 4px;
   cursor: pointer;
+}
+
+.menu-anchor {
+  display: contents;
 }
 
 .menu-btn {
