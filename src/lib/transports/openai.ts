@@ -13,8 +13,33 @@ import { newId } from "@/lib/id";
 import type { OpenAIConfig } from "@/storage/types";
 import { OPENAI_CAPABILITIES } from "./capabilities";
 import { AgentClientError } from "./client-error";
-import { contextMessages, toWireMessage, trimHistory } from "./history";
+import {
+  coalesceStrictTurns,
+  contextMessages,
+  providerRequiresStrictTurns,
+  toWireMessage,
+  trimHistory,
+} from "./history";
 import type { AgentTransport, TransportEvents, TransportRequest } from "./types";
+
+async function readErrorDetail(response: Response): Promise<string | undefined> {
+  try {
+    const data = (await response.json()) as { error?: { message?: unknown } | string; message?: unknown };
+    const nested = data?.error;
+    const message =
+      typeof nested === "string"
+        ? nested
+        : typeof nested?.message === "string"
+          ? nested.message
+          : typeof data?.message === "string"
+            ? data.message
+            : "";
+    const text = message.trim();
+    return text ? text.slice(0, 400) : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 function extractContent(data: unknown): string | null {
   if (typeof data !== "object" || data === null) {
@@ -146,10 +171,13 @@ export const openaiTransport: AgentTransport = {
     const ctx = trimHistory(contextMessages(req.history), agent.settings.contextSize);
     messages.push(...ctx.map(toWireMessage));
     messages.push({ role: "user", content: req.message });
+    const wire = providerRequiresStrictTurns(agent.address)
+      ? coalesceStrictTurns(messages)
+      : messages;
 
     const body: Record<string, unknown> = {
       model: cfg.model || agent.settings.llmModel || "",
-      messages,
+      messages: wire,
       stream: true,
       stream_options: { include_usage: true },
     };
@@ -179,7 +207,13 @@ export const openaiTransport: AgentTransport = {
     }
 
     if (!response.ok) {
-      throw new AgentClientError(`agent responded ${response.status}`, response.status);
+      const detail = await readErrorDetail(response);
+      throw new AgentClientError(
+        detail ? `agent responded ${response.status}: ${detail}` : `agent responded ${response.status}`,
+        response.status,
+        detail ? "openai_error" : undefined,
+        detail,
+      );
     }
 
     const contentType = response.headers.get("content-type") ?? "";

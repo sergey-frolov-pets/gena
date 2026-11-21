@@ -59,6 +59,9 @@ export function describeError(error: unknown, t: TranslateFn = tDefault): string
     return describeCipherError(error, t);
   }
   if (error instanceof AgentClientError) {
+    if (error.code === "openai_error" && error.detail) {
+      return t("errors.openai.error", { detail: error.detail });
+    }
     if (typeof error.status === "number") {
       return describeStatus(error.status, t);
     }
