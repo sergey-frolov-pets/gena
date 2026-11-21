@@ -34,6 +34,7 @@ import { listenToAgent, sendToAgent, type TransportAttachment } from "@/lib/agen
 import { cancelAgentTurn } from "@/lib/agent-client";
 import { describeError } from "@/lib/errors";
 import { renderMarkdown } from "@/lib/markdown";
+import { toCsv, toTsv, xlsxBlob } from "@/lib/table-file";
 import { splitContent } from "@/lib/ui-blocks";
 import { hasOpenSlot } from "@/lib/model-fallback";
 import { canCall, getCallCount, recordCall } from "@/storage/usage";
@@ -1899,7 +1900,12 @@ function stop(): void {
 /** Markdown реплики → безопасный HTML (кеш внутри lib/markdown). */
 function mdHtml(text: string): string {
   noteUiBlock(text);
-  return renderMarkdown(text, { copy: t("chat.copyMessage") });
+  return renderMarkdown(text, {
+    copy: t("chat.copyMessage"),
+    tableCopy: t("chat.table.copy"),
+    tableCsv: t("chat.table.csv"),
+    tableXlsx: t("chat.table.xlsx"),
+  });
 }
 
 /**
@@ -1923,6 +1929,33 @@ function noteUiBlock(text: string): void {
  */
 async function onMarkdownClick(event: MouseEvent): Promise<void> {
   const target = event.target as HTMLElement | null;
+  const tableTool = target?.closest(".md-table__tool");
+  if (tableTool instanceof HTMLElement) {
+    event.preventDefault();
+    event.stopPropagation();
+    const table = tableTool.closest(".md-table")?.querySelector("table");
+    if (!(table instanceof HTMLTableElement)) return;
+    const rows = [...table.rows].map((row) =>
+      [...row.cells].map((cell) => (cell.textContent ?? "").replace(/\s+/g, " ").trim()),
+    );
+    if (tableTool.classList.contains("md-table__copy")) {
+      const text = toTsv(rows);
+      try {
+        if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+        else copyFallback(text);
+      } catch {
+        copyFallback(text);
+      }
+      tableTool.classList.add("md-table__tool--done");
+      window.setTimeout(() => tableTool.classList.remove("md-table__tool--done"), 1400);
+      return;
+    }
+    const file = tableTool.classList.contains("md-table__xlsx")
+      ? { name: "table.xlsx", blob: xlsxBlob(rows) }
+      : { name: "table.csv", blob: new Blob([toCsv(rows)], { type: "text/csv;charset=utf-8" }) };
+    downloadBlob(file.name, file.blob);
+    return;
+  }
   const button = target?.closest(".md-code__copy");
   if (!(button instanceof HTMLElement)) return;
   event.preventDefault();
@@ -1943,6 +1976,28 @@ async function onMarkdownClick(event: MouseEvent): Promise<void> {
 }
 
 /** Копирование без Clipboard API (http, старые вебвью на телефоне). */
+function downloadBlob(name: string, blob: Blob): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+/** MD — исходный markdown, TXT — видимый текст без иконок таблицы. */
+function downloadReply(message: Message, kind: "md" | "txt", event: MouseEvent): void {
+  const host = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+  const visible = host?.closest(".chat-panel__message")?.querySelector(".chat-panel__content");
+  const plain =
+    visible instanceof HTMLElement && "innerText" in visible
+      ? visible.innerText.trim()
+      : message.content;
+  const text = kind === "md" ? message.content : plain;
+  const type = kind === "md" ? "text/markdown" : "text/plain";
+  downloadBlob(`reply.${kind}`, new Blob([text], { type: `${type};charset=utf-8` }));
+}
+
 function copyFallback(text: string): void {
   const area = document.createElement("textarea");
   area.value = text;
@@ -2665,6 +2720,29 @@ function onRateChange(event: Event): void {
                 <span class="chat-panel__file-name">{{ a.name }}</span>
                 <span v-if="a.bytes" class="chat-panel__file-size">{{ formatBytes(a.bytes) }}</span>
               </span>
+            </div>
+            <div
+              v-if="entry.message.role === 'assistant' && (!entry.message.kind || entry.message.kind === 'text') && entry.message.content"
+              class="chat-panel__exports"
+            >
+              <button
+                type="button"
+                class="chat-panel__export"
+                v-tip="t('chat.downloadMd')"
+                :aria-label="t('chat.downloadMd')"
+                @click="downloadReply(entry.message, 'md', $event)"
+              >
+                MD
+              </button>
+              <button
+                type="button"
+                class="chat-panel__export"
+                v-tip="t('chat.downloadTxt')"
+                :aria-label="t('chat.downloadTxt')"
+                @click="downloadReply(entry.message, 'txt', $event)"
+              >
+                TXT
+              </button>
             </div>
             <div class="chat-panel__message-actions">
               <button
@@ -4985,11 +5063,94 @@ function onRateChange(event: Event): void {
 /* Таблица: горизонтальный скролл внутри своего блока, тонкая серая сетка ячеек. */
 .md-table {
   --md-grid: color-mix(in srgb, var(--border) 85%, transparent);
+}
+
+.md-table__scroll {
   overflow-x: auto;
   overscroll-behavior-x: contain;
   -webkit-overflow-scrolling: touch;
   border: 1px solid var(--md-grid);
   border-radius: 8px;
+}
+
+.md-table__tools {
+  display: flex;
+  gap: 2px;
+  margin-top: 4px;
+  user-select: none;
+}
+
+.md-table__tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.md-table__tool:hover,
+.md-table__tool:focus-visible {
+  background: rgba(127, 127, 127, 0.18);
+  color: var(--text);
+}
+
+.md-table__tool::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  background: currentColor;
+  -webkit-mask: var(--md-icon-copy) center / contain no-repeat;
+  mask: var(--md-icon-copy) center / contain no-repeat;
+}
+
+.md-table__csv::before {
+  -webkit-mask-image: var(--md-icon-csv);
+  mask-image: var(--md-icon-csv);
+}
+
+.md-table__xlsx::before {
+  -webkit-mask-image: var(--md-icon-xlsx);
+  mask-image: var(--md-icon-xlsx);
+}
+
+.md-table__tool--done {
+  color: var(--ok);
+}
+
+.md-table__tool--done::before {
+  -webkit-mask-image: var(--md-icon-check);
+  mask-image: var(--md-icon-check);
+}
+
+.chat-panel__exports {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  user-select: none;
+}
+
+.chat-panel__export {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.66rem;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.chat-panel__export:hover,
+.chat-panel__export:focus-visible {
+  color: var(--text);
+  border-color: var(--accent);
 }
 
 .md-table table {
