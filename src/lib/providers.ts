@@ -9,6 +9,48 @@ export type ConnectableProvider = {
   hint: ProviderHint;
 };
 
+/** Агенты с собственным шлюзом, который Gena умеет вызвать из браузера. */
+export type ConnectableAgent = {
+  id: string;
+  name: string;
+  site: string;
+  docs: string;
+  /** Протокол в форме «Подключения». */
+  protocol: "openai" | "pico_ws";
+  address: string;
+  model: string;
+};
+
+export const connectableAgents: ConnectableAgent[] = [
+  {
+    id: "picoclaw",
+    name: "PicoClaw",
+    site: "https://github.com/sipeed/picoclaw",
+    docs: "https://docs.picoclaw.io/docs/configuration/token_authentication/",
+    protocol: "pico_ws",
+    address: "ws://127.0.0.1:18790",
+    model: "",
+  },
+  {
+    id: "openclaw",
+    name: "OpenClaw",
+    site: "https://docs.openclaw.ai",
+    docs: "https://docs.openclaw.ai/gateway/openai-http-api",
+    protocol: "openai",
+    address: "http://127.0.0.1:18789/v1",
+    model: "openclaw/default",
+  },
+  {
+    id: "hermes",
+    name: "Hermes",
+    site: "https://hermes-agent.nousresearch.com",
+    docs: "https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server",
+    protocol: "openai",
+    address: "http://127.0.0.1:8642/v1",
+    model: "hermes-agent",
+  },
+];
+
 export const connectableProviders: ConnectableProvider[] = [
   {
     id: "openai",

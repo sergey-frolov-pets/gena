@@ -2,6 +2,7 @@
 import { ref } from "vue";
 import { useLocale } from "@/i18n";
 import type { LocaleKey } from "@/i18n/types";
+import { connectableAgents, connectableProviders } from "@/lib/providers";
 
 const { t } = useLocale();
 const base = import.meta.env.BASE_URL;
@@ -93,6 +94,51 @@ async function copyPrompt(): Promise<void> {
       </button>
     </section>
 
+    <section>
+      <h2>{{ t("about.catalog.title") }}</h2>
+      <p class="about__lead">{{ t("about.catalog.cors") }}</p>
+
+      <h3>{{ t("about.catalog.agents") }}</h3>
+      <ul class="about__cards">
+        <li v-for="agent in connectableAgents" :key="agent.id">
+          <div class="about__card-head">
+            <strong>{{ agent.name }}</strong>
+            <a :href="agent.site" target="_blank" rel="noopener noreferrer">{{ t("providers.openSite") }}</a>
+          </div>
+          <p>{{ t(("about.agent." + agent.id) as "about.agent.picoclaw") }}</p>
+          <p class="about__meta">
+            <span>{{ t("connections.protocolLabel") }}</span>
+            <code>{{ t(("connections.protocol." + agent.protocol) as "connections.protocol.openai") }}</code>
+          </p>
+          <p class="about__meta">
+            <span>{{ t("providers.baseLabel") }}</span>
+            <code>{{ agent.address }}</code>
+          </p>
+          <p v-if="agent.model" class="about__meta">
+            <span>{{ t("about.catalog.model") }}</span>
+            <code>{{ agent.model }}</code>
+          </p>
+          <a :href="agent.docs" target="_blank" rel="noopener noreferrer">{{ t("about.catalog.docs") }}</a>
+        </li>
+      </ul>
+
+      <h3>{{ t("about.catalog.models") }}</h3>
+      <p>{{ t("providers.lead") }}</p>
+      <ul class="about__cards">
+        <li v-for="provider in connectableProviders" :key="provider.id">
+          <div class="about__card-head">
+            <strong>{{ provider.name }}</strong>
+            <a :href="provider.site" target="_blank" rel="noopener noreferrer">{{ t("providers.openSite") }}</a>
+          </div>
+          <p>{{ t(("providers.hint." + provider.hint) as "providers.hint.cloud") }}</p>
+          <p class="about__meta">
+            <span>{{ t("providers.baseLabel") }}</span>
+            <code>{{ provider.baseUrl }}</code>
+          </p>
+        </li>
+      </ul>
+    </section>
+
     <section v-for="section in sections" :key="section.title">
       <h2>{{ t(section.title) }}</h2>
       <p>{{ t(section.body) }}</p>
@@ -117,6 +163,55 @@ async function copyPrompt(): Promise<void> {
 .about h2 {
   margin: 1.6rem 0 0.4rem;
   font-size: 1.05rem;
+}
+
+.about h3 {
+  margin: 1.2rem 0 0.4rem;
+  font-size: 0.95rem;
+}
+
+.about__cards {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.about__cards li {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.about__card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.about__cards a {
+  color: var(--accent);
+  font-size: 0.88rem;
+}
+
+.about__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.about code {
+  color: inherit;
+  word-break: break-all;
 }
 
 .about p,
