@@ -15,6 +15,9 @@ import { Marked, type Tokens } from "marked";
 export interface MarkdownLabels {
   copy?: string;
   copied?: string;
+  tableCopy?: string;
+  tableCsv?: string;
+  tableXlsx?: string;
 }
 
 /** Теги, которые разрешены в выводе. Всё остальное вырезается, текст остаётся. */
@@ -250,16 +253,24 @@ const CACHE_LIMIT = 300;
  */
 export function renderMarkdown(text: string, labels: MarkdownLabels = {}): string {
   if (!text) return "";
-  const key = `${labels.copy ?? ""}\u0000${labels.copied ?? ""}\u0000${text}`;
+  const key = [
+    labels.copy ?? "",
+    labels.copied ?? "",
+    labels.tableCopy ?? "",
+    labels.tableCsv ?? "",
+    labels.tableXlsx ?? "",
+    text,
+  ].join("\u0000");
   const hit = cache.get(key);
   if (hit !== undefined) return hit;
 
   const { marked } = getParser(labels);
   const raw = marked.parse(text, { async: false }) as string;
   // Таблицу оборачиваем в контейнер с горизонтальным скроллом.
+  const tools = tableTools(labels);
   const wrapped = raw
-    .replace(/<table\b/g, '<div class="md-table"><table')
-    .replace(/<\/table>/g, "</table></div>");
+    .replace(/<table\b/g, '<div class="md-table"><div class="md-table__scroll"><table')
+    .replace(/<\/table>/g, `</table></div>${tools}</div>`);
   const html = sanitizeHtml(wrapped);
 
   if (cache.size >= CACHE_LIMIT) {
@@ -268,6 +279,19 @@ export function renderMarkdown(text: string, labels: MarkdownLabels = {}): strin
   }
   cache.set(key, html);
   return html;
+}
+
+/** Иконки под таблицей: без текста внутри, чтобы не попасть в выделение. */
+function tableTools(labels: MarkdownLabels): string {
+  const button = (klass: string, label: string) =>
+    `<button class="md-table__tool ${klass}" type="button" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"></button>`;
+  return (
+    '<div class="md-table__tools">' +
+    button("md-table__copy", labels.tableCopy || "Copy") +
+    button("md-table__csv", labels.tableCsv || "CSV") +
+    button("md-table__xlsx", labels.tableXlsx || "XLSX") +
+    "</div>"
+  );
 }
 
 /** Сброс кеша — нужен тестам. */

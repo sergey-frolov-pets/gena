@@ -22,8 +22,12 @@ describe("renderMarkdown", () => {
 
   it("таблица обёрнута в контейнер с горизонтальным скроллом", () => {
     const html = renderMarkdown("| a | b |\n| - | - |\n| 1 | 2 |");
-    expect(html).toContain('<div class="md-table"><table>');
-    expect(html).toContain("</table></div>");
+    expect(html).toContain('<div class="md-table"><div class="md-table__scroll"><table>');
+    expect(html).toContain('class="md-table__tools"');
+    expect(html).toContain('class="md-table__tool md-table__copy"');
+    expect(html).toContain('class="md-table__tool md-table__csv"');
+    expect(html).toContain('class="md-table__tool md-table__xlsx"');
+    expect(html).not.toMatch(/md-table__tool[^>]*>[^<]/);
     expect(html).toContain("<th>a</th>");
   });
 
