@@ -448,8 +448,11 @@ function applyPrices(more: Record<string, string>): void {
 
 const pricesUpdatedLabel = computed(() =>
   pricesUpdatedAt.value
-    ? t("connections.refreshedAt", {
-        when: new Date(pricesUpdatedAt.value).toLocaleString(locale.value),
+    ? new Date(pricesUpdatedAt.value).toLocaleString(locale.value, {
+        day: "2-digit",
+        month: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
       })
     : "",
 );
@@ -936,6 +939,7 @@ function addMixRoute(): void {
 
     <div class="agent-head">
       <h3 class="block-title">{{ t("connections.block.prices") }}</h3>
+      <span v-if="pricesUpdatedLabel" class="refresh-at">{{ pricesUpdatedLabel }}</span>
       <button
         type="button"
         class="icon-btn"
@@ -981,13 +985,12 @@ function addMixRoute(): void {
             <tr v-for="line in modelLines" :key="line.key">
               <td>{{ line.provider }}</td>
               <td>{{ line.model }}</td>
-              <td>{{ dash(priceFor(line.model)) }}</td>
+              <td class="sheet-price">{{ dash(priceFor(line.model)) }}</td>
               <td>{{ line.limit }}</td>
             </tr>
           </tbody>
         </table>
       </div>
-      <p v-if="pricesUpdatedLabel" class="muted small">{{ pricesUpdatedLabel }}</p>
     </div>
 
     <div class="card">
@@ -1022,7 +1025,6 @@ function addMixRoute(): void {
           </tbody>
         </table>
       </div>
-      <p v-if="pricesUpdatedLabel" class="muted small">{{ pricesUpdatedLabel }}</p>
     </div>
 
     <ConfirmModal
@@ -1151,6 +1153,15 @@ function addMixRoute(): void {
 }
 .block-title {
   margin: 18px 0 10px;
+}
+.refresh-at {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.sheet-price {
+  white-space: normal;
+  min-width: 12rem;
 }
 .block-split {
   border: 0;

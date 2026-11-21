@@ -31,9 +31,12 @@ describe("разбор ответов провайдера", () => {
 
   it("DeepSeek: деньги и подаренный баланс", () => {
     const facts = parseDeepSeekBalance({
-      balance_infos: [{ currency: "USD", total_balance: "3.00", granted_balance: "1.00" }],
+      balance_infos: [
+        { currency: "USD", total_balance: "3.00", granted_balance: "1.00" },
+        { currency: "CNY", total_balance: "12.50", granted_balance: "0.00" },
+      ],
     });
-    expect(facts.money).toBe("3.00 USD");
+    expect(facts.money).toBe("3.00 USD, 12.50 CNY");
     expect(facts.free).toBe("1.00 USD");
   });
 
@@ -77,12 +80,13 @@ describe("разбор ответов провайдера", () => {
         <tr><td>1M OUTPUT TOKENS</td><td>OFF-PEAK</td><td>$0.6</td><td>$1.98</td></tr>
         <tr><td>PEAK</td><td>$1.2</td><td>$3.96</td></tr>
       </table>
+      <p>Peak hours are 01:00 - 04:00 and 06:00 - 10:00 UTC, Monday through Friday.</p>
       <p>legacy names <code>deepseek-v4-flash</code> are still accepted, billed at the Flash price.</p>
     `;
     expect(pricesFromDeepSeekPage(page)).toEqual({
-      "deepseek-flash": "$0.30 / $1.20 per 1M",
-      "deepseek-v4-pro": "$1.32 / $3.96 per 1M",
-      "deepseek-v4-flash": "$0.30 / $1.20 per 1M",
+      "deepseek-flash": "off $0.15/$0.60 · peak $0.30/$1.20 · peak 01:00–04:00, 06:00–10:00 UTC",
+      "deepseek-v4-pro": "off $0.66/$1.98 · peak $1.32/$3.96 · peak 01:00–04:00, 06:00–10:00 UTC",
+      "deepseek-v4-flash": "off $0.15/$0.60 · peak $0.30/$1.20 · peak 01:00–04:00, 06:00–10:00 UTC",
     });
     expect(pricesFromDeepSeekPage("<p>нет таблицы</p>")).toEqual({});
   });

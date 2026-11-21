@@ -117,20 +117,25 @@ export function parseOpenRouterAccount(credits: unknown, keyInfo: unknown): Acco
   return { money, free, expiresAt: expiryFrom(keyData) };
 }
 
-/** DeepSeek: денежный и подаренный баланс. */
+/** DeepSeek: все валюты денежного и подаренного баланса. */
 export function parseDeepSeekBalance(payload: unknown): AccountFacts {
   const root = asRecord(payload);
-  const infos = root?.balance_infos;
-  const first = Array.isArray(infos) ? asRecord(infos[0]) : null;
-  if (!first) return EMPTY;
-  const currency = text(first.currency) || "USD";
-  const money = text(first.total_balance);
-  const granted = text(first.granted_balance);
-  return {
-    money: money ? `${money} ${currency}` : "",
-    free: granted ? `${granted} ${currency}` : "",
-    expiresAt: expiryFrom(first) || expiryFrom(root),
-  };
+  const infos = Array.isArray(root?.balance_infos) ? root.balance_infos : [];
+  const money: string[] = [];
+  const free: string[] = [];
+  let expiresAt = "";
+  for (const item of infos) {
+    const row = asRecord(item);
+    if (!row) continue;
+    const currency = text(row.currency) || "USD";
+    const total = text(row.total_balance);
+    const granted = text(row.granted_balance);
+    if (total) money.push(`${total} ${currency}`);
+    if (granted && granted !== "0" && granted !== "0.00") free.push(`${granted} ${currency}`);
+    expiresAt = expiresAt || expiryFrom(row);
+  }
+  if (money.length === 0 && free.length === 0) return EMPTY;
+  return { money: money.join(", "), free: free.join(", "), expiresAt: expiresAt || expiryFrom(root) };
 }
 
 /**
@@ -182,16 +187,20 @@ export function pricesFromModels(payload: unknown): Record<string, string> {
 const DEEPSEEK_PRICING_URL = "https://api-docs.deepseek.com/quick_start/pricing";
 
 /**
- * Снимок публичной таблицы DeepSeek (cache miss / output, пик, USD за 1M).
- * Страница docs не отдаёт CORS, поэтому браузер часто не может её прочитать:
- * тогда берём этот снимок, а не пустую ячейку.
+ * Снимок публичной таблицы DeepSeek: cache miss и output, off-peak и peak.
+ * Часы пика: 01:00–04:00 и 06:00–10:00 UTC, пн–пт.
+ * Страница docs не отдаёт CORS, поэтому браузер часто не может её прочитать.
  * Источник: api-docs.deepseek.com/quick_start/pricing, 20 Nov 2026.
  */
+const DEEPSEEK_PEAK_HOURS = "peak 01:00–04:00, 06:00–10:00 UTC";
+const DEEPSEEK_FLASH_PRICE = `off $0.15/$0.60 · peak $0.30/$1.20 · ${DEEPSEEK_PEAK_HOURS}`;
+const DEEPSEEK_PRO_PRICE = `off $0.66/$1.98 · peak $1.32/$3.96 · ${DEEPSEEK_PEAK_HOURS}`;
+
 export const DEEPSEEK_PRICE_FALLBACK: Record<string, string> = {
-  "deepseek-flash": "$0.30 / $1.20 per 1M",
-  "deepseek-v4-pro": "$1.32 / $3.96 per 1M",
-  "deepseek-v4-flash": "$0.30 / $1.20 per 1M",
-  "deepseek-v4-flash-vision-exp": "$0.30 / $1.20 per 1M",
+  "deepseek-flash": DEEPSEEK_FLASH_PRICE,
+  "deepseek-v4-pro": DEEPSEEK_PRO_PRICE,
+  "deepseek-v4-flash": DEEPSEEK_FLASH_PRICE,
+  "deepseek-v4-flash-vision-exp": DEEPSEEK_FLASH_PRICE,
 };
 
 function stripTags(value: string): string {
@@ -216,7 +225,24 @@ function dollarCells(cells: string[]): number[] {
   return values;
 }
 
-/** Публичная таблица DeepSeek: cache miss и output в пиковые часы, USD за 1M. */
+function bandLabel(kind: "off" | "peak", input: number | undefined, output: number | undefined): string {
+  if (input === undefined || output === undefined) return "";
+  if (!Number.isFinite(input) || !Number.isFinite(output)) return "";
+  const usd = (value: number) => `$${value.toFixed(2)}`;
+  return `${kind} ${usd(input)}/${usd(output)}`;
+}
+
+/** Часы пика из текста страницы, коротко: `peak 01:00–04:00, 06:00–10:00 UTC`. */
+export function peakHoursLabel(page: string): string {
+  const clocks = [...page.matchAll(/(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/g)].map(
+    (match) => `${match[1]}–${match[2]}`,
+  );
+  if (clocks.length === 0) return "";
+  const unique = [...new Set(clocks)];
+  return `peak ${unique.join(", ")} UTC`;
+}
+
+/** Публичная таблица DeepSeek: cache miss и output, off-peak и peak. */
 export function pricesFromDeepSeekPage(page: string): Record<string, string> {
   const tables = page.match(/<table[\s\S]*?<\/table>/gi) ?? [];
   const rows: string[][] = [];
@@ -231,27 +257,35 @@ export function pricesFromDeepSeekPage(page: string): Record<string, string> {
   const models = header?.map(modelSlug).filter(Boolean) ?? [];
   if (models.length === 0) return {};
 
-  const input: number[] = [];
-  const output: number[] = [];
+  const offIn: number[] = [];
+  const peakIn: number[] = [];
+  const offOut: number[] = [];
+  const peakOut: number[] = [];
   let section = "";
   for (const cells of rows) {
     const joined = cells.join(" ").toUpperCase();
     if (joined.includes("CACHE MISS")) section = "input";
     else if (joined.includes("OUTPUT")) section = "output";
     else if (joined.includes("CACHE HIT")) section = "";
-    const peak = cells[0]?.toUpperCase() === "PEAK" || joined.startsWith("PEAK");
-    if (!peak) continue;
     const values = dollarCells(cells);
-    if (values.length < models.length) continue;
+    if (values.length < models.length || !section) continue;
     const rates = values.slice(-models.length);
-    if (section === "input") input.splice(0, input.length, ...rates);
-    if (section === "output") output.splice(0, output.length, ...rates);
+    const peak = /\bPEAK\b/.test(joined) && !joined.includes("OFF-PEAK");
+    const off = joined.includes("OFF-PEAK");
+    if (section === "input" && off) offIn.splice(0, offIn.length, ...rates);
+    if (section === "input" && peak) peakIn.splice(0, peakIn.length, ...rates);
+    if (section === "output" && off) offOut.splice(0, offOut.length, ...rates);
+    if (section === "output" && peak) peakOut.splice(0, peakOut.length, ...rates);
   }
 
+  const hours = peakHoursLabel(page);
   const out: Record<string, string> = {};
   models.forEach((id, index) => {
-    const price = formatTokenPrice(input[index], output[index], true);
-    if (price) out[id] = price;
+    const price = [bandLabel("off", offIn[index], offOut[index]), bandLabel("peak", peakIn[index], peakOut[index])]
+      .filter(Boolean)
+      .join(" · ");
+    if (!price) return;
+    out[id] = hours ? `${price} · ${hours}` : price;
   });
 
   const flash = models.find((id) => id.includes("flash"));
