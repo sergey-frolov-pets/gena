@@ -9,6 +9,8 @@ import {
   activeSessionId,
   agents,
   appendMessage,
+  assignSessionAgent,
+  stampUnownedReplies,
   clearMessages,
   createSession,
   deleteMessagesFrom,
@@ -319,6 +321,8 @@ watch(composerOpen, () => void autoGrow(), { flush: "post" });
 
 /** Панель открыта (одна на док и на композер). */
 const quickOpen = ref(false);
+/** Меню выбора агента у скрепки. */
+const agentMenuOpen = ref(false);
 /** Стандартные сообщения выбранного агента — нормализованы при чтении/сохранении. */
 const quickReplies = computed(() => activeAgent.value?.settings.quickReplies ?? []);
 /** «Стоп» в доке виден, только когда работает открытый диалог. */
@@ -329,6 +333,7 @@ const canStopHere = computed(
 function toggleQuick(): void {
   if (quickReplies.value.length === 0) return;
   quickOpen.value = !quickOpen.value;
+  if (quickOpen.value) agentMenuOpen.value = false;
 }
 
 /** Тап по стандартному сообщению: сразу в чат, панель сворачивается. */
@@ -345,15 +350,41 @@ async function sendQuick(text: string): Promise<void> {
 
 /** Клик мимо панели сворачивает её — и на телефоне, и на десктопе. */
 function onQuickOutside(event: Event): void {
-  if (!quickOpen.value) return;
   const target = event.target as HTMLElement | null;
   if (!target?.closest) return;
-  if (target.closest("[data-quick-trigger]") || target.closest(".chat-panel__quick")) return;
-  quickOpen.value = false;
+  if (quickOpen.value) {
+    if (!target.closest("[data-quick-trigger]") && !target.closest(".chat-panel__quick")) {
+      quickOpen.value = false;
+    }
+  }
+  if (agentMenuOpen.value) {
+    if (!target.closest("[data-agent-trigger]") && !target.closest(".chat-panel__agent-menu")) {
+      agentMenuOpen.value = false;
+    }
+  }
 }
 
 function onQuickKey(event: KeyboardEvent): void {
-  if (event.key === "Escape") quickOpen.value = false;
+  if (event.key !== "Escape") return;
+  quickOpen.value = false;
+  agentMenuOpen.value = false;
+}
+
+function toggleAgentMenu(): void {
+  agentMenuOpen.value = !agentMenuOpen.value;
+  if (agentMenuOpen.value) quickOpen.value = false;
+}
+
+/** Агент сессии: следующие ответы и стандартные сообщения — от него. */
+async function chooseAgent(id: string): Promise<void> {
+  agentMenuOpen.value = false;
+  const session = activeSession.value;
+  if (session && session.agentId !== id) {
+    const previous = session.agentId;
+    await stampUnownedReplies(session.id, previous);
+    await assignSessionAgent(session.id, id);
+  }
+  agentId.value = id;
 }
 let compactQuery: MediaQueryList | null = null;
 /** Клик по кнопке внутри формы (файл, микрофон) не должен закрывать ввод. */
@@ -630,7 +661,8 @@ const liveThoughtText = computed(() => thoughtText(liveThoughts.value));
 function roleLabel(message: Message): string {
   if (message.role !== "assistant") return t(`chat.role.${message.role}` as never);
   const agent =
-    agents.value.find((a) => a.id === activeSession.value?.agentId) ?? activeAgent.value;
+    agents.value.find((a) => a.id === (message.responderId || activeSession.value?.agentId)) ??
+    activeAgent.value;
   if (!agent) return t("chat.agent");
   if ((agent.protocol ?? "http_json") === "openai") {
     const config = (agent.config ?? {}) as { model?: string };
@@ -925,6 +957,12 @@ const typingLabel = computed(() =>
 );
 
 /** Писать можно сразу: сессия создастся при первом «Отправить». */
+const composerPlaceholder = computed(() =>
+  t("chat.composerPlaceholder", {
+    name: activeAgent.value?.name?.trim() || t("chat.agent"),
+  }),
+);
+
 const canSend = computed(
   () =>
     agents.value.length > 0 &&
@@ -1151,6 +1189,7 @@ async function listenTurn(
             undefined,
             undefined,
             m.id,
+            agent.id,
           );
         },
         onUpdate: () => {
@@ -1189,6 +1228,7 @@ async function listenTurn(
       incoming,
       requestAt ? Date.now() - requestAt : undefined,
       response.serverId,
+      agent.id,
     );
     // Ход на сервере всё-таки состоялся — засчитываем вызов.
     await recordCall(agent.id);
@@ -1674,6 +1714,7 @@ async function exchange(
               undefined,
               Date.now() - startedAt,
               m.id,
+              agent.id,
             );
           },
           onDelete: async (id) => {
@@ -1704,6 +1745,7 @@ async function exchange(
       incoming,
       Date.now() - startedAt,
       response.serverId,
+      agent.id,
     );
     // Ответ уже в ленте — живое облачко убираем, чтобы не было двух одинаковых.
     if (shown()) streamingText.value = "";
@@ -2920,6 +2962,7 @@ function onRateChange(event: Event): void {
         >
           {{ text }}
         </button>
+        <p v-if="activeAgent" class="chat-panel__quick-agent">{{ activeAgent.name }}</p>
       </div>
 
       <p v-if="lifted" class="chat-panel__lift" role="status">
@@ -3000,14 +3043,50 @@ function onRateChange(event: Event): void {
               <path d="M20.5 11.5 12 20a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8" />
             </svg>
           </button>
+          <div class="chat-panel__agent-pick" data-agent-trigger>
+            <button
+              type="button"
+              class="chat-panel__icon-btn"
+              :class="{ 'is-on': agentMenuOpen }"
+              v-tip="t('chat.agent')"
+              :aria-label="t('chat.agent')"
+              :aria-expanded="agentMenuOpen"
+              :disabled="composerDisabled || agents.length === 0"
+              @click="guardBlur(); toggleAgentMenu()"
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="8" r="3" />
+                <path d="M5 19a7 7 0 0 1 14 0" />
+              </svg>
+            </button>
+            <div
+              v-if="agentMenuOpen"
+              class="chat-panel__agent-menu"
+              role="listbox"
+              :aria-label="t('chat.agent')"
+            >
+              <button
+                v-for="agent in agents"
+                :key="agent.id"
+                type="button"
+                class="chat-panel__agent-option"
+                :class="{ 'is-on': agent.id === (activeSession?.agentId || agentId) }"
+                role="option"
+                :aria-selected="agent.id === (activeSession?.agentId || agentId)"
+                @click="chooseAgent(agent.id)"
+              >
+                {{ agent.name }}
+              </button>
+            </div>
+          </div>
           <textarea
             ref="composerEl"
             v-model="draft"
             class="chat-panel__input"
             rows="1"
             enterkeyhint="enter"
-            :placeholder="t('chat.composerPlaceholder')"
-            :aria-label="t('chat.composerPlaceholder')"
+            :placeholder="composerPlaceholder"
+            :aria-label="composerPlaceholder"
             :disabled="composerDisabled"
             @keydown="onComposerKey"
             @paste="onPaste"
@@ -4596,6 +4675,61 @@ function onRateChange(event: Event): void {
 
 .chat-panel__quick-item:hover {
   border-color: var(--accent);
+}
+
+.chat-panel__quick-agent {
+  margin: 0;
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.chat-panel__agent-pick {
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
+}
+
+.chat-panel__agent-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 180px;
+  max-width: min(280px, 70vw);
+  max-height: min(40vh, 280px);
+  overflow-y: auto;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.2);
+}
+
+.chat-panel__agent-option {
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.88rem;
+  text-align: start;
+  cursor: pointer;
+}
+
+.chat-panel__agent-option:hover,
+.chat-panel__agent-option.is-on {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.chat-panel__icon-btn.is-on {
+  color: var(--accent);
 }
 
 .chat-panel__dock.is-overlay {

@@ -8,7 +8,6 @@ import LanguageSwitcher from "./components/LanguageSwitcher.vue";
 import ThemeSwitcher from "./components/ThemeSwitcher.vue";
 import InstallButton from "./components/InstallButton.vue";
 import AppFooter from "./components/AppFooter.vue";
-import { agentId } from "./lib/active-agent";
 import { currentLanguageCode } from "./lib/dictation";
 import {
   loadSpeechVoices,
@@ -27,7 +26,7 @@ import {
   voiceMatchesLanguage,
   voiceProvider,
 } from "./lib/speech";
-import { agents, loadAgents, loadSessions } from "./lib/store";
+import { loadAgents, loadSessions } from "./lib/store";
 import { useTheme } from "./lib/theme";
 import { watchForUpdate } from "./lib/version-update";
 import { useLocale } from "./i18n";
@@ -55,12 +54,6 @@ const { theme } = useTheme();
 const brandIcon = computed(
   () => `${import.meta.env.BASE_URL}icon${theme.value === "dark" ? "-dark" : ""}.svg?v=2`,
 );
-const headerAgent = computed(() => agents.value.find((agent) => agent.id === agentId.value));
-
-function headerProtocol(): string {
-  const protocol = headerAgent.value?.protocol ?? "http_json";
-  return t(("connections.protocol." + protocol) as "connections.protocol.http_json");
-}
 /** Плашка «доступна новая версия»: ставится, когда SW перешёл на новую сборку. */
 const updateReady = ref(false);
 watchForUpdate(() => {
@@ -129,13 +122,6 @@ onBeforeUnmount(() => {
           <strong class="brand-name">{{ t("app.name") }}</strong>
           <span class="brand-sub">AI chat</span>
         </div>
-      </div>
-      <div class="topbar-agent">
-        <select v-model="agentId" class="topbar-agent__select" :aria-label="t('chat.agent')">
-          <option value="">{{ t("chat.selectAgent") }}</option>
-          <option v-for="agent in agents" :key="agent.id" :value="agent.id">{{ agent.name }}</option>
-        </select>
-        <span v-if="headerAgent" class="topbar-agent__protocol">{{ headerProtocol() }}</span>
       </div>
       <button
         v-if="tab !== 'chat'"
@@ -328,32 +314,6 @@ onBeforeUnmount(() => {
   background: var(--panel);
   flex-wrap: nowrap;
   min-width: 0;
-}
-
-.topbar-agent {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.topbar-agent__select {
-  width: auto;
-  max-width: min(240px, 42vw);
-  min-width: 0;
-  padding: 4px 8px;
-  font-size: 0.82rem;
-}
-
-.topbar-agent__protocol {
-  padding: 2px 8px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--panel-2);
-  color: var(--muted);
-  font-size: 11px;
-  white-space: nowrap;
 }
 
 .back-btn {

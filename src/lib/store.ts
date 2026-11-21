@@ -173,6 +173,32 @@ export async function renameSession(sessionId: string, title: string): Promise<v
   await loadSessions();
 }
 
+/**
+ * Запомнить текущего агента на ответах без подписи.
+ * Иначе смена агента сессии перепишет, кто отвечал раньше.
+ */
+export async function stampUnownedReplies(sessionId: string, responderId: string): Promise<void> {
+  const targets = messages.value.filter(
+    (message) =>
+      message.sessionId === sessionId &&
+      message.role === "assistant" &&
+      !message.responderId,
+  );
+  for (const message of targets) {
+    message.responderId = responderId;
+    await putMessage(toRaw(message));
+  }
+}
+
+/** Сменить агента у открытого диалога: следующие ответы идут ему. */
+export async function assignSessionAgent(sessionId: string, nextAgentId: string): Promise<void> {
+  const session = sessions.value.find((s) => s.id === sessionId);
+  if (!session || session.agentId === nextAgentId) return;
+  session.agentId = nextAgentId;
+  session.updatedAt = Date.now();
+  await putSession(toRaw(session));
+}
+
 /** Закрепить/открепить диалог. */
 export async function pinSession(sessionId: string, pinned: boolean): Promise<void> {
   const session = sessions.value.find((s) => s.id === sessionId);
@@ -223,6 +249,8 @@ export async function appendMessage(
   elapsedMs?: number,
   /** Идентификатор сообщения на стороне агента (`message.delete`, `message.update`). */
   serverId?: string,
+  /** Кто написал ответ — чтобы подпись в ленте не менялась вместе с агентом сессии. */
+  responderId?: string,
 ): Promise<Message> {
   const message: Message = {
     id: newId("msg"),
@@ -234,6 +262,7 @@ export async function appendMessage(
     ...(typeof elapsedMs === "number" && elapsedMs >= 0 ? { elapsedMs } : {}),
     ...(attachments && attachments.length > 0 ? { attachments } : {}),
     ...(serverId ? { serverId } : {}),
+    ...(responderId ? { responderId } : {}),
   };
   await putMessage(message);
 

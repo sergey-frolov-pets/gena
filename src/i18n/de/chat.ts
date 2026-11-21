@@ -13,7 +13,7 @@ export const chatMessages = {
   "chat.sessionName": "Dialogname",
   "chat.selectOrCreate": "Dialog auswählen oder erstellen",
   "chat.messagesEmpty": "Noch keine Nachrichten.",
-  "chat.composerPlaceholder": "Nachricht… (Umschalt+Enter zum Senden)",
+  "chat.composerPlaceholder": "{name}… (Umschalt+Enter zum Senden)",
   "chat.send": "Senden",
   "chat.usage": "{used} / {limit} Aufrufe heute",
   "chat.remaining": "Verbleibende Aufrufe heute: {remaining}",

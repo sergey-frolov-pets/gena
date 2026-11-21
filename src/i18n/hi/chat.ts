@@ -13,7 +13,7 @@ export const chatMessages = {
   "chat.sessionName": "डायलॉग का नाम",
   "chat.selectOrCreate": "संवाद चुनें या बनाएँ",
   "chat.messagesEmpty": "अभी कोई संदेश नहीं है।",
-  "chat.composerPlaceholder": "संदेश… (भेजने के लिए Shift+Enter)",
+  "chat.composerPlaceholder": "{name}… (भेजने के लिए Shift+Enter)",
   "chat.send": "भेजें",
   "chat.usage": "आज {used} / {limit} कॉल",
   "chat.remaining": "आज शेष कॉल: {remaining}",
