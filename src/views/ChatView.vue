@@ -177,6 +177,7 @@ const historyQuery = ref("");
 /** Режим переименования диалога в шапке. */
 const renaming = ref(false);
 const renameDraft = ref("");
+const renameEl = ref<HTMLInputElement | null>(null);
 /** Что только что скопировали — для галочки «Скопировано». */
 const copiedId = ref("");
 /** Изображения, готовые к отправке (полный data-URL живёт только в памяти). */
@@ -1921,10 +1922,28 @@ function toggleAutoSpeak(): void {
 function startRename(): void {
   renameDraft.value = activeSession.value?.title ?? "";
   renaming.value = true;
+  // Фокус в поле: иначе не сработает отмена по потере фокуса, а на телефоне
+  // пользователю пришлось бы ещё раз тапать по полю, чтобы начать печатать.
+  void nextTick(() => {
+    renameEl.value?.focus();
+    renameEl.value?.select();
+  });
 }
 
 /** Клик/тап мимо поля заголовка и кнопки «Переименовать» закрывает режим правки. */
 function onRenameOutside(event: Event): void {
+  if (!renaming.value) return;
+  const target = event.target as HTMLElement | null;
+  if (!target?.closest) return;
+  if (target.closest("[data-rename-keep]")) return;
+  renaming.value = false;
+}
+
+/**
+ * Второй путь отмены: обычный `click` мимо поля. `pointerdown` на тач-устройствах
+ * иногда уходит не в документ (жест забрал браузер), а click приходит всегда.
+ */
+function onRenameClickOutside(event: Event): void {
   if (!renaming.value) return;
   const target = event.target as HTMLElement | null;
   if (!target?.closest) return;
@@ -2103,6 +2122,7 @@ onMounted(() => {
   document.addEventListener("visibilitychange", onVisibility);
   document.addEventListener("pointerdown", onQuickOutside, true);
   document.addEventListener("pointerdown", onRenameOutside, true);
+  document.addEventListener("click", onRenameClickOutside, true);
   window.addEventListener("keydown", onQuickKey);
   // Постоянное хранилище: IndexedDB не должна вычищаться при нехватке места.
   void navigator.storage?.persist?.();
@@ -2138,6 +2158,7 @@ onUnmounted(() => {
   document.removeEventListener("visibilitychange", onVisibility);
   document.removeEventListener("pointerdown", onQuickOutside, true);
   document.removeEventListener("pointerdown", onRenameOutside, true);
+  document.removeEventListener("click", onRenameClickOutside, true);
   window.removeEventListener("keydown", onQuickKey);
   threadObserver?.disconnect();
   threadObserver = null;
@@ -2195,6 +2216,7 @@ function onRateChange(event: Event): void {
       </button>
       <template v-else>
         <input
+          ref="renameEl"
           v-model="renameDraft"
           class="chat-panel__rename"
           data-rename-keep
@@ -3233,8 +3255,8 @@ function onRateChange(event: Event): void {
   position: relative;
   z-index: 1;
   align-items: center;
-  min-height: 2.5rem;
-  max-width: 10rem;
+  min-height: 2.2rem;
+  max-width: 11.5rem;
   border: 1px solid transparent;
   border-bottom-color: var(--border);
   border-radius: 8px 8px 0 0;
@@ -3259,8 +3281,8 @@ function onRateChange(event: Event): void {
   align-items: center;
   gap: 5px;
   align-self: stretch;
-  min-height: 2.5rem;
-  max-width: 8rem;
+  min-height: 2.2rem;
+  max-width: 9.2rem;
   padding: 0 4px 0 8px;
   border: 0;
   background: transparent;
@@ -3313,12 +3335,12 @@ function onRateChange(event: Event): void {
 /* Телефон: вкладки ещё уже — больше диалогов влезает в полоску. */
 @media (max-width: 720px) {
   .chat-panel__tab {
-    min-height: 2.25rem;
-    max-width: 7rem;
+    min-height: 2.05rem;
+    max-width: 8rem;
   }
   .chat-panel__tab-open {
-    min-height: 2.25rem;
-    max-width: 5.5rem;
+    min-height: 2.05rem;
+    max-width: 6.3rem;
     padding: 0 2px 0 7px;
     font-size: 0.74rem;
   }
@@ -4356,6 +4378,8 @@ function onRateChange(event: Event): void {
   inset-inline: 0;
   bottom: 0;
   z-index: 30;
+  /* Панель выступает над полем ввода ровно на столько же, на сколько снизу. */
+  padding-top: 8px;
   padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
   background: var(--panel);
   border-top: 1px solid var(--border);

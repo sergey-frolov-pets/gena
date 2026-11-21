@@ -4,7 +4,9 @@
  * Названия диалогов в полоске вкладок и в списке не влезают целиком,
  * поэтому долгий тап открывает их без сокращений.
  */
-import { onBeforeUnmount, watch } from "vue";
+import { onBeforeUnmount, ref, watch } from "vue";
+
+import { isPhantomTap } from "@/lib/press-guard";
 
 const props = defineProps<{
   open: boolean;
@@ -14,6 +16,14 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{ close: [] }>();
+
+/** Момент открытия: тап, которым закончилось долгое нажатие, не должен закрывать. */
+const openedAt = ref(0);
+
+function closeNow(): void {
+  if (isPhantomTap(openedAt.value, Date.now())) return;
+  emit("close");
+}
 
 function onKeydown(event: KeyboardEvent): void {
   if (event.key !== "Escape") return;
@@ -25,8 +35,12 @@ function onKeydown(event: KeyboardEvent): void {
 watch(
   () => props.open,
   (open) => {
-    if (open) window.addEventListener("keydown", onKeydown);
-    else window.removeEventListener("keydown", onKeydown);
+    if (open) {
+      openedAt.value = Date.now();
+      window.addEventListener("keydown", onKeydown);
+    } else {
+      window.removeEventListener("keydown", onKeydown);
+    }
   },
   { immediate: true },
 );
@@ -41,13 +55,13 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
     role="dialog"
     aria-modal="true"
     :aria-label="title"
-    @click.self="emit('close')"
+    @click.self="closeNow"
   >
     <div class="text-modal__card">
       <h3 class="text-modal__title">{{ title }}</h3>
       <p class="text-modal__text">{{ text }}</p>
       <div class="text-modal__actions">
-        <button type="button" class="text-modal__btn" @click="emit('close')">
+        <button type="button" class="text-modal__btn" @click="closeNow">
           {{ closeLabel }}
         </button>
       </div>
