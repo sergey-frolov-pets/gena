@@ -59,6 +59,7 @@ export const appMessages = {
   "about.ask.copied": "Copied",
   "about.catalog.title": "Agents and models",
   "about.catalog.agents": "Agents",
+  "about.catalog.clients": "OpenCode, Goose, Cline, Claude Code, Aider, and Cursor call a model themselves. They do not give Gena an address. Gena connects to a gateway that speaks Pico or OpenAI chat: PicoClaw, OpenClaw, and Hermes.",
   "about.catalog.models": "LLMs",
   "about.catalog.cors": "Gena calls the address from the browser, so the agent must allow this page's origin (CORS). On the public site that origin is https://sergey-frolov-pets.github.io. A program on 127.0.0.1 still needs that permission.",
   "about.catalog.docs": "Setup guide",

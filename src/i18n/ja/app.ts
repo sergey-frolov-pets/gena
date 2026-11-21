@@ -59,6 +59,7 @@ export const appMessages = {
   "providers.hint.local": "このコンピューターで動きます。アプリを起動してからこのベース URL を使います。キーを確認しないなら、空でない値で足ります。",
   "about.catalog.title": "エージェントとモデル",
   "about.catalog.agents": "エージェント",
+  "about.catalog.clients": "OpenCode、Goose、Cline、Claude Code、Aider、Cursor は自分でモデルを呼びます。Gena 用のアドレスは出しません。Gena がつなぐのは Pico か OpenAI chat を話すゲートウェイです: PicoClaw、OpenClaw、Hermes。",
   "about.catalog.models": "LLM",
   "about.catalog.cors": "Gena はブラウザーからアドレスを呼びます。エージェントはこのページのオリジンを許可する必要があります（CORS）。公開サイトでは https://sergey-frolov-pets.github.io です。127.0.0.1 のプログラムでも同じ許可が要ります。",
   "about.catalog.docs": "手順",

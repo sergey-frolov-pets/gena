@@ -99,6 +99,7 @@ async function copyPrompt(): Promise<void> {
       <p class="about__lead">{{ t("about.catalog.cors") }}</p>
 
       <h3>{{ t("about.catalog.agents") }}</h3>
+      <p>{{ t("about.catalog.clients") }}</p>
       <ul class="about__cards">
         <li v-for="agent in connectableAgents" :key="agent.id">
           <div class="about__card-head">

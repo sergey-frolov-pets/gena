@@ -59,6 +59,7 @@ export const appMessages = {
   "providers.hint.local": "يعمل على هذا الحاسوب. شغّل البرنامج ثم استخدم هذا العنوان. إن لم يفحص المفتاح، أي قيمة غير فارغة تكفي.",
   "about.catalog.title": "الوكلاء والنماذج",
   "about.catalog.agents": "الوكلاء",
+  "about.catalog.clients": "OpenCode وGoose وCline وClaude Code وAider وCursor تستدعي النموذج بنفسها. لا تعطي Gena عنواناً. Gena يتصل ببوابة تتحدث Pico أو OpenAI chat: PicoClaw وOpenClaw وHermes.",
   "about.catalog.models": "النماذج",
   "about.catalog.cors": "Gena يستدعي العنوان من المتصفح، لذا يجب أن يسمح الوكيل بمصدر هذه الصفحة (CORS). في الموقع العام المصدر هو https://sergey-frolov-pets.github.io. البرنامج على 127.0.0.1 يحتاج الإذن نفسه.",
   "about.catalog.docs": "الدليل",
