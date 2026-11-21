@@ -583,3 +583,87 @@ describe("pico-ws: cancel и turn.resume", () => {
     await expect(p).resolves.toMatchObject({ reply: "живой ответ" });
   });
 });
+
+describe("pico-ws: восстановление связи после обрыва", () => {
+  beforeEach(() => {
+    FakeWebSocket.instances = [];
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("поздний close отброшенного сокета не запускает второе восстановление", async () => {
+    const { p, ws } = await connect();
+    // Первый обрыв — переподключаемся на новый сокет.
+    ws.emit("close");
+    await vi.advanceTimersByTimeAsync(600);
+    const second = FakeWebSocket.instances.at(-1)!;
+    second.emit("open");
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Старый сокет «дозакрывается» уже после восстановления: это не новый обрыв.
+    ws.emit("close");
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(FakeWebSocket.instances.at(-1)).toBe(second);
+
+    second.frame({ type: "message.create", payload: { content: "догнал", message_id: "m7" } });
+    await vi.advanceTimersByTimeAsync(QUIET);
+    await expect(p).resolves.toMatchObject({ reply: "догнал" });
+  });
+
+  it("turn.resume без хода переспрашивает, а потом просит отправить реплику заново", async () => {
+    const transport = makePicoTransport(ctor);
+    const states: Array<{ active: boolean; frames: number }> = [];
+    const p = transport.send(req(), { onTurnState: (state) => states.push(state) });
+    const first = FakeWebSocket.instances.at(-1)!;
+    first.emit("open");
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Сокет умер сразу после отправки — сервер ход ещё не начал.
+    first.emit("close");
+    await vi.advanceTimersByTimeAsync(600);
+    const second = FakeWebSocket.instances.at(-1)!;
+    second.emit("open");
+    await vi.advanceTimersByTimeAsync(0);
+
+    const assertion = expect(p).rejects.toMatchObject({ code: "turn_lost" });
+    // Три пустых ответа: два переспроса, только потом «реплика потеряна».
+    for (let i = 0; i < 3; i++) {
+      const asks = second.sent
+        .map((raw) => JSON.parse(raw))
+        .filter((frame) => frame.type === "turn.resume");
+      second.frame({
+        type: "turn.resume",
+        id: asks.at(-1)?.id,
+        payload: { active: false, returned: 0, frames: [] },
+      });
+      await vi.advanceTimersByTimeAsync(i < 2 ? 6_500 : 0);
+    }
+    await assertion;
+    expect(states.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("переспрос находит живой ход и ответ доходит до конца", async () => {
+    const { p, ws } = await connect();
+    ws.emit("close");
+    await vi.advanceTimersByTimeAsync(600);
+    const second = FakeWebSocket.instances.at(-1)!;
+    second.emit("open");
+    await vi.advanceTimersByTimeAsync(0);
+
+    const ask = second.sent.map((raw) => JSON.parse(raw)).find((f) => f.type === "turn.resume");
+    second.frame({
+      type: "turn.resume",
+      id: ask.id,
+      payload: { active: false, returned: 0, frames: [] },
+    });
+    await vi.advanceTimersByTimeAsync(6_500);
+
+    // Ход на сервере всё-таки идёт — ответ приходит на переспрос.
+    second.frame({ type: "message.create", payload: { content: "поздний ответ", message_id: "m8" } });
+    await vi.advanceTimersByTimeAsync(QUIET);
+    await expect(p).resolves.toMatchObject({ reply: "поздний ответ" });
+  });
+});

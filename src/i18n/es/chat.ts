@@ -41,6 +41,8 @@ export const chatMessages = {
   "chat.stopped": "Detenido",
   "chat.link.reconnecting": "Conexión interrumpida: reconectando…",
   "chat.link.restored": "Conexión restablecida",
+  "chat.link.lost": "Se perdió la conexión: retomo la respuesta en cuanto vuelva.",
+  "chat.link.resend": "Conexión restablecida: reenvío la solicitud.",
   "chat.jumpTop": "Al inicio",
   "chat.jumpEnd": "Al final",
   "chat.retry": "Reintentar",

@@ -41,6 +41,8 @@ export const chatMessages = {
   "chat.stopped": "停止しました",
   "chat.link.reconnecting": "接続が切れました。再接続中…",
   "chat.link.restored": "接続が回復しました",
+  "chat.link.lost": "接続が切れました。復旧しだい回答を引き継ぎます。",
+  "chat.link.resend": "接続が復旧しました。リクエストを再送します。",
   "chat.jumpTop": "先頭へ",
   "chat.jumpEnd": "最新へ",
   "chat.retry": "再試行",

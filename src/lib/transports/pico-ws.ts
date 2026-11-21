@@ -90,6 +90,15 @@ const MAX_RECOVERIES = 6;
 const HIDDEN_WAIT_MS = 20_000;
 /** Отступ назад при запросе пропущенных кадров: расхождение часов клиента и сервера. */
 const RESUME_MARGIN_MS = 60_000;
+/**
+ * Переспрос «ход ещё идёт?» после переподключения.
+ *
+ * Сокет может умереть сразу после отправки реплики — сервер в этот момент ещё
+ * не начал ход, и `turn.resume` честно отвечает `active: false`. Два переспроса
+ * с паузой позволяют отличить «ход не начался» от «реплика потеряна».
+ */
+const RESUME_PROBE_MS = 6_000;
+const RESUME_PROBES = 2;
 
 /**
  * Активные ходы текущей вкладки. По ним кнопка «Стоп» просит сервер
@@ -259,6 +268,8 @@ function runTurn(
     let idleTimer: ReturnType<typeof setTimeout> | null = null;
     let errorTimer: ReturnType<typeof setTimeout> | null = null;
     let noticeTimer: ReturnType<typeof setTimeout> | null = null;
+    /** Переспрос `turn.resume` после переподключения. */
+    let resumeProbeTimer: ReturnType<typeof setTimeout> | null = null;
     /** Прикладной ping: связь проверяется, даже когда агент долго молчит. */
     let pingTimer: ReturnType<typeof setInterval> | null = null;
     /** Когда последний раз приходил ЛЮБОЙ кадр (включая `pong`). */
@@ -275,6 +286,8 @@ function runTurn(
     let recovering: Promise<boolean> | null = null;
     /** Сколько раз уже восстанавливали связь в этом ходе. */
     let recoveries = 0;
+    /** Сколько раз переспросили сервер «ход идёт?» после пустого `turn.resume`. */
+    let resumeProbes = 0;
     /** Потолок хода: в фоне сдвигается, а не рубит работу. */
     let hardTimer: ReturnType<typeof setTimeout> | null = null;
     /** Шаги хода, уже отданные наверх — обновления по ним не дублируем. */
@@ -379,6 +392,10 @@ function runTurn(
         clearTimeout(noticeTimer);
         noticeTimer = null;
       }
+      if (resumeProbeTimer) {
+        clearTimeout(resumeProbeTimer);
+        resumeProbeTimer = null;
+      }
     }
 
     function finish<T>(fn: (value: T) => void, value: T): void {
@@ -423,6 +440,8 @@ function runTurn(
     /** Кадр пришёл — агент жив, сдвигаем watchdog и снимаем «шумовые» таймеры. */
     function touch(): void {
       lastFrameAt = Date.now();
+      // Настоящий кадр от агента: связь работает — бюджет восстановлений свежий.
+      recoveries = 0;
       clearPendingError();
       if (noticeTimer) {
         clearTimeout(noticeTimer);
@@ -468,6 +487,10 @@ function runTurn(
      * телефон уснул). Переподключаемся и просим у сервера кадры с момента
      * отправки реплики: сервер вещает их всем соединениям сессии и копит в буфере.
      * Только если восстановиться так и не удалось, ход падает ошибкой `ws_closed`.
+     *
+     * Пока вкладка спрятана, попытки не расходуются: сеть у телефона в фоне
+     * выключена, и раньше шесть «неудач» там заканчивались красной ошибкой,
+     * хотя ход на сервере шёл и ответ лежал в буфере.
      */
     function recover(): Promise<boolean> {
       if (recovering) {
@@ -480,15 +503,17 @@ function runTurn(
       ev.onLinkState?.("reconnecting");
       recovering = (async () => {
         try {
-          for (const wait of RECOVER_DELAYS_MS) {
-            if (settled) return true;
-            // В фоне сеть выключена — ждём возвращения на вкладку,
-            // а не жжём попытки впустую.
+          let attempt = 0;
+          while (!settled) {
             if (pageHidden()) {
               await whenVisible(HIDDEN_WAIT_MS);
-            } else {
-              await delay(wait);
+              continue;
             }
+            if (attempt >= RECOVER_DELAYS_MS.length) {
+              return false;
+            }
+            await delay(RECOVER_DELAYS_MS[attempt]);
+            attempt += 1;
             if (settled) return true;
             try {
               await withTimeout(
@@ -634,17 +659,43 @@ function runTurn(
           }
           const active = bundle.active === true;
           ev.onTurnState?.({ active, frames: frames.length });
-          // Ход закончился, а ответа в буфере нет — реплику придётся повторить.
-          if (!active && reply === null) {
+          if (active || reply !== null) {
+            return;
+          }
+          // Пассивное ожидание: хода на сервере нет — ответа уже не будет,
+          // наверх уходит `no_active_turn`, и реплика повторяется.
+          if (!shouldSend) {
             finish(
               reject,
-              new AgentClientError(
-                "turn is not running",
-                undefined,
-                shouldSend ? "ws_closed" : "no_active_turn",
-              ),
+              new AgentClientError("turn is not running", undefined, "no_active_turn"),
             );
+            return;
           }
+          // Сокет мог умереть сразу после отправки — сервер ещё не успел начать
+          // ход. Спрашиваем ещё пару раз, прежде чем считать реплику потерянной:
+          // иначе повторная отправка создавала дубль хода.
+          if (resumeProbes < RESUME_PROBES) {
+            resumeProbes += 1;
+            if (resumeProbeTimer) {
+              clearTimeout(resumeProbeTimer);
+            }
+            resumeProbeTimer = setTimeout(function askAgain() {
+              resumeProbeTimer = null;
+              if (settled || conn.readyState !== WS_OPEN) return;
+              conn.send({
+                type: "turn.resume",
+                id: newId(),
+                timestamp: Date.now(),
+                payload: { since: Math.max(0, sentAt - RESUME_MARGIN_MS), limit: 200 },
+              });
+            }, RESUME_PROBE_MS);
+            return;
+          }
+          // Ход не идёт и кадров в буфере нет — реплику надо отправить заново.
+          finish(
+            reject,
+            new AgentClientError("turn is not running", undefined, "turn_lost"),
+          );
           return;
         }
         touch();

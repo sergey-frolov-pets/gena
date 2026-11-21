@@ -41,6 +41,8 @@ export const chatMessages = {
   "chat.stopped": "Stopped",
   "chat.link.reconnecting": "Connection dropped — reconnecting…",
   "chat.link.restored": "Connection restored",
+  "chat.link.lost": "Connection lost — I'll pick the answer up as soon as it's back.",
+  "chat.link.resend": "Connection restored — resending the request.",
   "chat.jumpTop": "Scroll to start",
   "chat.jumpEnd": "Scroll to latest",
   "chat.retry": "Retry",

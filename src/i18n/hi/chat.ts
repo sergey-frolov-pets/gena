@@ -41,6 +41,8 @@ export const chatMessages = {
   "chat.stopped": "रोका गया",
   "chat.link.reconnecting": "कनेक्शन टूटा — फिर से जोड़ रहे हैं…",
   "chat.link.restored": "कनेक्शन बहाल",
+  "chat.link.lost": "कनेक्शन टूट गया — वापस आते ही उत्तर ले लूँगा।",
+  "chat.link.resend": "कनेक्शन बहाल — अनुरोध फिर भेज रहा हूँ।",
   "chat.jumpTop": "शुरू में",
   "chat.jumpEnd": "नवीनतम पर",
   "chat.retry": "पुनः प्रयास",
