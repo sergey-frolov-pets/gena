@@ -117,9 +117,9 @@ export function setAutoSpeak(value: boolean): void {
 
 const RATE_KEY = "gena-speech-rate";
 /** Варианты скорости в интерфейсе; 1 — обычная. */
-export const SPEECH_RATES = [0.75, 1, 1.25, 1.5, 2] as const;
+export const SPEECH_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5] as const;
 const MIN_RATE = 0.5;
-const MAX_RATE = 2;
+const MAX_RATE = 2.5;
 
 function readRate(): number {
   try {
@@ -131,7 +131,7 @@ function readRate(): number {
   }
 }
 
-/** Скорость чтения ответов: 0.75×…2×, по умолчанию 1×. */
+/** Скорость чтения ответов: 0.5×…2.5×, по умолчанию 1×. */
 export const speechRate = ref(readRate());
 
 const VOICE_KEY = "gena-speech-voice";
