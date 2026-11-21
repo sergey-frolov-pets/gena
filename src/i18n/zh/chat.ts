@@ -36,6 +36,7 @@ export const chatMessages = {
   "chat.steps.show": "显示步骤（{count}）",
   "chat.steps.hide": "收起步骤（{count}）",
   "chat.stop": "停止",
+  "chat.clearInput": "清空输入框",
   "chat.stopped": "已停止",
   "chat.link.reconnecting": "连接中断，正在重新连接…",
   "chat.link.restored": "连接已恢复",

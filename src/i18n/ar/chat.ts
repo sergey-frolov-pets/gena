@@ -36,6 +36,7 @@ export const chatMessages = {
   "chat.steps.show": "إظهار الخطوات ({count})",
   "chat.steps.hide": "إخفاء الخطوات ({count})",
   "chat.stop": "إيقاف",
+  "chat.clearInput": "مسح الحقل",
   "chat.stopped": "تم الإيقاف",
   "chat.link.reconnecting": "انقطع الاتصال — جارٍ إعادة الاتصال…",
   "chat.link.restored": "تمت استعادة الاتصال",

@@ -36,6 +36,7 @@ export const chatMessages = {
   "chat.steps.show": "चरण दिखाएँ ({count})",
   "chat.steps.hide": "चरण छिपाएँ ({count})",
   "chat.stop": "रोकें",
+  "chat.clearInput": "फ़ील्ड साफ़ करें",
   "chat.stopped": "रोका गया",
   "chat.link.reconnecting": "कनेक्शन टूटा — फिर से जोड़ रहे हैं…",
   "chat.link.restored": "कनेक्शन बहाल",

@@ -26,7 +26,7 @@ import {
 } from "@/lib/store";
 import { newId } from "@/lib/id";
 import { shouldOpenLastSession } from "@/lib/session-open";
-import { isSendKey } from "@/lib/composer";
+import { composerFieldHeight, isSendKey } from "@/lib/composer";
 import { listenToAgent, sendToAgent, type TransportAttachment } from "@/lib/agent-client";
 import { cancelAgentTurn } from "@/lib/agent-client";
 import { describeError } from "@/lib/errors";
@@ -171,6 +171,9 @@ const threadEl = ref<HTMLElement | null>(null);
 let threadObserver: ResizeObserver | null = null;
 /** Поле ввода — чтобы вернуть фокус после отправки. */
 const composerEl = ref<HTMLTextAreaElement | null>(null);
+/** Сколько строк сейчас в поле: от этого зависит кнопка «Очистить» и высота. */
+const composerLines = ref(1);
+const composerMultiline = computed(() => composerLines.value > 1);
 /** Шит истории диалогов (как в AiChatPanel). */
 const historyOpen = ref(false);
 const historyQuery = ref("");
@@ -320,6 +323,9 @@ function syncDockSpace(): void {
 }
 
 watch([compact, composerOpen], () => void nextTick(syncDockSpace), { flush: "post" });
+/* На телефоне поле ввода монтируется заново при каждом открытии — высоту
+   восстанавливаем по тексту, иначе длинный черновик окажется в одну строку. */
+watch(composerOpen, () => void autoGrow(), { flush: "post" });
 
 /* ── Стандартные сообщения: кнопки над композером ─────────────────────── */
 
@@ -1004,18 +1010,36 @@ function settleToBottom(): void {
 // Появление сообщений и стрим подтягиваем только если читатель у нижней границы.
 watch([messages, streamingText, typing], () => settleToBottom(), { flush: "post" });
 
-/** Растущее поле ввода, как в AiChatPanel (до 4 строк). */
+/** Растущее поле ввода, как в AiChatPanel (от 1 до 4 строк). */
 async function autoGrow(): Promise<void> {
   await nextTick();
   const el = composerEl.value;
   if (!el) return;
-  el.style.height = "auto";
-  el.style.height = `${Math.min(el.scrollHeight, 4 * 22)}px`;
+  const style = window.getComputedStyle(el);
+  const padding =
+    (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
+  // "normal" в computed style — считаем от размера шрифта (line-height 1.4 в CSS).
+  const lineHeight =
+    parseFloat(style.lineHeight) || Math.round((parseFloat(style.fontSize) || 14.4) * 1.4);
+  // Замер без влияния прежней высоты: height: 0 → scrollHeight = высота текста.
+  el.style.height = "0px";
+  const content = Math.max(0, el.scrollHeight - padding);
+  const lines = Math.max(1, Math.round(content / lineHeight));
+  composerLines.value = lines;
+  el.style.height = `${composerFieldHeight(lines, lineHeight, padding)}px`;
 }
 watch(draft, () => {
   saveDraftSoon();
   void autoGrow();
 });
+
+/** Кнопка «Очистить» над отправкой: появляется, когда в поле больше одной строки. */
+function clearComposer(): void {
+  draft.value = "";
+  error.value = "";
+  void autoGrow();
+  void nextTick(() => composerEl.value?.focus());
+}
 
 /** «Новый диалог» — просто чистый лист: запись в БД появится после первой отправки. */
 function newSession(): void {
@@ -2901,7 +2925,10 @@ function onRateChange(event: Event): void {
           multiple
           @change="onFilesPicked"
         />
-        <div class="chat-panel__composer-box" :class="{ 'is-recording': dictationListening }">
+        <div
+          class="chat-panel__composer-box"
+          :class="{ 'is-recording': dictationListening }"
+        >
           <button
             type="button"
             class="chat-panel__icon-btn"
@@ -2926,63 +2953,79 @@ function onRateChange(event: Event): void {
             @keydown="onComposerKey"
             @paste="onPaste"
           />
-          <button
-            v-if="dictationAvailable"
-            type="button"
-            class="chat-panel__icon-btn chat-panel__mic"
-            :class="{ 'is-listening': dictationListening }"
-            v-tip="dictationListening ? t('chat.dictateStop') : t('chat.dictate')"
-            :aria-label="dictationListening ? t('chat.dictateStop') : t('chat.dictate')"
-            :aria-pressed="dictationListening"
-            :disabled="composerDisabled"
-            @click="guardBlur(); onDictateToggle()"
-          >
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="9" y="3" width="6" height="11" rx="3" />
-              <path d="M5 11a7 7 0 0 0 14 0" />
-              <path d="M12 18v3" />
-            </svg>
-          </button>
-          <button
-            v-if="quickReplies.length > 0"
-            type="button"
-            class="chat-panel__icon-btn"
-            data-quick-trigger
-            v-tip="t('chat.quickReplies')"
-            :aria-label="t('chat.quickReplies')"
-            :aria-expanded="quickOpen"
-            :disabled="composerDisabled"
-            @click="guardBlur(); toggleQuick()"
-          >
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M13 2 5 13.5h6L10 22l9-12h-6z" />
-            </svg>
-          </button>
-          <button
-            v-if="busy && streamSessionId === activeSessionId"
-            type="button"
-            class="chat-panel__send is-stop"
-            v-tip="t('chat.stop')"
-            :aria-label="t('chat.stop')"
-            @click="stop"
-          >
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true">
-              <rect x="7" y="7" width="10" height="10" rx="2" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            class="chat-panel__send is-primary"
-            v-tip="t('chat.send')"
-            :aria-label="t('chat.send')"
-            :disabled="!canSend"
-            @click="send"
-          >
-            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M4 12h15" />
-              <path d="m13 6 6 6-6 6" />
-            </svg>
-          </button>
+          <div class="chat-panel__composer-stack">
+            <button
+              v-if="dictationAvailable"
+              type="button"
+              class="chat-panel__icon-btn chat-panel__mic"
+              :class="{ 'is-listening': dictationListening }"
+              v-tip="dictationListening ? t('chat.dictateStop') : t('chat.dictate')"
+              :aria-label="dictationListening ? t('chat.dictateStop') : t('chat.dictate')"
+              :aria-pressed="dictationListening"
+              :disabled="composerDisabled"
+              @click="guardBlur(); onDictateToggle()"
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="9" y="3" width="6" height="11" rx="3" />
+                <path d="M5 11a7 7 0 0 0 14 0" />
+                <path d="M12 18v3" />
+              </svg>
+            </button>
+            <button
+              v-if="quickReplies.length > 0"
+              type="button"
+              class="chat-panel__icon-btn"
+              data-quick-trigger
+              v-tip="t('chat.quickReplies')"
+              :aria-label="t('chat.quickReplies')"
+              :aria-expanded="quickOpen"
+              :disabled="composerDisabled"
+              @click="guardBlur(); toggleQuick()"
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M13 2 5 13.5h6L10 22l9-12h-6z" />
+              </svg>
+            </button>
+          </div>
+          <div class="chat-panel__composer-stack chat-panel__composer-stack--send">
+            <button
+              v-if="composerMultiline"
+              type="button"
+              class="chat-panel__icon-btn chat-panel__clear"
+              v-tip="t('chat.clearInput')"
+              :aria-label="t('chat.clearInput')"
+              @click="guardBlur(); clearComposer()"
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            </button>
+            <button
+              v-if="busy && streamSessionId === activeSessionId"
+              type="button"
+              class="chat-panel__send is-stop"
+              v-tip="t('chat.stop')"
+              :aria-label="t('chat.stop')"
+              @click="stop"
+            >
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true">
+                <rect x="7" y="7" width="10" height="10" rx="2" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              class="chat-panel__send is-primary"
+              v-tip="t('chat.send')"
+              :aria-label="t('chat.send')"
+              :disabled="!canSend"
+              @click="send"
+            >
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M4 12h15" />
+                <path d="m13 6 6 6-6 6" />
+              </svg>
+            </button>
+          </div>
         </div>
       </form>
     </div>
@@ -3743,11 +3786,44 @@ function onRateChange(event: Event): void {
 .chat-panel__composer-box {
   display: flex;
   align-items: flex-end;
-  gap: 4px;
+  gap: 6px;
   padding: 6px 6px 6px 10px;
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--panel-2);
+}
+
+/* Правая часть: микрофон над молнией — так под текст остаётся больше места
+   по ширине, а высоту столбик не отнимает (кнопки мелкие). */
+.chat-panel__composer-stack {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.chat-panel__composer-stack .chat-panel__icon-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+}
+
+.chat-panel__composer-stack .chat-panel__icon-btn svg {
+  width: 17px;
+  height: 17px;
+}
+
+/* «Очистить» появляется над отправкой, когда в поле больше одной строки. */
+.chat-panel__clear {
+  color: var(--muted);
+  opacity: 0.75;
+}
+
+.chat-panel__clear:hover:not(:disabled) {
+  color: var(--danger);
+  opacity: 1;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 
 .chat-panel__composer-box:focus-within {

@@ -36,6 +36,7 @@ export const chatMessages = {
   "chat.steps.show": "Show {count} steps",
   "chat.steps.hide": "Hide {count} steps",
   "chat.stop": "Stop",
+  "chat.clearInput": "Clear field",
   "chat.stopped": "Stopped",
   "chat.link.reconnecting": "Connection dropped — reconnecting…",
   "chat.link.restored": "Connection restored",
