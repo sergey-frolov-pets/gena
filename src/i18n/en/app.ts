@@ -12,7 +12,7 @@ export const appMessages = {
   "app.nav.sessions": "Sessions",
   "app.nav.about": "About",
   "providers.title": "Models and agents you can connect",
-  "providers.lead": "These services speak the OpenAI-compatible chat API. In Connections choose OpenAI-compatible, paste the base URL, your own key (BYOK), and the model id from that service.",
+  "providers.lead": "These services speak the OpenAI-compatible chat API, including Hugging Face, OpenRouter, and Russian providers. In Connections choose OpenAI-compatible and a provider name — the base URL is filled in. Then paste your own key (BYOK). If a key is already entered, you can request the model list and pick one.",
   "providers.cors": "Gena calls the address from the browser. The service must allow that (CORS). If Check connection fails on a CORS error, use a gateway that does allow the browser, a local server, or your own HTTP JSON agent.",
   "providers.openSite": "Open site",
   "providers.baseLabel": "Base URL",

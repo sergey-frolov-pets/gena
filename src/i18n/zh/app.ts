@@ -50,7 +50,7 @@ export const appMessages = {
   "about.ask.copy": "复制提示",
   "about.ask.copied": "已复制",
   "providers.title": "可以连接的模型和智能体",
-  "providers.lead": "这些服务使用 OpenAI 兼容的聊天 API。在连接里选择 OpenAI 兼容，粘贴基础 URL、你自己的密钥（BYOK）以及该服务的模型 id。",
+  "providers.lead": "这些服务使用 OpenAI 兼容的聊天 API，包括 Hugging Face、OpenRouter 和俄罗斯服务商。在连接里选择 OpenAI 兼容和服务商名称，基础 URL 会自动填入。然后粘贴你自己的密钥（BYOK）。已有密钥时可以拉取模型列表并选择。",
   "providers.cors": "Gena 从浏览器调用地址。服务必须允许（CORS）。如果检查连接因 CORS 失败，请改用允许浏览器的网关、本地服务，或你自己的 HTTP JSON 智能体。",
   "providers.openSite": "打开网站",
   "providers.baseLabel": "基础 URL",
