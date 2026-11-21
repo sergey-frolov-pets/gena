@@ -27,6 +27,7 @@ import {
 import { newId } from "@/lib/id";
 import { shouldOpenLastSession } from "@/lib/session-open";
 import { composerFieldHeight, isSendKey } from "@/lib/composer";
+import AppFooter from "@/components/AppFooter.vue";
 import { listenToAgent, sendToAgent, type TransportAttachment } from "@/lib/agent-client";
 import { cancelAgentTurn } from "@/lib/agent-client";
 import { describeError } from "@/lib/errors";
@@ -2742,6 +2743,9 @@ function onRateChange(event: Event): void {
         <p v-if="liveTyping" class="chat-panel__thinking">
           {{ typingLabel }}<span v-if="liveElapsed" class="chat-panel__elapsed"> · {{ liveElapsed }}</span>
         </p>
+        <div class="chat-panel__footer">
+          <AppFooter />
+        </div>
         </div>
       </div>
 
@@ -3584,6 +3588,12 @@ function onRateChange(event: Event): void {
   flex-direction: column;
   gap: 10px;
   min-height: 100%;
+}
+
+/* Футер — последний блок ленты: виден, когда чат долистан до низа.
+   На коротком диалоге прилипает к низу видимой области. */
+.chat-panel__footer {
+  margin-top: auto;
 }
 
 /* Кнопка «показать раньше»: над окном рендера, по центру, ненавязчивая. */
