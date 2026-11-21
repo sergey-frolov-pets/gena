@@ -9,6 +9,8 @@ const CORE = [
   "./icon-dark.svg",
   "./icon-192.png",
   "./icon-512.png",
+  "./icon-dark-192.png",
+  "./icon-dark-512.png",
   "./fsvibe-logo.svg",
 ];
 
