@@ -7,9 +7,11 @@
 
 import { AgentClientError } from "./client-error";
 import { toWireMessage, trimHistory } from "./history";
+import { HTTP_CAPABILITIES } from "./capabilities";
 import type { AgentTransport, TransportEvents, TransportRequest } from "./types";
 
 export const httpJsonTransport: AgentTransport = {
+  capabilities: HTTP_CAPABILITIES,
   async send(req: TransportRequest, _ev: TransportEvents): Promise<{ reply: string }> {
     const agent = req.agent;
     if (!agent.address) {

@@ -30,11 +30,7 @@ export const MAX_SEND = 300;
  * Плагины, которые клиент умеет рисовать. Неизвестный плагин — это fallback
  * в текст, чтобы новая карточка не сломала старую сборку.
  */
-export const KNOWN_PLUGINS: ReadonlySet<string> = new Set([
-  "ozadachnik.tasks",
-  "backlog.board",
-  "notes.doc",
-]);
+export { KNOWN_PLUGINS } from "./registry";
 
 export type UiView = "list" | "table" | "board" | "card" | "markdown";
 export type ActionScope = "item" | "view";

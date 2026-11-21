@@ -11,6 +11,7 @@
 
 import { newId } from "@/lib/id";
 import type { OpenAIConfig } from "@/storage/types";
+import { OPENAI_CAPABILITIES } from "./capabilities";
 import { AgentClientError } from "./client-error";
 import { contextMessages, toWireMessage, trimHistory } from "./history";
 import type { AgentTransport, TransportEvents, TransportRequest } from "./types";
@@ -116,6 +117,7 @@ async function readSseStream(
 }
 
 export const openaiTransport: AgentTransport = {
+  capabilities: OPENAI_CAPABILITIES,
   async send(req: TransportRequest, ev: TransportEvents): Promise<{ reply: string }> {
     const agent = req.agent;
     if (!agent.address) {

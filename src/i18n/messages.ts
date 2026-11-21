@@ -8,7 +8,7 @@ import { jaMessages } from "./ja";
 import { ptMessages } from "./pt";
 import { ruMessages } from "./ru";
 import { zhMessages } from "./zh";
-import type { LocaleMessages } from "./types";
+import type { LocaleKey, LocaleMessages } from "./types";
 
 export type { LocaleMessages } from "./types";
 export { isLocaleKey } from "./types";
@@ -26,7 +26,8 @@ export {
   zhMessages,
 };
 
-export const messagesByLocale: Record<AppLocale, LocaleMessages> = {
+/** Каждый словарь обязан содержать все английские ключи — иначе сборка не проходит. */
+const catalogs: Record<AppLocale, { [K in LocaleKey]: string }> = {
   en: enMessages,
   ru: ruMessages,
   es: esMessages,
@@ -37,6 +38,8 @@ export const messagesByLocale: Record<AppLocale, LocaleMessages> = {
   de: deMessages,
   ar: arMessages,
 };
+
+export const messagesByLocale: Record<AppLocale, LocaleMessages> = catalogs;
 
 /** Подстановка параметров вида `{name}` в шаблон. */
 export function formatMessage(

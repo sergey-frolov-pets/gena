@@ -98,7 +98,19 @@ export interface TransportEvents {
   onLinkState?: (state: "reconnecting" | "restored") => void;
 }
 
+/** Что умеет протокол. UI спрашивает таблицу, а не сравнивает строку протокола. */
+export interface TransportCapabilities {
+  media: boolean;
+  stream: boolean;
+  resume: boolean;
+  cancel: boolean;
+  tools: boolean;
+  /** Прямой разговор с моделью, а не с агентом. */
+  llm: boolean;
+}
+
 export interface AgentTransport {
+  capabilities: TransportCapabilities;
   send(req: TransportRequest, ev: TransportEvents): Promise<TransportReply>;
   /**
    * Подключиться к сессии и дождаться ответа уже идущего хода, ничего не отправляя.

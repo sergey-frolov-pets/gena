@@ -30,7 +30,9 @@ import { newId } from "@/lib/id";
 import type { PicoConfig } from "@/storage/types";
 import { parseIncomingAttachments } from "@/lib/media";
 import { isTurnNotice } from "@/lib/notices";
+import { PICO_CAPABILITIES } from "./capabilities";
 import { AgentClientError } from "./client-error";
+import { idleTurn, stepTurn, type TurnState } from "@/turn/machine";
 import { PicoConnection, WS_OPEN, type PicoFrame, type PicoSocketCtor } from "./pico-connection";
 import type {
   AgentTransport,
@@ -273,8 +275,15 @@ function runTurn(
     let sentAt = 0;
     /** Идущее молчаливое переподключение (одно на ход). */
     let recovering: Promise<boolean> | null = null;
-    /** Сколько раз уже восстанавливали связь в этом ходе. */
-    let recoveries = 0;
+    /** Сколько раз уже восстанавливали связь — решает автомат хода. */
+    let turn: TurnState = stepTurn(
+      stepTurn(idleTurn(MAX_RECOVERIES), {
+        type: "enqueue",
+        clientTurnId: requestId,
+        text: req.message,
+      }),
+      { type: "start" },
+    );
     /** Потолок хода: в фоне сдвигается, а не рубит работу. */
     let hardTimer: ReturnType<typeof setTimeout> | null = null;
     /** Шаги хода, уже отданные наверх — обновления по ним не дублируем. */
@@ -473,10 +482,10 @@ function runTurn(
       if (recovering) {
         return recovering;
       }
-      if (recoveries >= MAX_RECOVERIES) {
+      turn = stepTurn(turn, { type: "socketClosed" });
+      if (turn.phase === "failed") {
         return Promise.resolve(false);
       }
-      recoveries += 1;
       ev.onLinkState?.("reconnecting");
       recovering = (async () => {
         try {
@@ -512,6 +521,7 @@ function runTurn(
               payload: { since: Math.max(0, from - RESUME_MARGIN_MS), limit: 200 },
             });
             armIdle();
+            turn = stepTurn(turn, { type: "resume" });
             ev.onLinkState?.("restored");
             return true;
           }
@@ -820,6 +830,7 @@ function runTurn(
 
 export function makePicoTransport(ctor?: PicoSocketCtor): AgentTransport {
   return {
+    capabilities: PICO_CAPABILITIES,
     send(req: TransportRequest, ev: TransportEvents): Promise<TransportReply> {
       return runTurn(req, ev, true, ctor);
     },

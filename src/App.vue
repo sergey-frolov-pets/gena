@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { onMounted, ref } from "vue";
 import ConnectionsView from "./views/ConnectionsView.vue";
 import ChatView from "./views/ChatView.vue";
 import SessionsView from "./views/SessionsView.vue";
@@ -8,14 +8,18 @@ import ThemeSwitcher from "./components/ThemeSwitcher.vue";
 import InstallButton from "./components/InstallButton.vue";
 import AppFooter from "./components/AppFooter.vue";
 import { loadAgents, loadSessions } from "./lib/store";
-import { useTheme } from "./lib/theme";
 import { watchForUpdate } from "./lib/version-update";
 import { useLocale } from "./i18n";
 
 type Tab = "connections" | "chat" | "sessions";
 const tab = ref<Tab>("chat");
+const menuOpen = ref(false);
+
+function openTab(next: Tab): void {
+  tab.value = next;
+  menuOpen.value = false;
+}
 const { t } = useLocale();
-const { theme } = useTheme();
 /** Плашка «доступна новая версия»: ставится, когда SW перешёл на новую сборку. */
 const updateReady = ref(false);
 watchForUpdate(() => {
@@ -24,11 +28,6 @@ watchForUpdate(() => {
 function applyUpdate(): void {
   window.location.reload();
 }
-/** Иконка бренда: на тёмной теме — тёмный фон и светло-зелёный логотип. */
-const brandIcon = computed(
-  () => `${import.meta.env.BASE_URL}icon${theme.value === "dark" ? "-dark" : ""}.svg?v=2`,
-);
-
 onMounted(async () => {
   await loadAgents();
   await loadSessions();
@@ -38,91 +37,40 @@ onMounted(async () => {
 <template>
   <div class="app">
     <header class="topbar">
-      <div class="brand">
-        <img class="brand-icon" :src="brandIcon" alt="" aria-hidden="true" />
-        <div class="brand-text">
-          <strong class="brand-name">{{ t("app.name") }}</strong>
-          <span class="brand-sub">AI chat</span>
+      <button
+        v-if="tab !== 'chat'"
+        type="button"
+        class="back-btn"
+        @click="openTab('chat')"
+      >
+        {{ t("app.nav.chat") }}
+      </button>
+      <strong v-else class="brand-name">{{ t("app.name") }}</strong>
+      <button
+        type="button"
+        class="icon-btn menu-btn"
+        :aria-label="t('app.nav.main')"
+        :aria-expanded="menuOpen"
+        @click="menuOpen = !menuOpen"
+      >
+        ···
+      </button>
+      <div v-if="menuOpen" class="menu" role="menu">
+        <button type="button" role="menuitem" @click="openTab('connections')">
+          {{ t("app.nav.connections") }}
+        </button>
+        <button type="button" role="menuitem" @click="openTab('sessions')">
+          {{ t("app.nav.sessions") }}
+        </button>
+        <button type="button" role="menuitem" @click="openTab('chat')">
+          {{ t("app.nav.chat") }}
+        </button>
+        <div class="menu-row">
+          <LanguageSwitcher />
+          <ThemeSwitcher />
+          <InstallButton />
         </div>
       </div>
-      <nav :aria-label="t('app.nav.main')">
-        <button
-          type="button"
-          class="icon-btn"
-          :class="{ primary: tab === 'connections' }"
-          :aria-label="t('app.nav.connections')"
-          v-tip="t('app.nav.connections')"
-          :aria-pressed="tab === 'connections'"
-          @click="tab = 'connections'"
-        >
-          <svg
-            viewBox="0 0 24 24"
-            width="18"
-            height="18"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M9 17H7a5 5 0 0 1 0-10h2" />
-            <path d="M15 7h2a5 5 0 0 1 0 10h-2" />
-            <path d="M8 12h8" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          class="icon-btn"
-          :class="{ primary: tab === 'chat' }"
-          :aria-label="t('app.nav.chat')"
-          v-tip="t('app.nav.chat')"
-          :aria-pressed="tab === 'chat'"
-          @click="tab = 'chat'"
-        >
-          <svg
-            viewBox="0 0 24 24"
-            width="18"
-            height="18"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9.5 9.5 0 0 1-3.4-.6L3 21l1.7-5a8.4 8.4 0 0 1-.7-3.4 8.4 8.4 0 0 1 8.4-8.4 8.4 8.4 0 0 1 8.6 8.3z" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          class="icon-btn"
-          :class="{ primary: tab === 'sessions' }"
-          :aria-label="t('app.nav.sessions')"
-          v-tip="t('app.nav.sessions')"
-          :aria-pressed="tab === 'sessions'"
-          @click="tab = 'sessions'"
-        >
-          <svg
-            viewBox="0 0 24 24"
-            width="18"
-            height="18"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M4 5h16" />
-            <path d="M4 12h16" />
-            <path d="M4 19h10" />
-          </svg>
-        </button>
-      </nav>
-      <LanguageSwitcher />
-      <ThemeSwitcher />
-      <InstallButton />
     </header>
 
     <main class="content" :class="{ 'content--flush': tab === 'chat' }">
@@ -138,7 +86,7 @@ onMounted(async () => {
       <SessionsView v-else />
     </main>
 
-    <AppFooter />
+    <AppFooter v-if="tab !== 'chat'" />
   </div>
 </template>
 
@@ -150,18 +98,68 @@ onMounted(async () => {
 }
 
 .topbar {
-  /* Один размер для иконки бренда и иконочных кнопок навигации. */
-  --icon-btn-size: 32px;
+  --icon-btn-size: 36px;
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 20px;
+  min-height: 44px;
+  padding: 4px 12px;
   border-bottom: 1px solid var(--border);
   background: var(--panel);
-  /* Все элементы хедера — в одну строку: на телефоне сжимаем, а не переносим. */
-  flex-wrap: nowrap;
-  min-width: 0;
+}
+
+.back-btn {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 8px 4px;
+  cursor: pointer;
+}
+
+.menu-btn {
+  font-size: 1.1rem;
+  letter-spacing: 0.08em;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  inset-inline-end: 8px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 220px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+}
+
+.menu > button {
+  text-align: start;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.menu > button:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.menu-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 6px;
 }
 
 .brand {

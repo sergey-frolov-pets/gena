@@ -78,6 +78,23 @@ import {
 import { readQueued, toPersisted, type RestoredQueue } from "@/lib/queue";
 import { listQueued, replaceQueued } from "@/storage/queue";
 import { answerElapsed, formatClock, formatDuration } from "@/lib/time";
+import { capabilitiesOf } from "@/lib/transports";
+import {
+  AGENT_STORAGE_KEY,
+  FEED_WINDOW,
+  MAX_PENDING,
+  PENDING_KEY,
+  TABS_HIDDEN_KEY,
+  TABS_STORAGE_KEY,
+  draftKey,
+  forgetPending,
+  parsePending,
+  pendingFor,
+  readStoredText,
+  rememberPending,
+  writeStoredText,
+} from "@/turn/draft";
+import { canTakeNext, idleTurn, stepTurn, type TurnState } from "@/turn/machine";
 import ConfirmModal from "@/components/ConfirmModal.vue";
 import TextModal from "@/components/TextModal.vue";
 
@@ -205,29 +222,14 @@ const MAX_DOCUMENTS = 5;
 
 /* ── Черновик и незавершённый ход ─────────────────────────────────────── */
 
-const DRAFT_PREFIX = "gena.chat.draft.";
-const PENDING_KEY = "gena.chat.pending";
-const MAX_PENDING = 5;
+const turnState = ref<TurnState>(idleTurn());
 
 function readText(key: string): string {
-  try {
-    return window.localStorage.getItem(key) ?? "";
-  } catch {
-    return "";
-  }
+  return readStoredText(window.localStorage, key);
 }
 
 function writeText(key: string, value: string): void {
-  try {
-    if (value) window.localStorage.setItem(key, value);
-    else window.localStorage.removeItem(key);
-  } catch {
-    // Приватный режим или отключённое хранилище — живём без сохранения.
-  }
-}
-
-function draftKey(id: string | null): string {
-  return `${DRAFT_PREFIX}${id ?? "new"}`;
+  writeStoredText(window.localStorage, key, value);
 }
 
 let draftTimer: ReturnType<typeof setTimeout> | null = null;
@@ -263,44 +265,24 @@ function restoreLiftOnHide(): void {
 }
 
 function readPending(): PendingTurn[] {
-  try {
-    const raw = window.localStorage.getItem(PENDING_KEY);
-    const list: unknown = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(list)) return [];
-    return list.filter(
-      (item): item is PendingTurn =>
-        Boolean(item) &&
-        typeof (item as PendingTurn).sessionId === "string" &&
-        typeof (item as PendingTurn).text === "string" &&
-        typeof (item as PendingTurn).at === "number",
-    );
-  } catch {
-    return [];
-  }
+  return parsePending(readText(PENDING_KEY));
 }
 
 function writePending(list: PendingTurn[]): void {
   writeText(PENDING_KEY, JSON.stringify(list.slice(-MAX_PENDING)));
 }
 
-function rememberPending(turn: PendingTurn): void {
-  const list = readPending();
-  // Уже сохранён — не сдвигаем время: TTL считается от первой отправки.
-  if (list.some((item) => item.sessionId === turn.sessionId && item.text === turn.text)) return;
-  list.push(turn);
-  writePending(list);
+function rememberPendingTurn(turn: PendingTurn): void {
+  writePending(rememberPending(readPending(), turn));
 }
 
-function forgetPending(sessionId: string, text: string): void {
-  writePending(
-    readPending().filter((item) => !(item.sessionId === sessionId && item.text === text)),
-  );
+function forgetPendingTurn(sessionId: string, text: string): void {
+  writePending(forgetPending(readPending(), sessionId, text));
 }
 
 /** Последний незавершённый ход этого диалога. */
-function pendingFor(sessionId: string): PendingTurn | null {
-  const list = readPending().filter((item) => item.sessionId === sessionId);
-  return list.length > 0 ? list[list.length - 1] : null;
+function pendingTurnFor(sessionId: string): PendingTurn | null {
+  return pendingFor(readPending(), sessionId);
 }
 
 /* ── Окно ввода на телефоне: по тапу, поверх чата ─────────────────────── */
@@ -590,7 +572,6 @@ const feed = computed<Message[]>(() =>
  * и подвисает при скролле и стриме. Старое подгружается кнопкой «показать раньше»,
  * индекс остаётся сквозной по `feed` — от него зависят блоки размышлений и длительности.
  */
-const FEED_WINDOW = 80;
 const feedLimit = ref(FEED_WINDOW);
 
 const renderedFeed = computed(() => {
@@ -687,7 +668,6 @@ const filteredSessions = computed<Session[]>(() => {
 });
 
 /** Полоска недавних диалогов над чатом — как вкладки редактора в Cursor. */
-const TABS_STORAGE_KEY = "gena.chat.tabs";
 const MAX_TABS = 6;
 const tabIds = ref<string[]>(savedTabIds());
 
@@ -727,7 +707,6 @@ function rememberTab(id: string): void {
 }
 
 /** Закрытые вкладки: диалог живёт в списке, но в полоске его не показываем. */
-const TABS_HIDDEN_KEY = "gena.chat.tabs.hidden";
 const hiddenTabIds = ref<string[]>(savedHiddenTabIds());
 
 function savedHiddenTabIds(): string[] {
@@ -929,9 +908,7 @@ const limitLabel = computed(() => {
  * Пометка (LLM) — только для прямого OpenAI-совместимого подключения к модели,
  * а не для агента (Pico WS / HTTP JSON): там работает агент, не «модель».
  */
-const isLlmAgent = computed(
-  () => (activeAgent.value?.protocol ?? "http_json") === "openai",
-);
+const isLlmAgent = computed(() => capabilitiesOf(activeAgent.value).llm);
 
 const typingLabel = computed(() =>
   t(isLlmAgent.value ? "chat.typing.llm" : "chat.typing", {
@@ -951,10 +928,8 @@ const canSend = computed(
 /** Композер активен, как только есть хотя бы один агент. */
 const composerDisabled = computed(() => agents.value.length === 0);
 
-/** Вложения принимает только протокол Pico WS (`payload.media`). */
-const supportsImages = computed(
-  () => (activeAgent.value?.protocol ?? "http_json") === "pico_ws",
-);
+/** Вложения — только если транспорт объявил `media` (сейчас Pico WS). */
+const supportsImages = computed(() => capabilitiesOf(activeAgent.value).media);
 
 const dictationMessage = computed(() => {
   if (!dictationError.value) return "";
@@ -1072,7 +1047,6 @@ async function openSession(id: string): Promise<void> {
 }
 
 /** Последний агент запоминается, чтобы после перезагрузки открыть его диалог. */
-const AGENT_STORAGE_KEY = "gena.chat.agent";
 
 function rememberAgent(id: string): void {
   try {
@@ -1234,14 +1208,14 @@ async function listenTurn(
  */
 async function resumePending(sessionId: string): Promise<void> {
   if (busy.value || resuming.has(sessionId)) return;
-  const pending = pendingFor(sessionId);
+  const pending = pendingTurnFor(sessionId);
   if (!pending || !isPendingFresh(pending, Date.now())) return;
   const session = sessions.value.find((s) => s.id === sessionId);
   const agent = session && agents.value.find((a) => a.id === session.agentId);
   if (!session || !agent?.sealedKey) return;
   const list = await listMessages(sessionId);
   if (!shouldResume(list, pending, Date.now())) {
-    forgetPending(sessionId, pending.text);
+    forgetPendingTurn(sessionId, pending.text);
     return;
   }
   resuming.add(sessionId);
@@ -1271,7 +1245,7 @@ async function resumePending(sessionId: string): Promise<void> {
     stopTurnClock();
   }
   if (answered) {
-    forgetPending(sessionId, pending.text);
+    forgetPendingTurn(sessionId, pending.text);
     return;
   }
   // Ход жив, но ещё думает — повторно не отправляем, догоним в следующий раз.
@@ -1548,6 +1522,7 @@ async function editQueued(id: string): Promise<void> {
 
 /** Взять следующую реплику очереди и отправить. */
 async function drainQueue(): Promise<void> {
+  if (!canTakeNext(turnState.value.phase)) return;
   const head = queue.value[0];
   if (!head) return;
   // Диалог удалили, пока реплика ждала: в другой её не переносим.
@@ -1603,11 +1578,19 @@ async function exchange(
   stopDictation();
   lastText.value = text;
   busy.value = true;
-  // Часы хода: живой счётчик в облачке ответа и длительность после него.
   const startedAt = Date.now();
+  turnState.value = stepTurn(
+    stepTurn(idleTurn(), {
+      type: "enqueue",
+      clientTurnId: `${session.id}:${startedAt}`,
+      text,
+    }),
+    { type: "start" },
+  );
+  // Часы хода: живой счётчик в облачке ответа и длительность после него.
   startTurnClock(startedAt);
   // Запоминаем ход: если вкладку закроют до ответа, при следующем открытии догоним.
-  rememberPending({ sessionId: session.id, text, at: Date.now() });
+  rememberPendingTurn({ sessionId: session.id, text, at: Date.now() });
   streamSessionId.value = session.id;
   if (session.id === activeSessionId.value) streamingText.value = "";
   let failed = false;
@@ -1682,7 +1665,7 @@ async function exchange(
     if (shown()) streamingText.value = "";
     await recordCall(agent.id);
     await refreshUsage();
-    forgetPending(session.id, text);
+    forgetPendingTurn(session.id, text);
     if (autoSpeak.value && response.reply.trim()) {
       speak(reply.id, response.reply);
     }
@@ -1696,7 +1679,7 @@ async function exchange(
     const retryable = !controller.signal.aborted &&
       code !== undefined &&
       ["network", "ws_closed", "ws_timeout", "ws_connect"].includes(code);
-    if (!retryable) forgetPending(session.id, text);
+    if (!retryable) forgetPendingTurn(session.id, text);
     if (stoppedByUser.value) {
       // «Стоп»: ход прекращён намеренно — это не ошибка, а сообщение-статус.
       error.value = "";
@@ -1705,6 +1688,7 @@ async function exchange(
       error.value = describeError(e, t);
     }
   } finally {
+    turnState.value = stepTurn(turnState.value, { type: "complete" });
     busy.value = false;
     typing.value = false;
     abortCtrl.value = null;

@@ -3,10 +3,11 @@
  */
 
 import type { Agent } from "@/storage/types";
+import { HTTP_CAPABILITIES } from "./capabilities";
 import { httpJsonTransport } from "./http-json";
 import { openaiTransport } from "./openai";
 import { picoTransport } from "./pico-ws";
-import type { AgentTransport } from "./types";
+import type { AgentTransport, TransportCapabilities } from "./types";
 
 export type {
   AgentTransport,
@@ -17,6 +18,11 @@ export type {
 export { AgentClientError, type AgentClientErrorCode } from "./client-error";
 
 /** Выбрать транспорт по `agent.protocol` (нет поля → `http_json`). */
+export function capabilitiesOf(agent: Agent | undefined): TransportCapabilities {
+  if (!agent) return HTTP_CAPABILITIES;
+  return getTransport(agent).capabilities;
+}
+
 export function getTransport(agent: Agent): AgentTransport {
   switch (agent.protocol ?? "http_json") {
     case "openai":
