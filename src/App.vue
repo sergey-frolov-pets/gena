@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import ConnectionsView from "./views/ConnectionsView.vue";
 import ChatView from "./views/ChatView.vue";
 import SessionsView from "./views/SessionsView.vue";
@@ -8,6 +8,7 @@ import ThemeSwitcher from "./components/ThemeSwitcher.vue";
 import InstallButton from "./components/InstallButton.vue";
 import AppFooter from "./components/AppFooter.vue";
 import { loadAgents, loadSessions } from "./lib/store";
+import { useTheme } from "./lib/theme";
 import { watchForUpdate } from "./lib/version-update";
 import { useLocale } from "./i18n";
 
@@ -20,6 +21,11 @@ function openTab(next: Tab): void {
   menuOpen.value = false;
 }
 const { t } = useLocale();
+const { theme } = useTheme();
+/** Иконка бренда: на тёмной теме — тёмный фон и светло-зелёный логотип. */
+const brandIcon = computed(
+  () => `${import.meta.env.BASE_URL}icon${theme.value === "dark" ? "-dark" : ""}.svg?v=2`,
+);
 /** Плашка «доступна новая версия»: ставится, когда SW перешёл на новую сборку. */
 const updateReady = ref(false);
 watchForUpdate(() => {
@@ -37,6 +43,14 @@ onMounted(async () => {
 <template>
   <div class="app">
     <header class="topbar">
+      <div class="brand">
+        <img class="brand-icon" :src="brandIcon" alt="" aria-hidden="true" />
+        <div class="brand-text">
+          <strong class="brand-name">{{ t("app.name") }}</strong>
+          <span class="brand-sub">AI chat</span>
+        </div>
+      </div>
+      <div id="topbar-agent" class="topbar-agent"></div>
       <button
         v-if="tab !== 'chat'"
         type="button"
@@ -45,7 +59,6 @@ onMounted(async () => {
       >
         {{ t("app.nav.chat") }}
       </button>
-      <strong v-else class="brand-name">{{ t("app.name") }}</strong>
       <button
         type="button"
         class="icon-btn menu-btn"
@@ -57,12 +70,25 @@ onMounted(async () => {
       </button>
       <div v-if="menuOpen" class="menu" role="menu">
         <button type="button" role="menuitem" @click="openTab('connections')">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9 17H7a5 5 0 0 1 0-10h2" />
+            <path d="M15 7h2a5 5 0 0 1 0 10h-2" />
+            <path d="M8 12h8" />
+          </svg>
           {{ t("app.nav.connections") }}
         </button>
         <button type="button" role="menuitem" @click="openTab('sessions')">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 5h16" />
+            <path d="M4 12h16" />
+            <path d="M4 19h10" />
+          </svg>
           {{ t("app.nav.sessions") }}
         </button>
         <button type="button" role="menuitem" @click="openTab('chat')">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9.5 9.5 0 0 1-3.4-.6L3 21l1.7-5a8.4 8.4 0 0 1-.7-3.4 8.4 8.4 0 0 1 8.4-8.4 8.4 8.4 0 0 1 8.6 8.3z" />
+          </svg>
           {{ t("app.nav.chat") }}
         </button>
         <div class="menu-row">
@@ -98,16 +124,29 @@ onMounted(async () => {
 }
 
 .topbar {
-  --icon-btn-size: 36px;
+  --icon-btn-size: 32px;
   position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   min-height: 44px;
-  padding: 4px 12px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--border);
   background: var(--panel);
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.topbar-agent {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.topbar-agent:empty {
+  display: none;
 }
 
 .back-btn {
@@ -120,6 +159,7 @@ onMounted(async () => {
 }
 
 .menu-btn {
+  margin-inline-start: auto;
   font-size: 1.1rem;
   letter-spacing: 0.08em;
 }
@@ -141,6 +181,9 @@ onMounted(async () => {
 }
 
 .menu > button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   text-align: start;
   border: 0;
   background: transparent;
@@ -149,6 +192,10 @@ onMounted(async () => {
   padding: 10px 12px;
   border-radius: 8px;
   cursor: pointer;
+}
+
+.menu > button svg {
+  flex: none;
 }
 
 .menu > button:hover {
@@ -310,10 +357,4 @@ onMounted(async () => {
   }
 }
 
-/* Совсем узкий экран: подпись бренда убираем, имя оставляем. */
-@media (max-width: 359px) {
-  .brand-sub {
-    display: none;
-  }
-}
 </style>

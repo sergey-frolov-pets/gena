@@ -2358,13 +2358,16 @@ function onRateChange(event: Event): void {
       </template>
     </div>
 
-    <div class="chat-panel__agentbar">
+    <Teleport to="#topbar-agent">
       <select v-model="agentId" class="chat-panel__agent" :aria-label="t('chat.agent')">
         <option value="">{{ t("chat.selectAgent") }}</option>
         <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
       </select>
       <span v-if="activeAgent" class="chat-panel__badge">{{ protocolLabel() }}</span>
-      <span v-if="limitLabel" class="chat-panel__usage">{{ limitLabel }}</span>
+    </Teleport>
+
+    <div v-if="limitLabel" class="chat-panel__agentbar">
+      <span class="chat-panel__usage">{{ limitLabel }}</span>
     </div>
 
     <nav ref="tabsEl" v-if="recentTabs.length" class="chat-panel__tabs" :aria-label="t('chat.dialogs')">
@@ -3227,7 +3230,8 @@ function onRateChange(event: Event): void {
 
 .chat-panel__agent {
   width: auto;
-  max-width: 60%;
+  max-width: min(240px, 46vw);
+  min-width: 0;
   padding: 4px 8px;
   font-size: 0.82rem;
 }
