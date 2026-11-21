@@ -1229,6 +1229,8 @@ async function listenTurn(
       requestAt ? Date.now() - requestAt : undefined,
       response.serverId,
       agent.id,
+      response.model,
+      response.usage,
     );
     // Ход на сервере всё-таки состоялся — засчитываем вызов.
     await recordCall(agent.id);
@@ -1746,6 +1748,10 @@ async function exchange(
       Date.now() - startedAt,
       response.serverId,
       agent.id,
+      response.model ||
+        (agent.config as { model?: string } | undefined)?.model ||
+        agent.settings.llmModel,
+      response.usage,
     );
     // Ответ уже в ленте — живое облачко убираем, чтобы не было двух одинаковых.
     if (shown()) streamingText.value = "";

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import {
   agents,
   sessions,
@@ -28,6 +28,8 @@ import { clearAll, clearExcept } from "@/storage/cleanup";
 import { measureStorage, type StorageSizes } from "@/storage/sizes";
 import { formatSize } from "@/lib/sizes";
 import { useLocale } from "@/i18n";
+import { readModelPrices } from "@/lib/provider-account";
+import { sessionCostLabel } from "@/lib/session-cost";
 import type { Message, Session } from "@/storage/types";
 import ConfirmModal from "@/components/ConfirmModal.vue";
 
@@ -56,6 +58,37 @@ async function recalcSizes(): Promise<void> {
     measuring.value = false;
   }
 }
+
+/** Стоимость сессии, если известны и токены, и тариф модели. */
+const costs = ref<Record<string, string>>({});
+
+function modelOf(agentId: string): string {
+  const agent = agents.value.find((item) => item.id === agentId);
+  if (!agent) return "";
+  const config = agent.config as { model?: string } | undefined;
+  return (config?.model || agent.settings.llmModel || "").trim();
+}
+
+async function loadCosts(): Promise<void> {
+  const prices = readModelPrices();
+  const next: Record<string, string> = {};
+  if (Object.keys(prices).length > 0) {
+    for (const session of sessions.value) {
+      const messages = await listMessages(session.id);
+      const label = sessionCostLabel(messages, prices, modelOf(session.agentId));
+      if (label) next[session.id] = label;
+    }
+  }
+  costs.value = next;
+}
+
+onMounted(() => {
+  void loadCosts();
+});
+
+watch(sessions, () => {
+  void loadCosts();
+});
 
 /** Размер одной сессии (всё вместе: запись + сообщения) или пустая строка. */
 function sessionSize(sessionId: string): string {
@@ -294,6 +327,9 @@ async function runConfirmedCleanup(): Promise<void> {
             </span>
             <span v-if="sessionSize(s.id)" class="muted small">
               {{ t("sessions.size.item", { size: sessionSize(s.id) }) }}
+            </span>
+            <span v-if="costs[s.id]" class="muted small">
+              {{ t("sessions.cost", { cost: costs[s.id] }) }}
             </span>
           </span>
         </label>

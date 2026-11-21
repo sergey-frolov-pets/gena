@@ -40,4 +40,5 @@ export const sessionsMessages = {
   "sessions.size.breakdown": "Agenten {agents} · Sitzungen {sessions} · Nachrichten {messages}",
   "sessions.size.hint": "Die Größe wird auf Knopfdruck berechnet: alle Nachrichten in IndexedDB zu durchlaufen dauert einen Moment.",
   "sessions.size.item": "· {size}",
+  "sessions.cost": "· {cost}",
 } as const satisfies LocaleMessages;
