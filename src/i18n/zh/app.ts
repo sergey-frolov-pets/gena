@@ -59,6 +59,7 @@ export const appMessages = {
   "providers.hint.local": "在这台电脑上运行。先启动程序，再用这个基础 URL。如果不检查密钥，任意非空值即可。",
   "about.catalog.title": "智能体和模型",
   "about.catalog.agents": "智能体",
+  "about.catalog.clients": "OpenCode、Goose、Cline、Claude Code、Aider 和 Cursor 自己去调用模型，不给 Gena 一个地址。Gena 连接的是会说 Pico 或 OpenAI chat 的网关：PicoClaw、OpenClaw 和 Hermes。",
   "about.catalog.models": "LLM",
   "about.catalog.cors": "Gena 从浏览器调用地址，因此智能体必须允许本页来源（CORS）。公开站点的来源是 https://sergey-frolov-pets.github.io。即使程序在 127.0.0.1，也要允许这个来源。",
   "about.catalog.docs": "设置说明",

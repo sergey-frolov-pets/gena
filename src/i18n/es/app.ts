@@ -59,6 +59,7 @@ export const appMessages = {
   "providers.hint.local": "Funciona en este ordenador. Arranca el programa y usa esta URL base. Si no comprueba la clave, vale cualquier valor no vacío.",
   "about.catalog.title": "Agentes y modelos",
   "about.catalog.agents": "Agentes",
+  "about.catalog.clients": "OpenCode, Goose, Cline, Claude Code, Aider y Cursor llaman ellos mismos a un modelo. No dan una dirección a Gena. Gena se conecta a una pasarela que habla Pico u OpenAI chat: PicoClaw, OpenClaw y Hermes.",
   "about.catalog.models": "LLM",
   "about.catalog.cors": "Gena llama a la dirección desde el navegador, así que el agente debe permitir el origen de esta página (CORS). En el sitio público es https://sergey-frolov-pets.github.io. Un programa en 127.0.0.1 también necesita ese permiso.",
   "about.catalog.docs": "Guía",

@@ -59,6 +59,7 @@ export const appMessages = {
   "about.ask.copied": "Скопировано",
   "about.catalog.title": "Агенты и модели",
   "about.catalog.agents": "Агенты",
+  "about.catalog.clients": "OpenCode, Goose, Cline, Claude Code, Aider и Cursor сами вызывают модель. Адреса для Gena у них нет. Gena подключается к шлюзу, который говорит на Pico или OpenAI chat: PicoClaw, OpenClaw и Hermes.",
   "about.catalog.models": "LLM",
   "about.catalog.cors": "Gena вызывает адрес из браузера, поэтому агент должен разрешить источник этой страницы (CORS). На публичном сайте это https://sergey-frolov-pets.github.io. Программа на 127.0.0.1 всё равно должна это разрешить.",
   "about.catalog.docs": "Инструкция",
