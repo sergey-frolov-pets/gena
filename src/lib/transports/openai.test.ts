@@ -241,6 +241,64 @@ describe("openaiTransport", () => {
       ),
     ).rejects.toMatchObject({ code: "openai_error", detail: "model not found" });
   });
+
+  it("для Kimi склеивает соседние реплики одной роли", async () => {
+    let body: { messages: { role: string; content: string }[] } = { messages: [] };
+    const fetchImpl = (async (_: string, init: RequestInit) => {
+      body = JSON.parse(init.body as string);
+      return new Response(JSON.stringify({ choices: [{ message: { content: "ok" } }] }), {
+        status: 200,
+      });
+    }) as unknown as typeof fetch;
+
+    await openaiTransport.send(
+      {
+        agent: agent({
+          address: "https://api.moonshot.ai/v1",
+          settings: { contextSize: 10, callLimit: 0, llmModel: "" },
+        }),
+        apiKey: "k",
+        sessionId: "s",
+        message: "ещё вопрос",
+        history: [msg("первый", "user"), msg("второй", "user"), msg("ответ", "assistant")],
+        signal,
+        fetchImpl,
+      },
+      {},
+    );
+
+    expect(body.messages).toEqual([
+      { role: "user", content: "первый\n\nвторой" },
+      { role: "assistant", content: "ответ" },
+      { role: "user", content: "ещё вопрос" },
+    ]);
+  });
+
+  it("400 с текстом Moonshot отдаёт openai_error", async () => {
+    const fetchImpl = (async () =>
+      new Response(JSON.stringify({ error: { message: "invalid request: roles must alternate" } }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      })) as unknown as typeof fetch;
+    await expect(
+      openaiTransport.send(
+        {
+          agent: agent(),
+          apiKey: "k",
+          sessionId: "s",
+          message: "hi",
+          history: [],
+          signal,
+          fetchImpl,
+        },
+        {},
+      ),
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "openai_error",
+      detail: "invalid request: roles must alternate",
+    });
+  });
 });
 
 function sseResponse(chunks: string[]): Response {

@@ -51,6 +51,15 @@ describe("describeError", () => {
     expect(describeError(new AgentClientError("agent responded 429", 429), t)).toMatch(/лимит/i);
   });
 
+  it("400 с текстом провайдера показывает этот текст", () => {
+    expect(
+      describeError(
+        new AgentClientError("agent responded 400", 400, "openai_error", "roles must alternate"),
+        t,
+      ),
+    ).toContain("roles must alternate");
+  });
+
   it("AgentClientError без статуса — сетевая", () => {
     const msg = describeError(
       new AgentClientError("could not reach", undefined, "network", "Failed to fetch"),
