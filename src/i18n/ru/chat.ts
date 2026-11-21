@@ -105,4 +105,5 @@ export const chatMessages = {
   "chat.error.emptyMessage": "Пустое сообщение",
   "chat.regenerateConfirm": "Ответ и все следующие сообщения будут удалены. Отправить реплику заново?",
   "chat.showEarlier": "Показать раньше ({count})",
+  "chat.error.modelsExhausted": "Все модели из списка на сегодня исчерпаны.",
 } as const satisfies LocaleMessages;

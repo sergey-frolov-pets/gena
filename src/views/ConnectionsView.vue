@@ -36,6 +36,9 @@ const importFromId = ref("");
 const protocol = ref<Protocol>("http_json");
 const model = ref("");
 const systemPrompt = ref("");
+const preferFree = ref(false);
+const poolModels = ref<{ id: string; free: boolean; dailyLimit: number }[]>([]);
+const mixRoutes = ref<{ agentId: string; model: string }[]>([]);
 const error = ref("");
 const notice = ref("");
 
@@ -72,14 +75,34 @@ const submitLabel = computed(() =>
   editingId.value ? t("connections.saveChanges") : t("connections.add"),
 );
 
+const savedProviders = computed(() =>
+  agents.value.filter(
+    (agent) =>
+      agent.id !== editingId.value &&
+      (agent.protocol === "openai" || agent.protocol === "model_pool"),
+  ),
+);
+
+function providerModels(agentId: string): string[] {
+  const provider = agents.value.find((agent) => agent.id === agentId);
+  if (!provider) return [];
+  if (provider.protocol === "openai") {
+    const own =
+      (provider.config as { model?: string } | undefined)?.model || provider.settings.llmModel;
+    return own.trim() ? [own.trim()] : [];
+  }
+  const models = (provider.config as { models?: { id?: string }[] } | undefined)?.models ?? [];
+  return models.map((item) => String(item.id ?? "").trim()).filter(Boolean);
+}
+
 const addressLabel = computed(() => {
-  if (protocol.value === "openai") return t("connections.field.baseUrl");
+  if (protocol.value === "openai" || protocol.value === "model_pool") return t("connections.field.baseUrl");
   if (protocol.value === "pico_ws") return t("connections.field.wsUrl");
   return t("connections.field.address");
 });
 
 const addressPlaceholder = computed(() => {
-  if (protocol.value === "openai") return t("connections.field.baseUrlPlaceholder");
+  if (protocol.value === "openai" || protocol.value === "model_pool") return t("connections.field.baseUrlPlaceholder");
   if (protocol.value === "pico_ws") return t("connections.field.wsUrlPlaceholder");
   return t("connections.field.addressPlaceholder");
 });
@@ -95,6 +118,9 @@ function resetForm(): void {
   importFromId.value = "";
   model.value = "";
   systemPrompt.value = "";
+  preferFree.value = false;
+  poolModels.value = [];
+  mixRoutes.value = [];
   protocol.value = "http_json";
   editingId.value = null;
 }
@@ -109,9 +135,25 @@ function startEdit(agent: Agent): void {
   quickRepliesText.value = (agent.settings.quickReplies ?? []).join("\n");
   importFromId.value = "";
   protocol.value = agent.protocol ?? "http_json";
-  const cfg = agent.config as { model?: string; systemPrompt?: string } | undefined;
+  const cfg = agent.config as {
+    model?: string;
+    systemPrompt?: string;
+    preferFree?: boolean;
+    models?: { id?: string; free?: boolean; dailyLimit?: number }[];
+    routes?: { agentId?: string; model?: string }[];
+  } | undefined;
   model.value = cfg?.model ?? "";
   systemPrompt.value = cfg?.systemPrompt ?? "";
+  preferFree.value = Boolean(cfg?.preferFree);
+  poolModels.value = (cfg?.models ?? []).map((item) => ({
+    id: String(item.id ?? ""),
+    free: Boolean(item.free),
+    dailyLimit: Number(item.dailyLimit) || 0,
+  }));
+  mixRoutes.value = (cfg?.routes ?? []).map((item) => ({
+    agentId: String(item.agentId ?? ""),
+    model: String(item.model ?? ""),
+  }));
   error.value = "";
   notice.value = "";
 }
@@ -149,6 +191,30 @@ async function submit(): Promise<void> {
     };
   } else if (protocol.value === "pico_ws") {
     config = { reconnect: true };
+  } else if (protocol.value === "model_pool") {
+    const models = poolModels.value
+      .map((item) => ({
+        id: item.id.trim(),
+        free: item.free,
+        dailyLimit: Math.max(0, Math.round(Number(item.dailyLimit) || 0)),
+      }))
+      .filter((item) => item.id);
+    if (models.length === 0) {
+      error.value = t("connections.error.modelsEmpty");
+      return;
+    }
+    config = {
+      models,
+      preferFree: preferFree.value,
+      systemPrompt: systemPrompt.value.trim() || undefined,
+    };
+  } else if (protocol.value === "model_mix") {
+    const routes = mixRoutes.value.filter((item) => item.agentId && item.model.trim());
+    if (routes.length === 0) {
+      error.value = t("connections.error.routesEmpty");
+      return;
+    }
+    config = { routes, preferFree: preferFree.value };
   }
 
   const settings = {
@@ -161,7 +227,7 @@ async function submit(): Promise<void> {
     if (editingId.value) {
       await updateAgent(editingId.value, {
         name: checked.values.name,
-        address: checked.values.address,
+        address: protocol.value === "model_mix" ? "" : checked.values.address,
         settings,
         protocol: protocol.value,
         config,
@@ -170,7 +236,7 @@ async function submit(): Promise<void> {
     } else {
       await createAgent({
         name: checked.values.name,
-        address: checked.values.address,
+        address: protocol.value === "model_mix" ? "" : checked.values.address,
         apiKey: apiKey.value,
         settings,
         protocol: protocol.value,
@@ -214,6 +280,25 @@ async function remove(agentId: string): Promise<void> {
 async function testConnection(agent: Agent): Promise<void> {
   testStates.value[agent.id] = { state: "testing" };
   try {
+    if (agent.protocol === "model_mix") {
+      const route = (
+        (agent.config as { routes?: { agentId: string; model: string }[] } | undefined)?.routes ?? []
+      )[0];
+      const provider = route && agents.value.find((item) => item.id === route.agentId);
+      if (!provider || !route) {
+        testStates.value[agent.id] = { state: "fail", msg: t("connections.error.routesEmpty") };
+        return;
+      }
+      const key = await getAgentKey(provider);
+      const result = await checkConnection(
+        { ...provider, protocol: "openai", config: { model: route.model } },
+        key,
+      );
+      testStates.value[agent.id] = result.ok
+        ? { state: "ok", msg: t("connections.testOk") }
+        : { state: "fail", msg: describeError(result.error, t) };
+      return;
+    }
     const key = await getAgentKey(agent);
     const result = await checkConnection(agent, key);
     if (result.ok) {
@@ -230,9 +315,30 @@ function protocolLabel(agent: { protocol?: Protocol }): string {
   return t(("connections.protocol." + (agent.protocol ?? "http_json")) as never);
 }
 
-function agentModel(agent: { settings: { llmModel: string }; config?: AgentConfig }): string {
-  const cfg = agent.config as { model?: string } | undefined;
+function agentModel(agent: { settings: { llmModel: string }; config?: AgentConfig; protocol?: Protocol }): string {
+  const cfg = agent.config as { model?: string; models?: unknown[]; routes?: unknown[] } | undefined;
+  if (agent.protocol === "model_pool") return String(cfg?.models?.length ?? 0);
+  if (agent.protocol === "model_mix") return String(cfg?.routes?.length ?? 0);
   return cfg?.model || agent.settings.llmModel || "—";
+}
+
+function moveRow<T>(list: T[], index: number, delta: number): void {
+  const next = index + delta;
+  if (next < 0 || next >= list.length) return;
+  const [item] = list.splice(index, 1);
+  if (item !== undefined) list.splice(next, 0, item);
+}
+
+function addPoolModel(): void {
+  poolModels.value.push({ id: "", free: false, dailyLimit: 0 });
+}
+
+function addMixRoute(): void {
+  const provider = savedProviders.value[0];
+  mixRoutes.value.push({
+    agentId: provider?.id ?? "",
+    model: provider ? (providerModels(provider.id)[0] ?? "") : "",
+  });
 }
 </script>
 
@@ -254,15 +360,17 @@ function agentModel(agent: { settings: { llmModel: string }; config?: AgentConfi
           <option value="http_json">{{ t("connections.protocol.http_json") }}</option>
           <option value="openai">{{ t("connections.protocol.openai") }}</option>
           <option value="pico_ws">{{ t("connections.protocol.pico_ws") }}</option>
+          <option value="model_pool">{{ t("connections.protocol.model_pool") }}</option>
+          <option value="model_mix">{{ t("connections.protocol.model_mix") }}</option>
         </select>
       </div>
 
-      <div class="field">
+      <div class="field" v-if="protocol !== 'model_mix'">
         <label>{{ addressLabel }}</label>
         <input v-model="address" :placeholder="addressPlaceholder" />
       </div>
 
-      <div class="field" v-if="!editingId">
+      <div class="field" v-if="!editingId && protocol !== 'model_mix'">
         <label>{{ t("connections.field.key") }}</label>
         <input
           v-model="apiKey"
@@ -283,12 +391,69 @@ function agentModel(agent: { settings: { llmModel: string }; config?: AgentConfi
         </div>
       </template>
 
+      <template v-if="protocol === 'model_pool'">
+        <div class="field">
+          <label>{{ t("connections.field.models") }}</label>
+          <div v-for="(row, index) in poolModels" :key="index" class="model-row">
+            <input v-model="row.id" :placeholder="t('connections.field.llmModelPlaceholder')" />
+            <label class="check">
+              <input v-model="row.free" type="checkbox" />
+              {{ t("connections.field.free") }}
+            </label>
+            <input v-model.number="row.dailyLimit" type="number" min="0" />
+            <button type="button" :disabled="index === 0" @click="moveRow(poolModels, index, -1)">↑</button>
+            <button type="button" :disabled="index === poolModels.length - 1" @click="moveRow(poolModels, index, 1)">↓</button>
+            <button type="button" @click="poolModels.splice(index, 1)">{{ t("connections.removeRow") }}</button>
+          </div>
+          <button type="button" @click="addPoolModel">{{ t("connections.addModel") }}</button>
+          <p class="muted small">{{ t("connections.hint.pool") }}</p>
+        </div>
+        <div class="field">
+          <label>{{ t("connections.field.systemPrompt") }}</label>
+          <input v-model="systemPrompt" type="text" />
+        </div>
+        <label class="check">
+          <input v-model="preferFree" type="checkbox" />
+          {{ t("connections.preferFree") }}
+        </label>
+      </template>
+
+      <template v-if="protocol === 'model_mix'">
+        <div class="field">
+          <label>{{ t("connections.field.routes") }}</label>
+          <div v-for="(row, index) in mixRoutes" :key="index" class="model-row">
+            <select v-model="row.agentId" @change="row.model = providerModels(row.agentId)[0] ?? ''">
+              <option value="">{{ t("connections.field.provider") }}</option>
+              <option v-for="provider in savedProviders" :key="provider.id" :value="provider.id">
+                {{ provider.name }}
+              </option>
+            </select>
+            <select v-model="row.model">
+              <option v-for="modelId in providerModels(row.agentId)" :key="modelId" :value="modelId">
+                {{ modelId }}
+              </option>
+            </select>
+            <button type="button" :disabled="index === 0" @click="moveRow(mixRoutes, index, -1)">↑</button>
+            <button type="button" :disabled="index === mixRoutes.length - 1" @click="moveRow(mixRoutes, index, 1)">↓</button>
+            <button type="button" @click="mixRoutes.splice(index, 1)">{{ t("connections.removeRow") }}</button>
+          </div>
+          <button type="button" :disabled="savedProviders.length === 0" @click="addMixRoute">
+            {{ t("connections.addRoute") }}
+          </button>
+          <p class="muted small">{{ t("connections.hint.mix") }}</p>
+        </div>
+        <label class="check">
+          <input v-model="preferFree" type="checkbox" />
+          {{ t("connections.preferFree") }}
+        </label>
+      </template>
+
       <div class="row">
         <div class="field" v-if="protocol !== 'pico_ws'">
           <label>{{ t("connections.field.contextSize") }}</label>
           <input v-model.number="contextSize" type="number" min="0" />
         </div>
-        <div class="field">
+        <div class="field" v-if="protocol !== 'model_pool' && protocol !== 'model_mix'">
           <label>{{ t("connections.field.callLimit") }}</label>
           <input v-model.number="callLimit" type="number" min="0" />
         </div>
@@ -363,7 +528,7 @@ function agentModel(agent: { settings: { llmModel: string }; config?: AgentConfi
         </button>
         <button class="danger" @click="confirmRemoveId = agent.id">{{ t("connections.remove") }}</button>
       </div>
-      <div class="muted">{{ agent.address }}</div>
+      <div v-if="agent.address" class="muted">{{ agent.address }}</div>
       <div class="muted small">
         {{
           t("connections.summary", {
@@ -373,7 +538,7 @@ function agentModel(agent: { settings: { llmModel: string }; config?: AgentConfi
           })
         }}
       </div>
-      <div class="key-row">
+      <div v-if="agent.protocol !== 'model_mix'" class="key-row">
         <input
           v-model="keyDrafts[agent.id]"
           type="password"
@@ -457,5 +622,23 @@ function agentModel(agent: { settings: { llmModel: string }; config?: AgentConfi
 }
 .key-row input {
   flex: 1;
+}
+.model-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.model-row input,
+.model-row select {
+  flex: 1;
+  min-width: 8rem;
+}
+.check {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 8px 0;
 }
 </style>

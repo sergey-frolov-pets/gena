@@ -128,7 +128,13 @@ function parseProtocol(raw: unknown): Protocol | undefined {
   if (typeof raw !== "string") {
     throw new BackupParseError('поле "agent.protocol" должно быть строкой');
   }
-  if (raw === "http_json" || raw === "openai" || raw === "pico_ws") {
+  if (
+    raw === "http_json" ||
+    raw === "openai" ||
+    raw === "pico_ws" ||
+    raw === "model_pool" ||
+    raw === "model_mix"
+  ) {
     return raw;
   }
   throw new BackupParseError(`неизвестный протокол агента: ${raw}`);

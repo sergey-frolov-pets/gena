@@ -105,4 +105,5 @@ export const chatMessages = {
   "chat.error.emptyMessage": "الرسالة فارغة",
   "chat.regenerateConfirm": "سيُحذف الرد وكل الرسائل التالية. هل تريد إرسال الرسالة مرة أخرى؟",
   "chat.showEarlier": "عرض الرسائل الأقدم ({count})",
+  "chat.error.modelsExhausted": "Every model in the list has hit its limit for today.",
 } as const satisfies LocaleMessages;

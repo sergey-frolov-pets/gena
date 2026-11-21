@@ -26,6 +26,8 @@ export function capabilitiesOf(agent: Agent | undefined): TransportCapabilities 
 export function getTransport(agent: Agent): AgentTransport {
   switch (agent.protocol ?? "http_json") {
     case "openai":
+    case "model_pool":
+    case "model_mix":
       return openaiTransport;
     case "pico_ws":
       return picoTransport;

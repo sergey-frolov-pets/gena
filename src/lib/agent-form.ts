@@ -49,6 +49,8 @@ export function checkAddress(
     return "invalid";
   }
 
+  if (protocol === "model_mix") return "ok";
+
   if (protocol === "pico_ws") {
     if (url.protocol !== "ws:" && url.protocol !== "wss:") return "invalid";
     if (url.protocol === "ws:" && pageProtocol === "https:") return "mixed";

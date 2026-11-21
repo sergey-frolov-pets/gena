@@ -120,8 +120,23 @@ export async function checkConnection(
   try {
     if (protocol === "pico_ws") {
       await checkPico(agent, apiKey);
-    } else if (protocol === "openai") {
-      await checkOpenai(agent, apiKey, fetchImpl ?? fetch);
+    } else if (protocol === "openai" || protocol === "model_pool") {
+      const probe =
+        protocol === "model_pool"
+          ? {
+              ...agent,
+              protocol: "openai" as const,
+              config: {
+                model:
+                  ((agent.config as { models?: { id?: string }[] } | undefined)?.models ?? [])
+                    .map((item) => String(item.id ?? "").trim())
+                    .find(Boolean) ?? "",
+              },
+            }
+          : agent;
+      await checkOpenai(probe, apiKey, fetchImpl ?? fetch);
+    } else if (protocol === "model_mix") {
+      throw new AgentClientError("model mix has no own endpoint", undefined, "no_address");
     } else {
       await checkHttpJson(agent, apiKey, fetchImpl ?? fetch);
     }
