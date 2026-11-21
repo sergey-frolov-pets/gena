@@ -9,6 +9,7 @@
 
 import {
   normalizeAgent,
+  normalizeQuickReplies,
   type Agent,
   type AgentConfig,
   type AgentSettings,
@@ -118,6 +119,7 @@ function parseAgentSettings(raw: unknown): AgentSettings {
     contextSize: asNumber(raw.contextSize, "settings.contextSize"),
     callLimit: asNumber(raw.callLimit, "settings.callLimit"),
     llmModel: asString(raw.llmModel, "settings.llmModel"),
+    quickReplies: normalizeQuickReplies(raw.quickReplies),
   };
 }
 
@@ -128,7 +130,13 @@ function parseProtocol(raw: unknown): Protocol | undefined {
   if (typeof raw !== "string") {
     throw new BackupParseError('поле "agent.protocol" должно быть строкой');
   }
-  if (raw === "http_json" || raw === "openai" || raw === "pico_ws") {
+  if (
+    raw === "http_json" ||
+    raw === "openai" ||
+    raw === "pico_ws" ||
+    raw === "model_pool" ||
+    raw === "model_mix"
+  ) {
     return raw;
   }
   throw new BackupParseError(`неизвестный протокол агента: ${raw}`);

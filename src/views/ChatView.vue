@@ -33,6 +33,7 @@ import { cancelAgentTurn } from "@/lib/agent-client";
 import { describeError } from "@/lib/errors";
 import { renderMarkdown } from "@/lib/markdown";
 import { splitContent } from "@/lib/ui-blocks";
+import { hasOpenSlot } from "@/lib/model-fallback";
 import { canCall, getCallCount, recordCall } from "@/storage/usage";
 import { listMessages } from "@/storage/db";
 import { useLocale } from "@/i18n";
@@ -1570,6 +1571,11 @@ async function drainQueue(): Promise<void> {
 
 /** Проверка дневного лимита вызовов; false — отправлять нельзя. */
 async function withinLimit(agent: Agent): Promise<boolean> {
+  if (agent.protocol === "model_pool" || agent.protocol === "model_mix") {
+    if (await hasOpenSlot(agent, agents.value)) return true;
+    error.value = t("chat.error.modelsExhausted");
+    return false;
+  }
   const limit = agent.settings.callLimit;
   if (limit <= 0) return true;
   if (await canCall(agent.id, limit)) return true;
@@ -1650,6 +1656,8 @@ async function exchange(
       },
       {
         signal: controller.signal,
+        peers: agents.value,
+        openKey: getAgentKey,
         events: {
           onTyping: (on) => {
             if (shown()) typing.value = on;
@@ -1699,7 +1707,10 @@ async function exchange(
     );
     // Ответ уже в ленте — живое облачко убираем, чтобы не было двух одинаковых.
     if (shown()) streamingText.value = "";
-    await recordCall(agent.id);
+    // Пул и сводка считают лимит по модели внутри fallback.
+    if (agent.protocol !== "model_pool" && agent.protocol !== "model_mix") {
+      await recordCall(agent.id);
+    }
     await refreshUsage();
     forgetPendingTurn(session.id, text);
     if (autoSpeak.value && response.reply.trim()) {

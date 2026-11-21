@@ -105,4 +105,5 @@ export const chatMessages = {
   "chat.error.emptyMessage": "メッセージが空です",
   "chat.regenerateConfirm": "返信とそれ以降のメッセージは削除されます。もう一度送信しますか？",
   "chat.showEarlier": "以前のメッセージを表示（{count}）",
+  "chat.error.modelsExhausted": "Every model in the list has hit its limit for today.",
 } as const satisfies LocaleMessages;

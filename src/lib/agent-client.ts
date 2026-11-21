@@ -7,6 +7,7 @@
  */
 
 import type { Agent, AgentSettings, Message } from "@/storage/types";
+import { sendModelFallback } from "./model-fallback";
 import { getTransport, type TransportEvents } from "./transports";
 import type { TransportAttachment } from "./transports/types";
 import type { CancelResult } from "./transports/types";
@@ -24,6 +25,8 @@ export interface AgentRequest {
 
 export interface AgentResponse {
   reply: string;
+  /** Модель, которая ответила (пул и сводка). */
+  model?: string;
   /** Вложения финального сообщения (Pico: изображения по пути `/pico/media/...`). */
   attachments?: TransportAttachment[];
   /** Идентификатор сообщения на стороне агента (Pico). */
@@ -38,6 +41,9 @@ export interface SendOptions {
   fetchImpl?: typeof fetch;
   signal?: AbortSignal;
   events?: TransportEvents;
+  /** Другие агенты — источники моделей для сводки. */
+  peers?: Agent[];
+  openKey?: (provider: Agent) => Promise<string>;
 }
 
 export async function sendToAgent(
@@ -48,6 +54,14 @@ export async function sendToAgent(
 ): Promise<AgentResponse> {
   const opts: SendOptions =
     typeof options === "function" ? { fetchImpl: options } : (options ?? {});
+  if (agent.protocol === "model_pool" || agent.protocol === "model_mix") {
+    return sendModelFallback(agent, apiKey, opts.peers ?? [], request, {
+      fetchImpl: opts.fetchImpl,
+      signal: opts.signal,
+      events: opts.events,
+      openKey: opts.openKey ?? (async () => ""),
+    });
+  }
   const transport = getTransport(agent);
   return transport.send(
     {

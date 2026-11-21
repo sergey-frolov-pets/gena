@@ -18,7 +18,34 @@ export interface AgentSettings {
 }
 
 /** Протокол подключения к агенту. Нет поля `protocol` у старого агента → `http_json`. */
-export type Protocol = "http_json" | "openai" | "pico_ws";
+export type Protocol = "http_json" | "openai" | "pico_ws" | "model_pool" | "model_mix";
+
+/** Модель в пуле одного провайдера. `dailyLimit` 0 — без дневного лимита. */
+export interface PoolModel {
+  id: string;
+  free?: boolean;
+  dailyLimit?: number;
+}
+
+/** Пул моделей одного провайдера: общий ключ и адрес, очередь при лимите. */
+export interface ModelPoolConfig {
+  models: PoolModel[];
+  /** Бесплатные модели с живым дневным лимитом идут раньше остальных. */
+  preferFree?: boolean;
+  systemPrompt?: string;
+}
+
+/** Ссылка на модель уже сохранённого провайдера (OpenAI или пул). */
+export interface MixRoute {
+  agentId: string;
+  model: string;
+}
+
+/** Сводка: модели разных провайдеров в заданном порядке, ключи остаются у них. */
+export interface ModelMixConfig {
+  routes: MixRoute[];
+  preferFree?: boolean;
+}
 
 /** Настройки OpenAI-совместимого агента. */
 export interface OpenAIConfig {
@@ -38,7 +65,12 @@ export interface HttpJsonConfig {
   // Поведение как у прежнего `POST {message, sessionId, settings, history}`.
 }
 
-export type AgentConfig = OpenAIConfig | PicoConfig | HttpJsonConfig;
+export type AgentConfig =
+  | OpenAIConfig
+  | PicoConfig
+  | HttpJsonConfig
+  | ModelPoolConfig
+  | ModelMixConfig;
 
 export interface Agent {
   id: string;

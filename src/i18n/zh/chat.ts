@@ -105,4 +105,5 @@ export const chatMessages = {
   "chat.error.emptyMessage": "消息为空",
   "chat.regenerateConfirm": "回复及其后的所有消息都将被删除。要重新发送这条消息吗？",
   "chat.showEarlier": "显示更早的消息（{count}）",
+  "chat.error.modelsExhausted": "Every model in the list has hit its limit for today.",
 } as const satisfies LocaleMessages;
