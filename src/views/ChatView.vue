@@ -195,6 +195,8 @@ const messagesEl = ref<HTMLElement | null>(null);
 /** Обёртка контента: её рост (картинки, шаги) возвращает нас к низу. */
 const threadEl = ref<HTMLElement | null>(null);
 let threadObserver: ResizeObserver | null = null;
+let composerObserver: ResizeObserver | null = null;
+let composerWidth = 0;
 /** Поле ввода — чтобы вернуть фокус после отправки. */
 const composerEl = ref<HTMLTextAreaElement | null>(null);
 /** Сколько строк сейчас в поле: от этого зависит кнопка «Очистить» и высота. */
@@ -1048,10 +1050,16 @@ async function autoGrow(): Promise<void> {
   // "normal" в computed style — считаем от размера шрифта (line-height 1.4 в CSS).
   const lineHeight =
     parseFloat(style.lineHeight) || Math.round((parseFloat(style.fontSize) || 14.4) * 1.4);
-  // Замер без влияния прежней высоты: height: 0 → scrollHeight = высота текста.
+  // Высоту и max-height снимаем: во flex-ряду scrollHeight иначе равен одной строке,
+  // хотя текст уже перенёсся. Ширину фиксируем, чтобы перенос не поехал.
+  const width = el.clientWidth;
+  el.style.maxHeight = "none";
   el.style.height = "0px";
+  if (width > 0) el.style.width = `${width}px`;
   const content = Math.max(0, el.scrollHeight - padding);
-  const lines = Math.max(1, Math.round(content / lineHeight));
+  el.style.width = "";
+  el.style.maxHeight = "";
+  const lines = Math.max(1, Math.ceil(content / lineHeight - 0.15));
   composerLines.value = lines;
   el.style.height = `${composerFieldHeight(lines, lineHeight, padding)}px`;
 }
@@ -2312,6 +2320,16 @@ onMounted(() => {
     if (dockEl.value) dockObserver.observe(dockEl.value);
   }
   syncDockSpace();
+  void nextTick(autoGrow);
+  if (typeof ResizeObserver !== "undefined" && composerEl.value) {
+    composerObserver = new ResizeObserver(() => {
+      const el = composerEl.value;
+      if (!el || el.clientWidth === composerWidth) return;
+      composerWidth = el.clientWidth;
+      void autoGrow();
+    });
+    composerObserver.observe(composerEl.value);
+  }
 });
 
 function onCompactChange(event: MediaQueryListEvent): void {
@@ -2339,6 +2357,8 @@ onUnmounted(() => {
   threadObserver = null;
   dockObserver?.disconnect();
   dockObserver = null;
+  composerObserver?.disconnect();
+  composerObserver = null;
   document.documentElement.style.removeProperty("--app-vvh");
   abortCtrl.value?.abort();
 });
@@ -2721,29 +2741,6 @@ function onRateChange(event: Event): void {
                 <span v-if="a.bytes" class="chat-panel__file-size">{{ formatBytes(a.bytes) }}</span>
               </span>
             </div>
-            <div
-              v-if="entry.message.role === 'assistant' && (!entry.message.kind || entry.message.kind === 'text') && entry.message.content"
-              class="chat-panel__exports"
-            >
-              <button
-                type="button"
-                class="chat-panel__export"
-                v-tip="t('chat.downloadMd')"
-                :aria-label="t('chat.downloadMd')"
-                @click="downloadReply(entry.message, 'md', $event)"
-              >
-                MD
-              </button>
-              <button
-                type="button"
-                class="chat-panel__export"
-                v-tip="t('chat.downloadTxt')"
-                :aria-label="t('chat.downloadTxt')"
-                @click="downloadReply(entry.message, 'txt', $event)"
-              >
-                TXT
-              </button>
-            </div>
             <div class="chat-panel__message-actions">
               <button
                 v-if="entry.message.role === 'user' && !entry.message.kind"
@@ -2789,6 +2786,26 @@ function onRateChange(event: Event): void {
                   <path d="M11 5 6 9H3v6h3l5 4z" />
                   <path d="M16 9a4 4 0 0 1 0 6" />
                 </svg>
+              </button>
+              <button
+                v-if="entry.message.role === 'assistant' && (!entry.message.kind || entry.message.kind === 'text') && entry.message.content"
+                type="button"
+                class="chat-panel__action chat-panel__export"
+                v-tip="t('chat.downloadMd')"
+                :aria-label="t('chat.downloadMd')"
+                @click="downloadReply(entry.message, 'md', $event)"
+              >
+                MD
+              </button>
+              <button
+                v-if="entry.message.role === 'assistant' && (!entry.message.kind || entry.message.kind === 'text') && entry.message.content"
+                type="button"
+                class="chat-panel__action chat-panel__export"
+                v-tip="t('chat.downloadTxt')"
+                :aria-label="t('chat.downloadTxt')"
+                @click="downloadReply(entry.message, 'txt', $event)"
+              >
+                TXT
               </button>
               <button
                 v-if="entry.message.role === 'assistant' && entry.index === feed.length - 1 && !busy"
@@ -3900,6 +3917,8 @@ function onRateChange(event: Event): void {
 
 .chat-panel__message-actions {
   display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
   gap: 2px;
   opacity: 0;
   transition: opacity 120ms ease;
@@ -4169,6 +4188,7 @@ function onRateChange(event: Event): void {
 
 .chat-panel__input {
   flex: 1 1 auto;
+  align-self: center;
   min-width: 0;
   min-height: 32px;
   max-height: 88px;
@@ -4181,6 +4201,9 @@ function onRateChange(event: Event): void {
   line-height: 1.4;
   resize: none;
   overflow-y: auto;
+  field-sizing: content;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .chat-panel__input:focus {
@@ -5128,29 +5151,14 @@ function onRateChange(event: Event): void {
   mask-image: var(--md-icon-check);
 }
 
-.chat-panel__exports {
-  display: flex;
-  gap: 6px;
-  margin-top: 6px;
-  user-select: none;
-}
-
 .chat-panel__export {
-  padding: 1px 6px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--muted);
+  width: auto;
+  flex: 0 0 auto;
+  padding: 0 5px;
   font: inherit;
-  font-size: 0.66rem;
+  font-size: 0.62rem;
   letter-spacing: 0.04em;
-  cursor: pointer;
-}
-
-.chat-panel__export:hover,
-.chat-panel__export:focus-visible {
-  color: var(--text);
-  border-color: var(--accent);
+  user-select: none;
 }
 
 .md-table table {
