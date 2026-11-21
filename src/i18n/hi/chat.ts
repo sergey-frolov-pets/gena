@@ -63,6 +63,8 @@ export const chatMessages = {
   "chat.attachRemove": "छवि हटाना",
   "chat.attachError.type": "केवल छवियाँ: JPEG, PNG, GIF, WebP, BMP",
   "chat.speechRate": "वाचन गति",
+  "chat.voice": "आवाज़",
+  "chat.voice.default": "डिफ़ॉल्ट",
   "chat.fileError.unsupported": "फ़ाइल प्रकार समर्थित नहीं है",
   "chat.fileError.tooLarge": "फ़ाइल बहुत बड़ी है (अधिकतम 25 MB)",
   "chat.fileError.empty": "फ़ाइल में कोई टेक्स्ट नहीं मिला",

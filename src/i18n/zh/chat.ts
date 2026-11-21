@@ -63,6 +63,8 @@ export const chatMessages = {
   "chat.attachRemove": "移除图片",
   "chat.attachError.type": "仅支持图片：JPEG、PNG、GIF、WebP、BMP",
   "chat.speechRate": "朗读速度",
+  "chat.voice": "声音",
+  "chat.voice.default": "默认",
   "chat.fileError.unsupported": "不支持的文件类型",
   "chat.fileError.tooLarge": "文件太大（最大 25 MB）",
   "chat.fileError.empty": "文件中没有文本",

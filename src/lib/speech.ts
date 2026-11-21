@@ -49,10 +49,14 @@ export function stripForSpeech(text: string): string {
     .trim();
 }
 
+/** Счётчик, чтобы список голосов в меню обновился после `voiceschanged`. */
+export const speechVoiceTick = ref(0);
+
 function refreshAvailable(): void {
   const synth = synthesizer();
   speechAvailable.value = Boolean(synth && synth.getVoices().length > 0);
   writeFlag(AVAILABLE_KEY, speechAvailable.value);
+  speechVoiceTick.value += 1;
 }
 
 if (typeof window !== "undefined") {
@@ -79,7 +83,10 @@ export function speak(id: string, text: string): void {
   utterance.lang = speechTag(currentLanguageCode());
   utterance.rate = speechRate.value;
   const voices = synth.getVoices();
-  const matching = voices.find((voice) => voice.lang === utterance.lang);
+  const chosen = speechVoiceId.value
+    ? voices.find((voice) => voice.voiceURI === speechVoiceId.value)
+    : undefined;
+  const matching = chosen ?? voices.find((voice) => voice.lang === utterance.lang);
   if (matching) utterance.voice = matching;
 
   const done = (): void => {
@@ -125,6 +132,33 @@ function readRate(): number {
 
 /** Скорость чтения ответов: 0.75×…2×, по умолчанию 1×. */
 export const speechRate = ref(readRate());
+
+const VOICE_KEY = "gena-speech-voice";
+
+function readVoiceId(): string {
+  try {
+    return localStorage.getItem(VOICE_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+/** Пустая строка — прежний выбор: первый голос языка интерфейса. */
+export const speechVoiceId = ref(readVoiceId());
+
+export function setSpeechVoice(voiceURI: string): void {
+  speechVoiceId.value = voiceURI;
+  try {
+    if (voiceURI) localStorage.setItem(VOICE_KEY, voiceURI);
+    else localStorage.removeItem(VOICE_KEY);
+  } catch {
+    // Приватный режим — настройка просто не запомнится.
+  }
+}
+
+export function speechVoices(): SpeechSynthesisVoice[] {
+  return synthesizer()?.getVoices() ?? [];
+}
 
 export function setSpeechRate(value: number): void {
   const next = Math.min(MAX_RATE, Math.max(MIN_RATE, value));

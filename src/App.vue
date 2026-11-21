@@ -8,7 +8,7 @@ import ThemeSwitcher from "./components/ThemeSwitcher.vue";
 import InstallButton from "./components/InstallButton.vue";
 import AppFooter from "./components/AppFooter.vue";
 import { agentId } from "./lib/active-agent";
-import { SPEECH_RATES, autoSpeak, setAutoSpeak, setSpeechRate, speechAvailable, speechRate } from "./lib/speech";
+import { setSpeechVoice, speechAvailable, speechVoiceId, speechVoiceTick, speechVoices } from "./lib/speech";
 import { agents, loadAgents, loadSessions } from "./lib/store";
 import { useTheme } from "./lib/theme";
 import { watchForUpdate } from "./lib/version-update";
@@ -52,9 +52,13 @@ function applyUpdate(): void {
   window.location.reload();
 }
 
-function onSpeechRate(event: Event): void {
-  const value = Number((event.target as HTMLSelectElement).value);
-  if (Number.isFinite(value)) setSpeechRate(value);
+const voices = computed(() => {
+  speechVoiceTick.value;
+  return speechAvailable.value ? speechVoices() : [];
+});
+
+function onSpeechVoice(event: Event): void {
+  setSpeechVoice((event.target as HTMLSelectElement).value);
 }
 onMounted(async () => {
   document.addEventListener("pointerdown", onPointerDown);
@@ -130,23 +134,13 @@ onBeforeUnmount(() => {
           {{ t("app.nav.chat") }}
         </button>
         <div v-if="speechAvailable" class="menu-voice">
-          <button
-            type="button"
-            class="menu-voice__toggle"
-            :aria-pressed="autoSpeak"
-            @click="setAutoSpeak(!autoSpeak)"
-          >
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M11 5 6 9H3v6h3l5 4z" />
-              <path d="M16 9a4 4 0 0 1 0 6" />
-              <path d="M19 6a8 8 0 0 1 0 12" />
-            </svg>
-            {{ t("chat.autoSpeak") }}
-          </button>
           <label class="menu-voice__rate">
-            <span>{{ t("chat.speechRate") }}</span>
-            <select :value="speechRate" :aria-label="t('chat.speechRate')" @change="onSpeechRate">
-              <option v-for="rate in SPEECH_RATES" :key="rate" :value="rate">{{ rate }}×</option>
+            <span>{{ t("chat.voice") }}</span>
+            <select :value="speechVoiceId" :aria-label="t('chat.voice')" @change="onSpeechVoice">
+              <option value="">{{ t("chat.voice.default") }}</option>
+              <option v-for="voice in voices" :key="voice.voiceURI" :value="voice.voiceURI">
+                {{ voice.name }}
+              </option>
             </select>
           </label>
         </div>
@@ -246,24 +240,6 @@ onBeforeUnmount(() => {
   gap: 8px;
   padding: 8px 8px 10px;
   border-top: 1px solid var(--border);
-}
-
-.menu-voice__toggle {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  text-align: start;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  padding: 8px 4px;
-  border-radius: 8px;
-  cursor: pointer;
-}
-
-.menu-voice__toggle[aria-pressed="true"] {
-  color: var(--accent);
 }
 
 .menu-voice__rate {

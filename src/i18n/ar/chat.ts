@@ -63,6 +63,8 @@ export const chatMessages = {
   "chat.attachRemove": "إزالة الصورة",
   "chat.attachError.type": "الصور فقط: JPEG, PNG, GIF, WebP, BMP",
   "chat.speechRate": "سرعة القراءة",
+  "chat.voice": "الصوت",
+  "chat.voice.default": "الافتراضي",
   "chat.fileError.unsupported": "نوع الملف غير مدعوم",
   "chat.fileError.tooLarge": "الملف كبير جدًا (25 م.ب كحد أقصى)",
   "chat.fileError.empty": "لا يوجد نص في الملف",

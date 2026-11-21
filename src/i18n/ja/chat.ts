@@ -63,6 +63,8 @@ export const chatMessages = {
   "chat.attachRemove": "画像を削除",
   "chat.attachError.type": "画像のみ：JPEG、PNG、GIF、WebP、BMP",
   "chat.speechRate": "読み上げ速度",
+  "chat.voice": "音声",
+  "chat.voice.default": "デフォルト",
   "chat.fileError.unsupported": "未対応のファイル形式です",
   "chat.fileError.tooLarge": "ファイルが大きすぎます（最大 25 MB）",
   "chat.fileError.empty": "ファイル内にテキストが見つかりません",
