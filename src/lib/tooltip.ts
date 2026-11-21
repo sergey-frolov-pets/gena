@@ -197,8 +197,12 @@ export const vTip: Directive<TipElement, string> = {
     attach(el);
   },
   updated(el, binding: DirectiveBinding<string>) {
-    el.dataset.tip = binding.value ?? "";
-    if (current === el) hideTip();
+    const next = binding.value ?? "";
+    el.dataset.tip = next;
+    if (current === el && layer?.classList.contains("is-open")) {
+      layer.textContent = next;
+      place(el);
+    }
   },
   unmounted(el) {
     el.__tipCleanup?.();

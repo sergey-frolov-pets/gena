@@ -91,6 +91,7 @@ export const connectionsMessages = {
   "connections.col.expires": "Key expires",
   "connections.refresh": "Refresh",
   "connections.refreshing": "Refreshing…",
+  "connections.refreshedAt": "آخر تحديث: {when}",
   "connections.unknown": "—",
   "connections.topUp": "Top up",
   "connections.budgetEmpty": "No providers with a saved key.",

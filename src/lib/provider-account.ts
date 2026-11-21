@@ -181,6 +181,19 @@ export function pricesFromModels(payload: unknown): Record<string, string> {
 
 const DEEPSEEK_PRICING_URL = "https://api-docs.deepseek.com/quick_start/pricing";
 
+/**
+ * Снимок публичной таблицы DeepSeek (cache miss / output, пик, USD за 1M).
+ * Страница docs не отдаёт CORS, поэтому браузер часто не может её прочитать:
+ * тогда берём этот снимок, а не пустую ячейку.
+ * Источник: api-docs.deepseek.com/quick_start/pricing, 20 Nov 2026.
+ */
+export const DEEPSEEK_PRICE_FALLBACK: Record<string, string> = {
+  "deepseek-flash": "$0.30 / $1.20 per 1M",
+  "deepseek-v4-pro": "$1.32 / $3.96 per 1M",
+  "deepseek-v4-flash": "$0.30 / $1.20 per 1M",
+  "deepseek-v4-flash-vision-exp": "$0.30 / $1.20 per 1M",
+};
+
 function stripTags(value: string): string {
   return value
     .replace(/<[^>]+>/g, " ")
@@ -305,29 +318,32 @@ export function modelIdsFromPayload(payload: unknown): string[] {
   return ids;
 }
 
-/** Цены моделей с `/models`, а для DeepSeek — с публичной страницы, если API цену не отдал. */
+async function deepseekCatalog(): Promise<Record<string, string>> {
+  try {
+    const response = await fetch(DEEPSEEK_PRICING_URL);
+    if (response.ok) {
+      const catalog = pricesFromDeepSeekPage(await response.text());
+      if (Object.keys(catalog).length > 0) return catalog;
+    }
+  } catch {
+    // Страница без CORS или сеть: ниже снимок.
+  }
+  return { ...DEEPSEEK_PRICE_FALLBACK };
+}
+
+/** Цены моделей с `/models`, а для DeepSeek — со страницы или со снимка, если API цену не отдал. */
 export async function fetchModelPrices(address: string, apiKey: string): Promise<Record<string, string>> {
   const root = address.replace(/\/+$/, "");
   if (!root || !apiKey) return {};
+  const kind = providerProfile(address).kind;
   try {
-    const payload = await getJson(`${root}/models`, apiKey);
-    const fromApi = pricesFromModels(payload);
+    const fromApi = pricesFromModels(await getJson(`${root}/models`, apiKey));
     if (Object.keys(fromApi).length > 0) return fromApi;
-    if (providerProfile(address).kind !== "deepseek") return {};
-    const response = await fetch(DEEPSEEK_PRICING_URL);
-    if (!response.ok) return {};
-    const catalog = pricesFromDeepSeekPage(await response.text());
-    const ids = modelIdsFromPayload(payload);
-    if (ids.length === 0) return catalog;
-    const out: Record<string, string> = {};
-    for (const id of ids) {
-      const price = catalog[id.toLowerCase()] ?? catalog[id];
-      if (price) out[id] = price;
-    }
-    return out;
   } catch {
-    return {};
+    if (kind !== "deepseek") return {};
   }
+  if (kind !== "deepseek") return {};
+  return deepseekCatalog();
 }
 
 /** Список моделей провайдера. Бросает ошибку, если ключ или адрес не приняты. */
@@ -340,26 +356,43 @@ export async function fetchModelIds(address: string, apiKey: string): Promise<st
 const STORAGE_KEY = "gena.accountSnapshots";
 const PRICE_KEY = "gena.modelPrices";
 
-/** Сохранённые цены моделей: id → строка тарифа. */
-export function readModelPrices(): Record<string, string> {
+function storedPrices(parsed: unknown): { at: number; prices: Record<string, string> } {
+  if (typeof parsed !== "object" || parsed === null) return { at: 0, prices: {} };
+  const record = parsed as Record<string, unknown>;
+  const bag = asRecord(record.prices) ?? record;
+  const prices: Record<string, string> = {};
+  for (const [id, price] of Object.entries(bag)) {
+    if (id === "at" || id === "prices") continue;
+    if (typeof price === "string" && price) prices[id] = price;
+  }
+  const at = typeof record.at === "number" && Number.isFinite(record.at) ? record.at : 0;
+  return { at, prices };
+}
+
+function readPriceBag(): { at: number; prices: Record<string, string> } {
   try {
     const raw = localStorage.getItem(PRICE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as unknown;
-    if (typeof parsed !== "object" || parsed === null) return {};
-    const out: Record<string, string> = {};
-    for (const [id, price] of Object.entries(parsed as Record<string, unknown>)) {
-      if (typeof price === "string" && price) out[id] = price;
-    }
-    return out;
+    if (!raw) return { at: 0, prices: {} };
+    return storedPrices(JSON.parse(raw) as unknown);
   } catch {
-    return {};
+    return { at: 0, prices: {} };
   }
 }
 
-export function writeModelPrices(more: Record<string, string>): void {
+/** Сохранённые цены моделей: id → строка тарифа. */
+export function readModelPrices(): Record<string, string> {
+  return readPriceBag().prices;
+}
+
+/** Когда цены последний раз удалось записать, мс. 0 — ещё не обновляли. */
+export function readModelPricesAt(): number {
+  return readPriceBag().at;
+}
+
+export function writeModelPrices(more: Record<string, string>, at: number = Date.now()): void {
   if (Object.keys(more).length === 0) return;
-  localStorage.setItem(PRICE_KEY, JSON.stringify({ ...readModelPrices(), ...more }));
+  const prev = readPriceBag();
+  localStorage.setItem(PRICE_KEY, JSON.stringify({ at, prices: { ...prev.prices, ...more } }));
 }
 
 export interface AccountSnapshot extends AccountFacts {

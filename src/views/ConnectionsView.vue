@@ -36,13 +36,14 @@ import {
   providerProfile,
   writeModelPrices,
   readModelPrices,
+  readModelPricesAt,
   readSnapshots,
   writeSnapshot,
   type AccountSnapshot,
 } from "@/lib/provider-account";
 import { connectableProviders, providerByBaseUrl } from "@/lib/providers";
 
-const { t } = useLocale();
+const { t, locale } = useLocale();
 
 const name = ref("");
 const address = ref("");
@@ -64,6 +65,7 @@ const error = ref("");
 const notice = ref("");
 const accounts = ref<Record<string, AccountSnapshot>>({});
 const prices = ref<Record<string, string>>({});
+const pricesUpdatedAt = ref(0);
 const budgetBusy = ref(false);
 const listedModels = ref<string[]>([]);
 const modelsBusy = ref(false);
@@ -72,6 +74,7 @@ const agentsFileInput = ref<HTMLInputElement | null>(null);
 onMounted(() => {
   accounts.value = readSnapshots();
   prices.value = readModelPrices();
+  pricesUpdatedAt.value = readModelPricesAt();
 });
 
 /** Агент, у которого подтверждаем удаление. */
@@ -355,9 +358,7 @@ async function rememberAccount(agentId: string, address: string, apiKey: string)
     const snapshot: AccountSnapshot = { agentId, fetchedAt: Date.now(), ...facts };
     writeSnapshot(snapshot);
     accounts.value = { ...accounts.value, [agentId]: snapshot };
-    const more = await fetchModelPrices(address, apiKey);
-    writeModelPrices(more);
-    prices.value = { ...prices.value, ...more };
+    applyPrices(await fetchModelPrices(address, apiKey));
   } catch {
     // Ключ уже сохранён: пустой баланс не откатывает его.
   }
@@ -430,6 +431,29 @@ function dash(value: string): string {
   return value || t("connections.unknown");
 }
 
+function priceFor(model: string): string {
+  const direct = prices.value[model];
+  if (direct) return direct;
+  const lower = model.toLowerCase();
+  const key = Object.keys(prices.value).find((item) => item.toLowerCase() === lower);
+  return key ? prices.value[key] : "";
+}
+
+function applyPrices(more: Record<string, string>): void {
+  if (Object.keys(more).length === 0) return;
+  writeModelPrices(more);
+  prices.value = { ...prices.value, ...more };
+  pricesUpdatedAt.value = readModelPricesAt();
+}
+
+const pricesUpdatedLabel = computed(() =>
+  pricesUpdatedAt.value
+    ? t("connections.refreshedAt", {
+        when: new Date(pricesUpdatedAt.value).toLocaleString(locale.value),
+      })
+    : "",
+);
+
 async function refreshBudget(): Promise<void> {
   budgetBusy.value = true;
   error.value = "";
@@ -446,11 +470,7 @@ async function refreshBudget(): Promise<void> {
         error.value = describeError(e, t);
       }
       try {
-        const more = await fetchModelPrices(agent.address, key);
-        if (Object.keys(more).length > 0) {
-          writeModelPrices(more);
-          prices.value = { ...prices.value, ...more };
-        }
+        applyPrices(await fetchModelPrices(agent.address, key));
       } catch {
         // Прайс необязателен: баланс уже записан.
       }
@@ -628,7 +648,7 @@ function addMixRoute(): void {
           <label>{{ t("connections.field.llmModel") }}</label>
           <div class="key-row">
             <input v-model="model" :placeholder="t('connections.field.llmModelPlaceholder')" list="provider-models" />
-            <button type="button" class="icon-btn" :disabled="!canListModels || modelsBusy" :title="modelsBusy ? t('connections.listingModels') : t('connections.listModels')" :aria-label="modelsBusy ? t('connections.listingModels') : t('connections.listModels')" @click="loadProviderModels">
+            <button type="button" class="icon-btn" :disabled="!canListModels || modelsBusy" v-tip="modelsBusy ? t('connections.listingModels') : t('connections.listModels')" :aria-label="modelsBusy ? t('connections.listingModels') : t('connections.listModels')" @click="loadProviderModels">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M3 12h.01" />
                 <path d="M3 18h.01" />
@@ -779,7 +799,7 @@ function addMixRoute(): void {
       <button
         type="button"
         class="icon-btn"
-        :title="t('connections.file.saveJson')"
+        v-tip="t('connections.file.saveJson')"
         :aria-label="t('connections.file.saveJson')"
         @click="exportAgents('json')"
       >
@@ -791,7 +811,7 @@ function addMixRoute(): void {
       <button
         type="button"
         class="icon-btn"
-        :title="t('connections.file.saveYaml')"
+        v-tip="t('connections.file.saveYaml')"
         :aria-label="t('connections.file.saveYaml')"
         @click="exportAgents('yaml')"
       >
@@ -805,7 +825,7 @@ function addMixRoute(): void {
       <button
         type="button"
         class="icon-btn"
-        :title="t('connections.file.load')"
+        v-tip="t('connections.file.load')"
         :aria-label="t('connections.file.load')"
         @click="agentsFileInput?.click()"
       >
@@ -831,7 +851,7 @@ function addMixRoute(): void {
         <span class="badge">{{ protocolLabel(agent) }}</span>
         <button
           class="icon-btn"
-          :title="t('connections.edit')"
+          v-tip="t('connections.edit')"
           :aria-label="t('connections.edit')"
           @click="startEdit(agent)"
         >
@@ -843,7 +863,7 @@ function addMixRoute(): void {
         <button
           class="icon-btn"
           :disabled="testStates[agent.id]?.state === 'testing'"
-          :title="testStates[agent.id]?.state === 'testing' ? t('connections.testing') : t('connections.test')"
+          v-tip="testStates[agent.id]?.state === 'testing' ? t('connections.testing') : t('connections.test')"
           :aria-label="testStates[agent.id]?.state === 'testing' ? t('connections.testing') : t('connections.test')"
           @click="testConnection(agent)"
         >
@@ -856,7 +876,7 @@ function addMixRoute(): void {
         </button>
         <button
           class="icon-btn danger"
-          :title="t('connections.remove')"
+          v-tip="t('connections.remove')"
           :aria-label="t('connections.remove')"
           @click="confirmRemoveId = agent.id"
         >
@@ -894,7 +914,7 @@ function addMixRoute(): void {
           <button
             type="button"
             class="icon-btn"
-            :title="t('connections.updateKey')"
+            v-tip="t('connections.updateKey')"
             :aria-label="t('connections.updateKey')"
             @click="saveKey(agent.id)"
           >
@@ -920,7 +940,7 @@ function addMixRoute(): void {
         type="button"
         class="icon-btn"
         :disabled="budgetBusy || budgetAgents.length === 0"
-        :title="budgetBusy ? t('connections.refreshing') : t('connections.refresh')"
+        v-tip="budgetBusy ? t('connections.refreshing') : t('connections.refresh')"
         :aria-label="budgetBusy ? t('connections.refreshing') : t('connections.refresh')"
         @click="refreshBudget"
       >
@@ -961,12 +981,13 @@ function addMixRoute(): void {
             <tr v-for="line in modelLines" :key="line.key">
               <td>{{ line.provider }}</td>
               <td>{{ line.model }}</td>
-              <td>{{ dash(prices[line.model] ?? "") }}</td>
+              <td>{{ dash(priceFor(line.model)) }}</td>
               <td>{{ line.limit }}</td>
             </tr>
           </tbody>
         </table>
       </div>
+      <p v-if="pricesUpdatedLabel" class="muted small">{{ pricesUpdatedLabel }}</p>
     </div>
 
     <div class="card">
@@ -1001,6 +1022,7 @@ function addMixRoute(): void {
           </tbody>
         </table>
       </div>
+      <p v-if="pricesUpdatedLabel" class="muted small">{{ pricesUpdatedLabel }}</p>
     </div>
 
     <ConfirmModal

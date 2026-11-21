@@ -91,6 +91,7 @@ export const connectionsMessages = {
   "connections.col.expires": "Срок ключа",
   "connections.refresh": "Обновить",
   "connections.refreshing": "Обновление…",
+  "connections.refreshedAt": "Обновлено: {when}",
   "connections.unknown": "—",
   "connections.topUp": "Пополнить",
   "connections.budgetEmpty": "Нет провайдеров с сохранённым ключом.",
