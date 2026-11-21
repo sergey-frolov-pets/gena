@@ -144,9 +144,9 @@ onBeforeUnmount(() => {
             </select>
           </label>
         </div>
+        <LanguageSwitcher />
+        <ThemeSwitcher />
         <div class="menu-row">
-          <LanguageSwitcher />
-          <ThemeSwitcher />
           <InstallButton />
         </div>
       </div>
@@ -297,6 +297,39 @@ onBeforeUnmount(() => {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
+.menu :deep(.menu-line) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 0;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.menu :deep(.menu-line:hover) {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.menu :deep(.menu-line svg) {
+  flex: none;
+}
+
+.menu :deep(.menu-line select) {
+  margin-inline-start: auto;
+  width: auto;
+  max-width: 8.5rem;
+  padding: 4px 6px;
+  font: inherit;
+  font-size: 0.86rem;
+}
+
 .menu-row {
   display: flex;
   align-items: center;
@@ -422,8 +455,7 @@ onBeforeUnmount(() => {
   color: #fff;
 }
 
-/* Телефон: хедер остаётся одной строкой — уменьшаем отступы и иконки,
-   язык показываем без глобуса и уже, чтобы всё влезло. */
+/* Телефон: хедер остаётся одной строкой — уменьшаем отступы и иконки. */
 @media (max-width: 480px) {
   .topbar {
     --icon-btn-size: 30px;
