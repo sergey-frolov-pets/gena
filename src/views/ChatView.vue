@@ -2947,7 +2947,7 @@ function onRateChange(event: Event): void {
         />
         <div
           class="chat-panel__composer-box"
-          :class="{ 'is-recording': dictationListening }"
+          :class="{ 'is-recording': dictationListening, 'is-multiline': composerMultiline }"
         >
           <button
             type="button"
@@ -3838,7 +3838,8 @@ function onRateChange(event: Event): void {
 
 .chat-panel__composer-box {
   display: flex;
-  align-items: flex-end;
+  /* Подсказка и кнопки — по центру высоты поля, а не прижаты к низу. */
+  align-items: center;
   gap: 6px;
   padding: 5px 6px 5px 10px;
   border: 1px solid var(--border);
@@ -3853,6 +3854,36 @@ function onRateChange(event: Event): void {
   flex-direction: row;
   align-items: center;
   gap: 3px;
+}
+
+/* Две и более строк текста — кнопки перестраиваются в два ряда по высоте:
+   справа остаётся ширина под текст, а не под длинную дорожку кнопок. */
+.chat-panel__composer-box.is-multiline .chat-panel__composer-stack {
+  flex-direction: column;
+  justify-content: center;
+}
+
+.chat-panel__composer-box.is-multiline .chat-panel__composer-stack--send {
+  display: grid;
+  flex-direction: row;
+  grid-template-columns: auto auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  justify-items: center;
+}
+
+.chat-panel__composer-box.is-multiline .chat-panel__clear {
+  grid-area: 1 / 1;
+  justify-self: start;
+}
+
+.chat-panel__composer-box.is-multiline .chat-panel__send.is-stop {
+  grid-area: 2 / 1;
+  justify-self: end;
+}
+
+.chat-panel__composer-box.is-multiline .chat-panel__send.is-primary {
+  grid-area: 2 / 2;
 }
 
 .chat-panel__composer-stack .chat-panel__icon-btn {
