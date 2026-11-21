@@ -84,9 +84,9 @@ describe("разбор ответов провайдера", () => {
       <p>legacy names <code>deepseek-v4-flash</code> are still accepted, billed at the Flash price.</p>
     `;
     expect(pricesFromDeepSeekPage(page)).toEqual({
-      "deepseek-flash": "off $0.15/$0.60 · peak $0.30/$1.20 · peak 01:00–04:00, 06:00–10:00 UTC",
-      "deepseek-v4-pro": "off $0.66/$1.98 · peak $1.32/$3.96 · peak 01:00–04:00, 06:00–10:00 UTC",
-      "deepseek-v4-flash": "off $0.15/$0.60 · peak $0.30/$1.20 · peak 01:00–04:00, 06:00–10:00 UTC",
+      "deepseek-flash": "off $0.15/$0.60\npeak $0.30/$1.20\n01:00–04:00, 06:00–10:00 UTC",
+      "deepseek-v4-pro": "off $0.66/$1.98\npeak $1.32/$3.96\n01:00–04:00, 06:00–10:00 UTC",
+      "deepseek-v4-flash": "off $0.15/$0.60\npeak $0.30/$1.20\n01:00–04:00, 06:00–10:00 UTC",
     });
     expect(pricesFromDeepSeekPage("<p>нет таблицы</p>")).toEqual({});
   });

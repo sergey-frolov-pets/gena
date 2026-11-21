@@ -192,9 +192,9 @@ const DEEPSEEK_PRICING_URL = "https://api-docs.deepseek.com/quick_start/pricing"
  * Страница docs не отдаёт CORS, поэтому браузер часто не может её прочитать.
  * Источник: api-docs.deepseek.com/quick_start/pricing, 20 Nov 2026.
  */
-const DEEPSEEK_PEAK_HOURS = "peak 01:00–04:00, 06:00–10:00 UTC";
-const DEEPSEEK_FLASH_PRICE = `off $0.15/$0.60 · peak $0.30/$1.20 · ${DEEPSEEK_PEAK_HOURS}`;
-const DEEPSEEK_PRO_PRICE = `off $0.66/$1.98 · peak $1.32/$3.96 · ${DEEPSEEK_PEAK_HOURS}`;
+const DEEPSEEK_PEAK_HOURS = "01:00–04:00, 06:00–10:00 UTC";
+const DEEPSEEK_FLASH_PRICE = `off $0.15/$0.60\npeak $0.30/$1.20\n${DEEPSEEK_PEAK_HOURS}`;
+const DEEPSEEK_PRO_PRICE = `off $0.66/$1.98\npeak $1.32/$3.96\n${DEEPSEEK_PEAK_HOURS}`;
 
 export const DEEPSEEK_PRICE_FALLBACK: Record<string, string> = {
   "deepseek-flash": DEEPSEEK_FLASH_PRICE,
@@ -239,7 +239,7 @@ export function peakHoursLabel(page: string): string {
   );
   if (clocks.length === 0) return "";
   const unique = [...new Set(clocks)];
-  return `peak ${unique.join(", ")} UTC`;
+  return `${unique.join(", ")} UTC`;
 }
 
 /** Публичная таблица DeepSeek: cache miss и output, off-peak и peak. */
@@ -281,11 +281,12 @@ export function pricesFromDeepSeekPage(page: string): Record<string, string> {
   const hours = peakHoursLabel(page);
   const out: Record<string, string> = {};
   models.forEach((id, index) => {
-    const price = [bandLabel("off", offIn[index], offOut[index]), bandLabel("peak", peakIn[index], peakOut[index])]
-      .filter(Boolean)
-      .join(" · ");
-    if (!price) return;
-    out[id] = hours ? `${price} · ${hours}` : price;
+    const lines = [bandLabel("off", offIn[index], offOut[index]), bandLabel("peak", peakIn[index], peakOut[index])].filter(
+      Boolean,
+    );
+    if (hours) lines.push(hours);
+    if (lines.length === 0) return;
+    out[id] = lines.join("\n");
   });
 
   const flash = models.find((id) => id.includes("flash"));

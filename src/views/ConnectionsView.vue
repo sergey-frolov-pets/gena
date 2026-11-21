@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import {
   agents,
   loadAgents,
@@ -156,16 +156,21 @@ function applyProvider(event: Event): void {
   listedModels.value = [];
 }
 
+function ensureModelRow(): void {
+  if (protocol.value !== "openai" && protocol.value !== "model_pool") return;
+  if (poolModels.value.length > 0) return;
+  poolModels.value = [{ id: model.value.trim(), free: false, dailyLimit: 0 }];
+}
+
 function pickListedModel(event: Event): void {
   const id = (event.target as HTMLSelectElement).value;
   if (!id) return;
-  if (protocol.value === "model_pool") {
-    if (!poolModels.value.some((row) => row.id === id)) {
-      poolModels.value.push({ id, free: false, dailyLimit: 0 });
-    }
-    return;
+  ensureModelRow();
+  if (!poolModels.value.some((row) => row.id === id)) {
+    poolModels.value.push({ id, free: false, dailyLimit: 0 });
   }
-  model.value = id;
+  if (poolModels.value.length === 1 && !poolModels.value[0].id) poolModels.value[0].id = id;
+  model.value = poolModels.value[0]?.id ?? id;
 }
 
 async function loadProviderModels(): Promise<void> {
@@ -273,14 +278,7 @@ async function submit(): Promise<void> {
   }
 
   let config: AgentConfig = {};
-  if (protocol.value === "openai") {
-    config = {
-      model: model.value.trim() || llmModel.value.trim(),
-      systemPrompt: systemPrompt.value.trim() || undefined,
-    };
-  } else if (protocol.value === "pico_ws") {
-    config = { reconnect: true };
-  } else if (protocol.value === "model_pool") {
+  if (protocol.value === "openai" || protocol.value === "model_pool") {
     const models = poolModels.value
       .map((item) => ({
         id: item.id.trim(),
@@ -289,14 +287,27 @@ async function submit(): Promise<void> {
       }))
       .filter((item) => item.id);
     if (models.length === 0) {
+      const single = model.value.trim() || llmModel.value.trim();
+      if (single) models.push({ id: single, free: false, dailyLimit: 0 });
+    }
+    if (models.length === 0) {
       error.value = t("connections.error.modelsEmpty");
       return;
     }
-    config = {
-      models,
-      preferFree: preferFree.value,
-      systemPrompt: systemPrompt.value.trim() || undefined,
-    };
+    const onePlain = models.length === 1 && !models[0].free && models[0].dailyLimit === 0;
+    if (onePlain) {
+      protocol.value = "openai";
+      config = { model: models[0].id, systemPrompt: systemPrompt.value.trim() || undefined };
+    } else {
+      protocol.value = "model_pool";
+      config = {
+        models,
+        preferFree: preferFree.value,
+        systemPrompt: systemPrompt.value.trim() || undefined,
+      };
+    }
+  } else if (protocol.value === "pico_ws") {
+    config = { reconnect: true };
   } else if (protocol.value === "model_mix") {
     const routes = mixRoutes.value.filter((item) => item.agentId && item.model.trim());
     if (routes.length === 0) {
@@ -542,6 +553,7 @@ function moveRow<T>(list: T[], index: number, delta: number): void {
 
 function addPoolModel(): void {
   poolModels.value.push({ id: "", free: false, dailyLimit: 0 });
+  if (poolModels.value.length > 1 && protocol.value === "openai") protocol.value = "model_pool";
 }
 
 function downloadAgents(filename: string, body: string, type: string): void {
@@ -585,6 +597,10 @@ async function importAgents(event: Event): Promise<void> {
   }
 }
 
+watch(protocol, () => {
+  ensureModelRow();
+});
+
 function addMixRoute(): void {
   const provider = savedProviders.value[0];
   mixRoutes.value.push({
@@ -609,12 +625,12 @@ function addMixRoute(): void {
         </div>
         <div class="field">
           <label>{{ t("connections.protocolLabel") }}</label>
-        <select v-model="protocol">
-          <option value="http_json">{{ t("connections.protocol.http_json") }}</option>
-          <option value="openai">{{ t("connections.protocol.openai") }}</option>
-          <option value="pico_ws">{{ t("connections.protocol.pico_ws") }}</option>
-          <option value="model_pool">{{ t("connections.protocol.model_pool") }}</option>
-          <option value="model_mix">{{ t("connections.protocol.model_mix") }}</option>
+          <select v-model="protocol">
+            <option value="http_json">{{ t("connections.protocol.http_json") }}</option>
+            <option value="openai">{{ t("connections.protocol.openai") }}</option>
+            <option value="pico_ws">{{ t("connections.protocol.pico_ws") }}</option>
+            <option value="model_pool">{{ t("connections.protocol.model_pool") }}</option>
+            <option value="model_mix">{{ t("connections.protocol.model_mix") }}</option>
           </select>
         </div>
       </div>
@@ -629,28 +645,48 @@ function addMixRoute(): void {
         </select>
       </div>
 
-      <div class="pair" v-if="protocol !== 'model_mix'">
-      <div class="field">
-        <label>{{ addressLabel }}</label>
-        <input v-model="address" :placeholder="addressPlaceholder" />
-      </div>
-
-      <div class="field" v-if="!editingId">
-        <label>{{ t("connections.field.key") }}</label>
-        <input
-          v-model="apiKey"
-          type="password"
-          :placeholder="t('connections.field.keyPlaceholder')"
-          autocomplete="off"
-        />
-      </div>
-      </div>
-
-      <template v-if="protocol === 'openai'">
+      <div v-if="protocol !== 'model_mix'" class="pair" :class="{ 'pair-one': editingId }">
         <div class="field">
-          <label>{{ t("connections.field.llmModel") }}</label>
+          <label>{{ addressLabel }}</label>
+          <input v-model="address" :placeholder="addressPlaceholder" />
+        </div>
+        <div class="field" v-if="!editingId">
+          <label>{{ t("connections.field.key") }}</label>
+          <input
+            v-model="apiKey"
+            type="password"
+            :placeholder="t('connections.field.keyPlaceholder')"
+            autocomplete="off"
+          />
+        </div>
+      </div>
+
+      <template v-if="protocol === 'openai' || protocol === 'model_pool'">
+        <div class="field">
+          <div class="model-head">
+            <span>{{ t("connections.field.models") }}</span>
+            <span>{{ t("connections.field.free") }}</span>
+            <span>{{ t("connections.col.limits") }}</span>
+            <span></span>
+          </div>
+          <div v-for="(row, index) in poolModels" :key="index" class="model-row">
+            <input v-model="row.id" :placeholder="t('connections.field.llmModelPlaceholder')" list="provider-models" />
+            <label class="check">
+              <input v-model="row.free" type="checkbox" />
+              <span class="check-label">{{ t("connections.field.free") }}</span>
+            </label>
+            <input v-model.number="row.dailyLimit" type="number" min="0" />
+            <span class="model-actions">
+              <button type="button" :disabled="index === 0" @click="moveRow(poolModels, index, -1)">↑</button>
+              <button type="button" :disabled="index === poolModels.length - 1" @click="moveRow(poolModels, index, 1)">↓</button>
+              <button type="button" :disabled="poolModels.length === 1" @click="poolModels.splice(index, 1)">{{ t("connections.removeRow") }}</button>
+            </span>
+          </div>
+          <datalist id="provider-models">
+            <option v-for="id in listedModels" :key="id" :value="id" />
+          </datalist>
           <div class="key-row">
-            <input v-model="model" :placeholder="t('connections.field.llmModelPlaceholder')" list="provider-models" />
+            <button type="button" @click="addPoolModel">{{ t("connections.addModel") }}</button>
             <button type="button" class="icon-btn" :disabled="!canListModels || modelsBusy" v-tip="modelsBusy ? t('connections.listingModels') : t('connections.listModels')" :aria-label="modelsBusy ? t('connections.listingModels') : t('connections.listModels')" @click="loadProviderModels">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M3 12h.01" />
@@ -660,36 +696,6 @@ function addMixRoute(): void {
                 <path d="M8 18h13" />
                 <path d="M8 6h13" />
               </svg>
-            </button>
-          </div>
-          <datalist id="provider-models">
-            <option v-for="id in listedModels" :key="id" :value="id" />
-          </datalist>
-          <select v-if="listedModels.length > 0" class="model-pick" :value="model" @change="pickListedModel">
-            <option value="">{{ t("connections.pickModel") }}</option>
-            <option v-for="id in listedModels" :key="id" :value="id">{{ id }}</option>
-          </select>
-        </div>
-      </template>
-
-      <template v-if="protocol === 'model_pool'">
-        <div class="field">
-          <label>{{ t("connections.field.models") }}</label>
-          <div v-for="(row, index) in poolModels" :key="index" class="model-row">
-            <input v-model="row.id" :placeholder="t('connections.field.llmModelPlaceholder')" />
-            <label class="check">
-              <input v-model="row.free" type="checkbox" />
-              {{ t("connections.field.free") }}
-            </label>
-            <input v-model.number="row.dailyLimit" type="number" min="0" />
-            <button type="button" :disabled="index === 0" @click="moveRow(poolModels, index, -1)">↑</button>
-            <button type="button" :disabled="index === poolModels.length - 1" @click="moveRow(poolModels, index, 1)">↓</button>
-            <button type="button" @click="poolModels.splice(index, 1)">{{ t("connections.removeRow") }}</button>
-          </div>
-          <div class="key-row">
-            <button type="button" @click="addPoolModel">{{ t("connections.addModel") }}</button>
-            <button type="button" :disabled="!canListModels || modelsBusy" @click="loadProviderModels">
-              {{ modelsBusy ? t("connections.listingModels") : t("connections.listModels") }}
             </button>
           </div>
           <select v-if="listedModels.length > 0" class="model-pick" value="" @change="pickListedModel">
@@ -1056,14 +1062,18 @@ function addMixRoute(): void {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+  align-items: end;
+}
+.pair-one {
+  grid-template-columns: minmax(0, 1fr);
 }
 .row {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 }
 @media (max-width: 720px) {
   .row,
   .pair {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 .actions {
@@ -1098,28 +1108,57 @@ function addMixRoute(): void {
 .key-row {
   display: flex;
   gap: 8px;
-  margin-top: 10px;
+  align-items: center;
+  margin-top: 8px;
 }
-.key-row input {
+.key-row input,
+.key-row select {
   flex: 1;
+  min-width: 0;
 }
+.model-head,
 .model-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 7.5rem 6.5rem auto;
   gap: 8px;
   align-items: center;
+}
+.model-head {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.model-row {
   margin-bottom: 8px;
-  flex-wrap: wrap;
 }
 .model-row input,
 .model-row select {
-  flex: 1;
-  min-width: 8rem;
+  min-width: 0;
+  width: 100%;
+}
+.model-actions {
+  display: flex;
+  gap: 4px;
 }
 .check {
   display: flex;
   gap: 6px;
   align-items: center;
-  margin: 8px 0;
+  margin: 0;
+}
+.model-row .check-label {
+  display: none;
+}
+@media (max-width: 720px) {
+  .model-head {
+    display: none;
+  }
+  .model-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .model-row .check-label {
+    display: inline;
+  }
 }
 .extras {
   margin-top: 8px;
@@ -1160,8 +1199,10 @@ function addMixRoute(): void {
   white-space: nowrap;
 }
 .sheet-price {
-  white-space: normal;
-  min-width: 12rem;
+  white-space: pre-line;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.35;
 }
 .block-split {
   border: 0;
