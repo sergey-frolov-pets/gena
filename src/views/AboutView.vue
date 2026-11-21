@@ -1,42 +1,105 @@
 <script setup lang="ts">
+import { ref } from "vue";
 import { useLocale } from "@/i18n";
 import type { LocaleKey } from "@/i18n/types";
 
 const { t } = useLocale();
+const base = import.meta.env.BASE_URL;
+const copied = ref(false);
 
-const setupSteps: LocaleKey[] = [
-  "about.setup.1",
-  "about.setup.2",
-  "about.setup.3",
-  "about.setup.4",
-  "about.setup.5",
+const features: LocaleKey[] = [
+  "about.features.1",
+  "about.features.2",
+  "about.features.3",
+  "about.features.4",
+  "about.features.5",
+  "about.features.6",
 ];
 
-const useSteps: LocaleKey[] = [
-  "about.use.1",
-  "about.use.2",
-  "about.use.3",
-  "about.use.4",
+const quick: LocaleKey[] = ["about.quick.1", "about.quick.2", "about.quick.3", "about.quick.4"];
+
+const sections: { title: LocaleKey; body: LocaleKey; image: string; caption: LocaleKey }[] = [
+  {
+    title: "about.menu.title",
+    body: "about.menu.body",
+    image: "guide/menu.png",
+    caption: "about.fig.menu",
+  },
+  {
+    title: "about.chat.title",
+    body: "about.chat.body",
+    image: "guide/chat.png",
+    caption: "about.fig.chat",
+  },
+  {
+    title: "about.agents.title",
+    body: "about.agents.body",
+    image: "guide/agents.png",
+    caption: "about.fig.agents",
+  },
+  {
+    title: "about.phrases.title",
+    body: "about.phrases.body",
+    image: "guide/phrases.png",
+    caption: "about.fig.phrases",
+  },
+  {
+    title: "about.sessions.title",
+    body: "about.sessions.body",
+    image: "guide/sessions.png",
+    caption: "about.fig.sessions",
+  },
 ];
+
+async function copyPrompt(): Promise<void> {
+  await navigator.clipboard.writeText(t("about.ask.prompt"));
+  copied.value = true;
+  window.setTimeout(() => {
+    copied.value = false;
+  }, 1600);
+}
 </script>
 
 <template>
   <article class="about">
-    <h1>{{ t("about.title") }}</h1>
+    <h1>{{ t("about.home.title") }}</h1>
     <p class="about__lead">{{ t("about.lead") }}</p>
 
     <section>
-      <h2>{{ t("about.setup.title") }}</h2>
+      <h2>{{ t("about.features.title") }}</h2>
+      <ul>
+        <li v-for="key in features" :key="key">{{ t(key) }}</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>{{ t("about.quick.title") }}</h2>
       <ol>
-        <li v-for="key in setupSteps" :key="key">{{ t(key) }}</li>
+        <li v-for="key in quick" :key="key">{{ t(key) }}</li>
       </ol>
     </section>
 
     <section>
-      <h2>{{ t("about.use.title") }}</h2>
-      <ol>
-        <li v-for="key in useSteps" :key="key">{{ t(key) }}</li>
-      </ol>
+      <h2>{{ t("about.byok.title") }}</h2>
+      <p>{{ t("about.byok.body") }}</p>
+    </section>
+
+    <section>
+      <h2>{{ t("about.ask.title") }}</h2>
+      <p>{{ t("about.ask.body") }}</p>
+      <pre class="about__prompt">{{ t("about.ask.prompt") }}</pre>
+      <button type="button" class="about__copy" @click="copyPrompt">
+        {{ copied ? t("about.ask.copied") : t("about.ask.copy") }}
+      </button>
+    </section>
+
+    <section v-for="section in sections" :key="section.title">
+      <h2>{{ t(section.title) }}</h2>
+      <p>{{ t(section.body) }}</p>
+      <figure>
+        <img :src="base + section.image" alt="" />
+        <figcaption>{{ t(section.caption) }}</figcaption>
+      </figure>
     </section>
   </article>
 </template>
@@ -52,22 +115,67 @@ const useSteps: LocaleKey[] = [
 }
 
 .about h2 {
-  margin: 1.4rem 0 0.4rem;
+  margin: 1.6rem 0 0.4rem;
   font-size: 1.05rem;
+}
+
+.about p,
+.about li {
+  line-height: 1.5;
 }
 
 .about__lead {
   margin: 0;
   color: var(--muted);
-  line-height: 1.5;
 }
 
+.about ul,
 .about ol {
   margin: 0;
   padding-inline-start: 1.25rem;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  line-height: 1.45;
+}
+
+.about__prompt {
+  margin: 12px 0 0;
+  padding: 12px;
+  overflow: auto;
+  white-space: pre-wrap;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel-2);
+  font: 0.82rem/1.45 ui-monospace, monospace;
+}
+
+.about__copy {
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: inherit;
+  font: inherit;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.about figure {
+  margin: 12px 0 0;
+}
+
+.about img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.about figcaption {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.82rem;
 }
 </style>

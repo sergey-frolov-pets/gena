@@ -4,6 +4,7 @@ import ConnectionsView from "./views/ConnectionsView.vue";
 import ChatView from "./views/ChatView.vue";
 import SessionsView from "./views/SessionsView.vue";
 import AboutView from "./views/AboutView.vue";
+import ProvidersView from "./views/ProvidersView.vue";
 import LanguageSwitcher from "./components/LanguageSwitcher.vue";
 import ThemeSwitcher from "./components/ThemeSwitcher.vue";
 import InstallButton from "./components/InstallButton.vue";
@@ -32,7 +33,7 @@ import { useTheme } from "./lib/theme";
 import { watchForUpdate } from "./lib/version-update";
 import { useLocale } from "./i18n";
 
-type Tab = "connections" | "chat" | "sessions" | "about";
+type Tab = "connections" | "chat" | "sessions" | "about" | "providers";
 const tab = ref<Tab>("chat");
 const menuOpen = ref(false);
 /** Кнопка «···» и само меню: клик внутри не считается внешним. */
@@ -190,6 +191,18 @@ onBeforeUnmount(() => {
           </svg>
           {{ t("chat.voice") }}
         </button>
+        <LanguageSwitcher />
+        <ThemeSwitcher />
+        <div class="menu-row">
+          <InstallButton />
+        </div>
+        <button type="button" role="menuitem" @click="openTab('providers')">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1" />
+            <path d="M14 11a5 5 0 0 0-7.1-.1l-2 2a5 5 0 0 0 7.1 7.1l1.1-1.1" />
+          </svg>
+          {{ t("app.nav.providers") }}
+        </button>
         <button type="button" role="menuitem" @click="openTab('about')">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="9" />
@@ -198,11 +211,6 @@ onBeforeUnmount(() => {
           </svg>
           {{ t("app.nav.about") }}
         </button>
-        <LanguageSwitcher />
-        <ThemeSwitcher />
-        <div class="menu-row">
-          <InstallButton />
-        </div>
       </div>
       </div>
     </header>
@@ -218,6 +226,7 @@ onBeforeUnmount(() => {
       <ConnectionsView v-if="tab === 'connections'" />
       <ChatView v-else-if="tab === 'chat'" />
       <SessionsView v-else-if="tab === 'sessions'" />
+      <ProvidersView v-else-if="tab === 'providers'" />
       <AboutView v-else />
     </main>
 
