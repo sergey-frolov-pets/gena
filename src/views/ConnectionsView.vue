@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import {
   agents,
   createAgent,
@@ -20,6 +20,14 @@ import {
   type Protocol,
 } from "@/storage/types";
 import ConfirmModal from "@/components/ConfirmModal.vue";
+import {
+  fetchAccount,
+  fetchModelPrices,
+  providerProfile,
+  readSnapshots,
+  writeSnapshot,
+  type AccountSnapshot,
+} from "@/lib/provider-account";
 
 const { t } = useLocale();
 
@@ -41,6 +49,13 @@ const poolModels = ref<{ id: string; free: boolean; dailyLimit: number }[]>([]);
 const mixRoutes = ref<{ agentId: string; model: string }[]>([]);
 const error = ref("");
 const notice = ref("");
+const accounts = ref<Record<string, AccountSnapshot>>({});
+const prices = ref<Record<string, string>>({});
+const budgetBusy = ref(false);
+
+onMounted(() => {
+  accounts.value = readSnapshots();
+});
 
 /** Агент, у которого подтверждаем удаление. */
 const confirmRemoveId = ref("");
@@ -234,7 +249,7 @@ async function submit(): Promise<void> {
       });
       notice.value = t("connections.updated");
     } else {
-      await createAgent({
+      const created = await createAgent({
         name: checked.values.name,
         address: protocol.value === "model_mix" ? "" : checked.values.address,
         apiKey: apiKey.value,
@@ -242,6 +257,9 @@ async function submit(): Promise<void> {
         protocol: protocol.value,
         config,
       });
+      if (apiKey.value && created.address) {
+        await rememberAccount(created.id, created.address, apiKey.value);
+      }
       notice.value = t("connections.added");
     }
     resetForm();
@@ -260,15 +278,98 @@ function takeQuickReplies(): void {
   notice.value = t("connections.quickImportDone", { name: source.name, count: list.length });
 }
 
+async function rememberAccount(agentId: string, address: string, apiKey: string): Promise<void> {
+  try {
+    const facts = await fetchAccount(address, apiKey);
+    const snapshot: AccountSnapshot = { agentId, fetchedAt: Date.now(), ...facts };
+    writeSnapshot(snapshot);
+    accounts.value = { ...accounts.value, [agentId]: snapshot };
+    const more = await fetchModelPrices(address, apiKey);
+    prices.value = { ...prices.value, ...more };
+  } catch {
+    // Ключ уже сохранён: пустой баланс не откатывает его.
+  }
+}
+
 async function saveKey(agentId: string): Promise<void> {
   error.value = "";
   notice.value = "";
+  const next = keyDrafts.value[agentId] ?? "";
   try {
-    await updateAgentKey(agentId, keyDrafts.value[agentId] ?? "");
+    await updateAgentKey(agentId, next);
     keyDrafts.value[agentId] = "";
+    const agent = agents.value.find((item) => item.id === agentId);
+    if (agent?.address && next) await rememberAccount(agent.id, agent.address, next);
     notice.value = t("connections.keyUpdated");
   } catch (e) {
     error.value = describeError(e, t);
+  }
+}
+
+const budgetAgents = computed(() =>
+  agents.value.filter(
+    (agent) =>
+      (agent.protocol === "openai" || agent.protocol === "model_pool") &&
+      Boolean(agent.sealedKey) &&
+      Boolean(agent.address),
+  ),
+);
+
+const modelLines = computed(() => {
+  const lines: { key: string; provider: string; model: string; limit: string }[] = [];
+  for (const agent of agents.value) {
+    if (agent.protocol === "openai") {
+      const modelId = (
+        (agent.config as { model?: string } | undefined)?.model || agent.settings.llmModel
+      ).trim();
+      if (!modelId) continue;
+      lines.push({
+        key: `${agent.id}:${modelId}`,
+        provider: agent.name,
+        model: modelId,
+        limit: limitLabel(false, agent.settings.callLimit),
+      });
+    }
+    if (agent.protocol === "model_pool") {
+      const models =
+        (agent.config as { models?: { id?: string; free?: boolean; dailyLimit?: number }[] } | undefined)
+          ?.models ?? [];
+      for (const item of models) {
+        const modelId = String(item.id ?? "").trim();
+        if (!modelId) continue;
+        lines.push({
+          key: `${agent.id}:${modelId}`,
+          provider: agent.name,
+          model: modelId,
+          limit: limitLabel(Boolean(item.free), Number(item.dailyLimit) || 0),
+        });
+      }
+    }
+  }
+  return lines;
+});
+
+function limitLabel(free: boolean, daily: number): string {
+  const cap = daily > 0 ? t("connections.limitPerDay", { n: daily }) : t("connections.limitNone");
+  return free ? `${t("connections.limitFree")} · ${cap}` : cap;
+}
+
+function dash(value: string): string {
+  return value || t("connections.unknown");
+}
+
+async function refreshBudget(): Promise<void> {
+  budgetBusy.value = true;
+  error.value = "";
+  try {
+    for (const agent of budgetAgents.value) {
+      const key = await getAgentKey(agent);
+      if (key) await rememberAccount(agent.id, agent.address, key);
+    }
+  } catch (e) {
+    error.value = describeError(e, t);
+  } finally {
+    budgetBusy.value = false;
   }
 }
 
@@ -349,28 +450,30 @@ function addMixRoute(): void {
 
     <form class="card" @submit.prevent="submit">
       <h3>{{ formTitle }}</h3>
-      <div class="field">
-        <label>{{ t("connections.field.name") }}</label>
-        <input v-model="name" :placeholder="t('connections.field.namePlaceholder')" />
-      </div>
-
-      <div class="field">
-        <label>{{ t("connections.protocolLabel") }}</label>
+      <div class="pair">
+        <div class="field">
+          <label>{{ t("connections.field.name") }}</label>
+          <input v-model="name" :placeholder="t('connections.field.namePlaceholder')" />
+        </div>
+        <div class="field">
+          <label>{{ t("connections.protocolLabel") }}</label>
         <select v-model="protocol">
           <option value="http_json">{{ t("connections.protocol.http_json") }}</option>
           <option value="openai">{{ t("connections.protocol.openai") }}</option>
           <option value="pico_ws">{{ t("connections.protocol.pico_ws") }}</option>
           <option value="model_pool">{{ t("connections.protocol.model_pool") }}</option>
           <option value="model_mix">{{ t("connections.protocol.model_mix") }}</option>
-        </select>
+          </select>
+        </div>
       </div>
 
-      <div class="field" v-if="protocol !== 'model_mix'">
+      <div class="pair" v-if="protocol !== 'model_mix'">
+      <div class="field">
         <label>{{ addressLabel }}</label>
         <input v-model="address" :placeholder="addressPlaceholder" />
       </div>
 
-      <div class="field" v-if="!editingId && protocol !== 'model_mix'">
+      <div class="field" v-if="!editingId">
         <label>{{ t("connections.field.key") }}</label>
         <input
           v-model="apiKey"
@@ -379,15 +482,12 @@ function addMixRoute(): void {
           autocomplete="off"
         />
       </div>
+      </div>
 
       <template v-if="protocol === 'openai'">
         <div class="field">
           <label>{{ t("connections.field.llmModel") }}</label>
           <input v-model="model" :placeholder="t('connections.field.llmModelPlaceholder')" />
-        </div>
-        <div class="field">
-          <label>{{ t("connections.field.systemPrompt") }}</label>
-          <input v-model="systemPrompt" type="text" />
         </div>
       </template>
 
@@ -407,10 +507,6 @@ function addMixRoute(): void {
           </div>
           <button type="button" @click="addPoolModel">{{ t("connections.addModel") }}</button>
           <p class="muted small">{{ t("connections.hint.pool") }}</p>
-        </div>
-        <div class="field">
-          <label>{{ t("connections.field.systemPrompt") }}</label>
-          <input v-model="systemPrompt" type="text" />
         </div>
         <label class="check">
           <input v-model="preferFree" type="checkbox" />
@@ -463,22 +559,23 @@ function addMixRoute(): void {
         </div>
       </div>
 
-      <div class="field">
-        <label>{{ t("connections.field.quickReplies") }}</label>
-        <textarea
-          v-model="quickRepliesText"
-          rows="4"
-          :placeholder="t('connections.field.quickRepliesPlaceholder')"
-        ></textarea>
-        <p class="muted small">
-          {{
-            t("connections.quickRepliesNote", {
-              count: quickRepliesCount,
-              max: MAX_QUICK_REPLIES,
-            })
-          }}
-        </p>
-      </div>
+      <details class="extras">
+        <summary>{{ t("connections.extras") }}</summary>
+        <div v-if="protocol === 'openai' || protocol === 'model_pool'" class="field">
+          <label>{{ t("connections.field.systemPrompt") }}</label>
+          <input v-model="systemPrompt" type="text" />
+        </div>
+        <div class="field">
+          <label>{{ t("connections.field.quickReplies") }}</label>
+          <textarea
+            v-model="quickRepliesText"
+            rows="3"
+            :placeholder="t('connections.field.quickRepliesPlaceholder')"
+          ></textarea>
+          <p class="muted small">
+            {{ t("connections.quickRepliesNote", { count: quickRepliesCount, max: MAX_QUICK_REPLIES }) }}
+          </p>
+        </div>
 
       <div v-if="agentsWithQuick.length > 0" class="field">
         <label>{{ t("connections.quickImport") }}</label>
@@ -494,6 +591,7 @@ function addMixRoute(): void {
           </button>
         </div>
       </div>
+      </details>
 
       <p v-if="protocol === 'pico_ws'" class="muted small">
         {{ t("connections.hint.picoContextIgnored") }}
@@ -538,17 +636,21 @@ function addMixRoute(): void {
           })
         }}
       </div>
-      <div v-if="agent.protocol !== 'model_mix'" class="key-row">
-        <input
-          v-model="keyDrafts[agent.id]"
-          type="password"
-          :placeholder="
-            agent.sealedKey ? t('connections.keySaved') : t('connections.keyMissing')
-          "
-          autocomplete="off"
-        />
-        <button @click="saveKey(agent.id)">{{ t("connections.saveKey") }}</button>
-      </div>
+      <details v-if="agent.protocol !== 'model_mix'" class="extras">
+        <summary>{{ t("connections.updateKey") }}</summary>
+        <p v-if="accounts[agent.id]?.expiresAt" class="muted small">
+          {{ t("connections.col.expires") }}: {{ accounts[agent.id].expiresAt }}
+        </p>
+        <div class="key-row">
+          <input
+            v-model="keyDrafts[agent.id]"
+            type="password"
+            :placeholder="agent.sealedKey ? t('connections.keySaved') : t('connections.keyMissing')"
+            autocomplete="off"
+          />
+          <button type="button" @click="saveKey(agent.id)">{{ t("connections.updateKey") }}</button>
+        </div>
+      </details>
       <p
         v-if="testStates[agent.id] && testStates[agent.id].state !== 'testing'"
         class="small"
@@ -557,6 +659,70 @@ function addMixRoute(): void {
         {{ testStates[agent.id].msg }}
       </p>
     </div>
+    <div class="card">
+      <h3>{{ t("connections.modelsTable") }}</h3>
+      <p v-if="modelLines.length === 0" class="muted">{{ t("connections.modelsEmptyTable") }}</p>
+      <div v-else class="sheet-wrap">
+        <table class="sheet">
+          <thead>
+            <tr>
+              <th>{{ t("connections.col.provider") }}</th>
+              <th>{{ t("connections.col.model") }}</th>
+              <th>{{ t("connections.col.price") }}</th>
+              <th>{{ t("connections.col.limits") }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="line in modelLines" :key="line.key">
+              <td>{{ line.provider }}</td>
+              <td>{{ line.model }}</td>
+              <td>{{ dash(prices[line.model] ?? "") }}</td>
+              <td>{{ line.limit }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="agent-head">
+        <h3>{{ t("connections.budgetTable") }}</h3>
+        <button type="button" :disabled="budgetBusy || budgetAgents.length === 0" @click="refreshBudget">
+          {{ budgetBusy ? t("connections.refreshing") : t("connections.refresh") }}
+        </button>
+      </div>
+      <p v-if="budgetAgents.length === 0" class="muted">{{ t("connections.budgetEmpty") }}</p>
+      <div v-else class="sheet-wrap">
+        <table class="sheet">
+          <thead>
+            <tr>
+              <th>{{ t("connections.col.provider") }}</th>
+              <th>{{ t("connections.col.money") }}</th>
+              <th>{{ t("connections.col.freeLimits") }}</th>
+              <th>{{ t("connections.col.expires") }}</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="agent in budgetAgents" :key="agent.id">
+              <td>{{ agent.name }}</td>
+              <td>{{ dash(accounts[agent.id]?.money ?? "") }}</td>
+              <td>{{ dash(accounts[agent.id]?.free ?? "") }}</td>
+              <td>{{ dash(accounts[agent.id]?.expiresAt ?? "") }}</td>
+              <td>
+                <a
+                  v-if="providerProfile(agent.address).topUpUrl"
+                  :href="providerProfile(agent.address).topUpUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >{{ t("connections.topUp") }}</a>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <ConfirmModal
       :open="Boolean(confirmRemoveAgent)"
       :title="t('connections.removeConfirmTitle')"
@@ -581,10 +747,20 @@ function addMixRoute(): void {
   padding: 16px;
   margin-bottom: 16px;
 }
-.row {
+.row,
+.pair {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+.row {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (max-width: 720px) {
+  .row,
+  .pair {
+    grid-template-columns: 1fr;
+  }
 }
 .actions {
   display: flex;
@@ -640,5 +816,35 @@ function addMixRoute(): void {
   gap: 6px;
   align-items: center;
   margin: 8px 0;
+}
+.extras {
+  margin-top: 8px;
+}
+.extras summary {
+  cursor: pointer;
+  color: var(--muted, #8b93a1);
+  font-size: 13px;
+}
+.sheet-wrap {
+  overflow-x: auto;
+}
+.sheet {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.sheet th,
+.sheet td {
+  text-align: start;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.sheet h3,
+.card h3 {
+  margin: 0;
+}
+.agent-head h3 {
+  margin-right: auto;
 }
 </style>
