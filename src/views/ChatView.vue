@@ -3644,6 +3644,8 @@ function onRateChange(event: Event): void {
   font-size: 0.72rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  /* Как кнопки в доке: полупрозрачная, чтобы не спорить с лентой. */
+  opacity: 0.62;
 }
 
 .chat-panel__turn svg {
