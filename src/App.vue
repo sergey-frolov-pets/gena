@@ -8,6 +8,7 @@ import ThemeSwitcher from "./components/ThemeSwitcher.vue";
 import InstallButton from "./components/InstallButton.vue";
 import AppFooter from "./components/AppFooter.vue";
 import { agentId } from "./lib/active-agent";
+import { SPEECH_RATES, autoSpeak, setAutoSpeak, setSpeechRate, speechAvailable, speechRate } from "./lib/speech";
 import { agents, loadAgents, loadSessions } from "./lib/store";
 import { useTheme } from "./lib/theme";
 import { watchForUpdate } from "./lib/version-update";
@@ -49,6 +50,11 @@ watchForUpdate(() => {
 });
 function applyUpdate(): void {
   window.location.reload();
+}
+
+function onSpeechRate(event: Event): void {
+  const value = Number((event.target as HTMLSelectElement).value);
+  if (Number.isFinite(value)) setSpeechRate(value);
 }
 onMounted(async () => {
   document.addEventListener("pointerdown", onPointerDown);
@@ -94,7 +100,11 @@ onBeforeUnmount(() => {
         :aria-expanded="menuOpen"
         @click="menuOpen = !menuOpen"
       >
-        ···
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <circle cx="12" cy="5" r="1.6" fill="currentColor" />
+          <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+          <circle cx="12" cy="19" r="1.6" fill="currentColor" />
+        </svg>
       </button>
       <div v-if="menuOpen" class="menu" role="menu">
         <button type="button" role="menuitem" @click="openTab('connections')">
@@ -119,6 +129,27 @@ onBeforeUnmount(() => {
           </svg>
           {{ t("app.nav.chat") }}
         </button>
+        <div v-if="speechAvailable" class="menu-voice">
+          <button
+            type="button"
+            class="menu-voice__toggle"
+            :aria-pressed="autoSpeak"
+            @click="setAutoSpeak(!autoSpeak)"
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M11 5 6 9H3v6h3l5 4z" />
+              <path d="M16 9a4 4 0 0 1 0 6" />
+              <path d="M19 6a8 8 0 0 1 0 12" />
+            </svg>
+            {{ t("chat.autoSpeak") }}
+          </button>
+          <label class="menu-voice__rate">
+            <span>{{ t("chat.speechRate") }}</span>
+            <select :value="speechRate" :aria-label="t('chat.speechRate')" @change="onSpeechRate">
+              <option v-for="rate in SPEECH_RATES" :key="rate" :value="rate">{{ rate }}×</option>
+            </select>
+          </label>
+        </div>
         <div class="menu-row">
           <LanguageSwitcher />
           <ThemeSwitcher />
@@ -207,8 +238,49 @@ onBeforeUnmount(() => {
 
 .menu-btn {
   margin-inline-start: auto;
-  font-size: 1.1rem;
-  letter-spacing: 0.08em;
+}
+
+.menu-voice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 8px 10px;
+  border-top: 1px solid var(--border);
+}
+
+.menu-voice__toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: start;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 8px 4px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.menu-voice__toggle[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+.menu-voice__rate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  padding: 0 4px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.menu-voice__rate select {
+  width: auto;
+  padding: 4px 8px;
+  font-size: 0.82rem;
 }
 
 .menu {
