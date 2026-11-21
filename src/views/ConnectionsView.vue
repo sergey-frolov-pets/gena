@@ -1115,8 +1115,10 @@ function addMixRoute(): void {
 }
 .block-split {
   border: 0;
-  border-top: 1px solid var(--border);
-  margin: 28px 0 4px;
+  height: 1px;
+  background: var(--muted);
+  opacity: 0.55;
+  margin: 28px 0 8px;
 }
 .icon-btn {
   display: inline-flex;
