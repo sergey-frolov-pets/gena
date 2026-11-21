@@ -7,13 +7,7 @@ const { t } = useLocale();
 </script>
 
 <template>
-  <button
-    class="theme-btn"
-    type="button"
-    :aria-label="t('app.theme.toggle')"
-    v-tip="t('app.theme.toggle')"
-    @click="toggle"
-  >
+  <button class="menu-line" type="button" :aria-label="t('app.theme.toggle')" @click="toggle">
     <svg
       v-if="theme === 'dark'"
       viewBox="0 0 24 24"
@@ -43,15 +37,6 @@ const { t } = useLocale();
     >
       <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
     </svg>
+    <span>{{ theme === "dark" ? t("app.theme.light") : t("app.theme.dark") }}</span>
   </button>
 </template>
-
-<style scoped>
-.theme-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 6px 8px;
-  line-height: 0;
-}
-</style>
