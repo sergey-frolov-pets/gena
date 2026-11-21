@@ -4082,9 +4082,10 @@ function onRateChange(event: Event): void {
   outline: none;
 }
 
-/* Подсказка должна укладываться в одну строку на телефоне. */
+/* Подсказка мельче текста, но строка та же: иначе глифы сидят выше середины поля. */
 .chat-panel__input::placeholder {
   font-size: 0.72rem;
+  line-height: calc(0.9rem * 1.4);
   letter-spacing: -0.02em;
   white-space: nowrap;
   text-overflow: ellipsis;
