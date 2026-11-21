@@ -3031,6 +3031,7 @@ function onRateChange(event: Event): void {
           class="chat-panel__composer-box"
           :class="{ 'is-recording': dictationListening, 'is-multiline': composerMultiline }"
         >
+          <div class="chat-panel__composer-lead">
           <button
             type="button"
             class="chat-panel__icon-btn"
@@ -3078,6 +3079,7 @@ function onRateChange(event: Event): void {
                 {{ agent.name }}
               </button>
             </div>
+          </div>
           </div>
           <textarea
             ref="composerEl"
@@ -3983,6 +3985,31 @@ function onRateChange(event: Event): void {
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--panel-2);
+}
+
+/* Скрепка и агент в один ряд, пока поле в одну строку. */
+.chat-panel__composer-lead {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0;
+}
+
+/* С двух строк выбор агента уходит под скрепку. */
+.chat-panel__composer-box.is-multiline .chat-panel__composer-lead {
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+}
+
+.chat-panel__composer-box.is-multiline .chat-panel__composer-lead .chat-panel__icon-btn {
+  width: 26px;
+  height: 26px;
+}
+
+.chat-panel__composer-box.is-multiline .chat-panel__composer-lead .chat-panel__icon-btn svg {
+  width: 16px;
+  height: 16px;
 }
 
 /* Кнопки — в один ряд с полем: по умолчанию ввод ровно в одну строку. */
