@@ -2743,9 +2743,6 @@ function onRateChange(event: Event): void {
         <p v-if="liveTyping" class="chat-panel__thinking">
           {{ typingLabel }}<span v-if="liveElapsed" class="chat-panel__elapsed"> · {{ liveElapsed }}</span>
         </p>
-        <div class="chat-panel__footer">
-          <AppFooter />
-        </div>
         </div>
       </div>
 
@@ -3073,6 +3070,10 @@ function onRateChange(event: Event): void {
           </div>
         </div>
       </form>
+    </div>
+
+    <div v-if="stickBottom" class="chat-panel__footer">
+      <AppFooter />
     </div>
 
     <div
@@ -3590,10 +3591,9 @@ function onRateChange(event: Event): void {
   min-height: 100%;
 }
 
-/* Футер — последний блок ленты: виден, когда чат долистан до низа.
-   На коротком диалоге прилипает к низу видимой области. */
+/* Футер под композером, только когда лента долистана до низа. */
 .chat-panel__footer {
-  margin-top: auto;
+  flex: 0 0 auto;
 }
 
 /* Кнопка «показать раньше»: над окном рендера, по центру, ненавязчивая. */

@@ -46,9 +46,9 @@ const VERSION = "0.1.44";
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  padding: 12px 20px;
+  gap: 10px;
+  flex-wrap: nowrap;
+  padding: 4px 12px;
   border-top: 1px solid var(--border);
   background: var(--panel);
 }
