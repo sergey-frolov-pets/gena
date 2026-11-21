@@ -9,6 +9,7 @@
 
 import {
   normalizeAgent,
+  normalizeQuickReplies,
   type Agent,
   type AgentConfig,
   type AgentSettings,
@@ -118,6 +119,7 @@ function parseAgentSettings(raw: unknown): AgentSettings {
     contextSize: asNumber(raw.contextSize, "settings.contextSize"),
     callLimit: asNumber(raw.callLimit, "settings.callLimit"),
     llmModel: asString(raw.llmModel, "settings.llmModel"),
+    quickReplies: normalizeQuickReplies(raw.quickReplies),
   };
 }
 

@@ -89,4 +89,10 @@ export const connectionsMessages = {
   "connections.limitFree": "free",
   "connections.limitPerDay": "{n}/day",
   "connections.limitNone": "no daily limit",
+  "connections.file.saveJson": "Save JSON",
+  "connections.file.saveYaml": "Save YAML",
+  "connections.file.load": "Load",
+  "connections.file.note": "Agent settings only. Keys are not written to the file and are not replaced on load.",
+  "connections.file.exported": "Saved {count} agents. Keys were not included.",
+  "connections.file.imported": "Loaded: {added} added, {updated} updated. Existing keys were kept.",
 } as const satisfies LocaleMessages;

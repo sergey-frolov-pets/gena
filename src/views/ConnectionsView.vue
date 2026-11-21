@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import {
   agents,
+  loadAgents,
   createAgent,
   removeAgent,
   updateAgentKey,
@@ -20,6 +21,14 @@ import {
   type Protocol,
 } from "@/storage/types";
 import ConfirmModal from "@/components/ConfirmModal.vue";
+import { listAgents, putAgent } from "@/storage/db";
+import { mergeAgents } from "@/storage/backup";
+import {
+  agentsFileFrom,
+  parseAgentsFile,
+  serializeAgentsJson,
+  serializeAgentsYaml,
+} from "@/lib/agent-settings-file";
 import {
   fetchAccount,
   fetchModelPrices,
@@ -52,6 +61,7 @@ const notice = ref("");
 const accounts = ref<Record<string, AccountSnapshot>>({});
 const prices = ref<Record<string, string>>({});
 const budgetBusy = ref(false);
+const agentsFileInput = ref<HTMLInputElement | null>(null);
 
 onMounted(() => {
   accounts.value = readSnapshots();
@@ -434,6 +444,47 @@ function addPoolModel(): void {
   poolModels.value.push({ id: "", free: false, dailyLimit: 0 });
 }
 
+function downloadAgents(filename: string, body: string, type: string): void {
+  const blob = new Blob([body], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportAgents(kind: "json" | "yaml"): void {
+  error.value = "";
+  const file = agentsFileFrom(agents.value);
+  const stamp = new Date().toISOString().slice(0, 10);
+  if (kind === "json") {
+    downloadAgents(`gena-agents-${stamp}.json`, serializeAgentsJson(file), "application/json");
+  } else {
+    downloadAgents(`gena-agents-${stamp}.yaml`, serializeAgentsYaml(file), "application/yaml");
+  }
+  notice.value = t("connections.file.exported", { count: file.agents.length });
+}
+
+async function importAgents(event: Event): Promise<void> {
+  error.value = "";
+  notice.value = "";
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  try {
+    const incoming = parseAgentsFile(await file.text());
+    const merged = mergeAgents(await listAgents(), incoming);
+    for (const agent of merged.toWrite) await putAgent(agent);
+    await loadAgents();
+    notice.value = t("connections.file.imported", { added: merged.added, updated: merged.updated });
+  } catch (e) {
+    error.value = describeError(e, t);
+  } finally {
+    input.value = "";
+  }
+}
+
 function addMixRoute(): void {
   const provider = savedProviders.value[0];
   mixRoutes.value.push({
@@ -607,7 +658,20 @@ function addMixRoute(): void {
       <p v-if="notice" class="ok">{{ notice }}</p>
     </form>
 
-    <h3>{{ t("connections.list") }}</h3>
+    <div class="agent-head">
+      <h3>{{ t("connections.list") }}</h3>
+      <button type="button" @click="exportAgents('json')">{{ t("connections.file.saveJson") }}</button>
+      <button type="button" @click="exportAgents('yaml')">{{ t("connections.file.saveYaml") }}</button>
+      <button type="button" @click="agentsFileInput?.click()">{{ t("connections.file.load") }}</button>
+      <input
+        ref="agentsFileInput"
+        class="file-input"
+        type="file"
+        accept=".json,.yaml,.yml,application/json,application/yaml"
+        @change="importAgents"
+      />
+    </div>
+    <p class="muted small">{{ t("connections.file.note") }}</p>
     <p v-if="agents.length === 0" class="muted">{{ t("connections.empty") }}</p>
     <div v-for="agent in agents" :key="agent.id" class="card">
       <div class="agent-head">
@@ -846,5 +910,8 @@ function addMixRoute(): void {
 }
 .agent-head h3 {
   margin-right: auto;
+}
+.file-input {
+  display: none;
 }
 </style>
