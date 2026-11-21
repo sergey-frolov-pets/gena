@@ -55,6 +55,8 @@ export interface TransportReply {
   attachments?: TransportAttachment[];
   /** Идентификатор финального сообщения на стороне агента (для `message.delete`). */
   serverId?: string;
+  /** Расход токенов, если сервер его сообщил. */
+  usage?: unknown;
 }
 
 /** Событие промежуточного сообщения (мысль / вызовы инструментов / стрим). */

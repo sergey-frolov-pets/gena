@@ -40,4 +40,5 @@ export const sessionsMessages = {
   "sessions.size.breakdown": "Agents {agents} · sessions {sessions} · messages {messages}",
   "sessions.size.hint": "Size is measured on demand: walking all messages in IndexedDB takes a moment.",
   "sessions.size.item": "· {size}",
+  "sessions.cost": "· {cost}",
 } as const satisfies LocaleMessages;

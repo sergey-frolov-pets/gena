@@ -251,6 +251,10 @@ export async function appendMessage(
   serverId?: string,
   /** Кто написал ответ — чтобы подпись в ленте не менялась вместе с агентом сессии. */
   responderId?: string,
+  /** Модель, которая написала ответ. */
+  model?: string,
+  /** Расход токенов за ход. */
+  usage?: unknown,
 ): Promise<Message> {
   const message: Message = {
     id: newId("msg"),
@@ -263,6 +267,8 @@ export async function appendMessage(
     ...(attachments && attachments.length > 0 ? { attachments } : {}),
     ...(serverId ? { serverId } : {}),
     ...(responderId ? { responderId } : {}),
+    ...(model ? { model } : {}),
+    ...(usage !== undefined ? { usage } : {}),
   };
   await putMessage(message);
 

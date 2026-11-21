@@ -5,6 +5,7 @@ import {
   parseDeepSeekBalance,
   parseOpenRouterAccount,
   modelIdsFromPayload,
+  pricesFromDeepSeekPage,
   pricesFromModels,
   providerProfile,
 } from "./provider-account";
@@ -54,5 +55,35 @@ describe("разбор ответов провайдера", () => {
     expect(
       pricesFromModels({ data: [{ id: "a/b", pricing: { prompt: "0.000001", completion: "0.000002" } }] }),
     ).toEqual({ "a/b": "$1.00 / $2.00 per 1M" });
+  });
+
+  it("берёт цену из других имён полей и не умножает ставку за миллион", () => {
+    expect(
+      pricesFromModels({
+        data: [{ id: "m", input: 0.28, output: 0.42, price_unit: "per_million" }],
+      }),
+    ).toEqual({ m: "$0.28 / $0.42 per 1M" });
+    expect(pricesFromModels({ data: [{ id: "no-price" }] })).toEqual({});
+  });
+
+  it("разбирает таблицу DeepSeek: cache miss и output в пике", () => {
+    const page = `
+      <table>
+        <tr><td>MODEL</td><td>deepseek-flash<sup>(1)</sup></td><td>deepseek-v4-pro</td></tr>
+        <tr><td>PRICING</td><td>1M INPUT TOKENS (CACHE HIT)</td><td>OFF-PEAK</td><td>$0.003</td><td>$0.022</td></tr>
+        <tr><td>PEAK</td><td>$0.006</td><td>$0.044</td></tr>
+        <tr><td>1M INPUT TOKENS (CACHE MISS)</td><td>OFF-PEAK</td><td>$0.15</td><td>$0.66</td></tr>
+        <tr><td>PEAK</td><td>$0.3</td><td>$1.32</td></tr>
+        <tr><td>1M OUTPUT TOKENS</td><td>OFF-PEAK</td><td>$0.6</td><td>$1.98</td></tr>
+        <tr><td>PEAK</td><td>$1.2</td><td>$3.96</td></tr>
+      </table>
+      <p>legacy names <code>deepseek-v4-flash</code> are still accepted, billed at the Flash price.</p>
+    `;
+    expect(pricesFromDeepSeekPage(page)).toEqual({
+      "deepseek-flash": "$0.30 / $1.20 per 1M",
+      "deepseek-v4-pro": "$1.32 / $3.96 per 1M",
+      "deepseek-v4-flash": "$0.30 / $1.20 per 1M",
+    });
+    expect(pricesFromDeepSeekPage("<p>нет таблицы</p>")).toEqual({});
   });
 });

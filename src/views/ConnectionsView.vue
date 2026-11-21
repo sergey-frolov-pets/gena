@@ -34,6 +34,8 @@ import {
   fetchModelIds,
   fetchModelPrices,
   providerProfile,
+  writeModelPrices,
+  readModelPrices,
   readSnapshots,
   writeSnapshot,
   type AccountSnapshot,
@@ -69,6 +71,7 @@ const agentsFileInput = ref<HTMLInputElement | null>(null);
 
 onMounted(() => {
   accounts.value = readSnapshots();
+  prices.value = readModelPrices();
 });
 
 /** Агент, у которого подтверждаем удаление. */
@@ -353,6 +356,7 @@ async function rememberAccount(agentId: string, address: string, apiKey: string)
     writeSnapshot(snapshot);
     accounts.value = { ...accounts.value, [agentId]: snapshot };
     const more = await fetchModelPrices(address, apiKey);
+    writeModelPrices(more);
     prices.value = { ...prices.value, ...more };
   } catch {
     // Ключ уже сохранён: пустой баланс не откатывает его.
@@ -443,7 +447,10 @@ async function refreshBudget(): Promise<void> {
       }
       try {
         const more = await fetchModelPrices(agent.address, key);
-        if (Object.keys(more).length > 0) prices.value = { ...prices.value, ...more };
+        if (Object.keys(more).length > 0) {
+          writeModelPrices(more);
+          prices.value = { ...prices.value, ...more };
+        }
       } catch {
         // Прайс необязателен: баланс уже записан.
       }
@@ -622,8 +629,13 @@ function addMixRoute(): void {
           <div class="key-row">
             <input v-model="model" :placeholder="t('connections.field.llmModelPlaceholder')" list="provider-models" />
             <button type="button" class="icon-btn" :disabled="!canListModels || modelsBusy" :title="modelsBusy ? t('connections.listingModels') : t('connections.listModels')" :aria-label="modelsBusy ? t('connections.listingModels') : t('connections.listModels')" @click="loadProviderModels">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M4 7h16M4 12h16M4 17h10" />
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3 12h.01" />
+                <path d="M3 18h.01" />
+                <path d="M3 6h.01" />
+                <path d="M8 12h13" />
+                <path d="M8 18h13" />
+                <path d="M8 6h13" />
               </svg>
             </button>
           </div>
@@ -771,10 +783,9 @@ function addMixRoute(): void {
         :aria-label="t('connections.file.saveJson')"
         @click="exportAgents('json')"
       >
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M8 8h2.5a2 2 0 0 1 0 4H8V8z" />
-          <path d="M8 12h2.8a2 2 0 0 1 0 4H8" />
-          <path d="M14 8v8M14 8h3.2a1.6 1.6 0 0 1 0 3.2H14" />
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1" />
+          <path d="M16 21h1a2 2 0 0 0 2-2v-5c0-1.1.9-2 2-2a2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1" />
         </svg>
       </button>
       <button
@@ -784,9 +795,11 @@ function addMixRoute(): void {
         :aria-label="t('connections.file.saveYaml')"
         @click="exportAgents('yaml')"
       >
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M6 6h12v12H6z" />
-          <path d="M9 10h6M9 14h4" />
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M10 12.5 8 15l2 2.5" />
+          <path d="m14 12.5 2 2.5-2 2.5" />
+          <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+          <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z" />
         </svg>
       </button>
       <button
@@ -796,10 +809,10 @@ function addMixRoute(): void {
         :aria-label="t('connections.file.load')"
         @click="agentsFileInput?.click()"
       >
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M12 16V6" />
-          <path d="M8 10l4-4 4 4" />
-          <path d="M6 18h12" />
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="17 8 12 3 7 8" />
+          <line x1="12" x2="12" y1="3" y2="15" />
         </svg>
       </button>
       <input
@@ -822,9 +835,9 @@ function addMixRoute(): void {
           :aria-label="t('connections.edit')"
           @click="startEdit(agent)"
         >
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3z" />
-            <path d="M13.5 6.5l3 3" />
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+            <path d="m15 5 4 4" />
           </svg>
         </button>
         <button
@@ -834,11 +847,11 @@ function addMixRoute(): void {
           :aria-label="testStates[agent.id]?.state === 'testing' ? t('connections.testing') : t('connections.test')"
           @click="testConnection(agent)"
         >
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M9 8v8M15 8v8" />
-            <path d="M7 12H4M20 12h-3" />
-            <path d="M9 8H7a2 2 0 0 0-2 2v4" />
-            <path d="M15 16h2a2 2 0 0 0 2-2v-4" />
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 22v-5" />
+            <path d="M9 8V2" />
+            <path d="M15 8V2" />
+            <path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z" />
           </svg>
         </button>
         <button
@@ -847,10 +860,12 @@ function addMixRoute(): void {
           :aria-label="t('connections.remove')"
           @click="confirmRemoveId = agent.id"
         >
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M5 7h14" />
-            <path d="M9 7V5h6v2" />
-            <path d="M8 7l1 12h6l1-12" />
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 6h18" />
+            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+            <line x1="10" x2="10" y1="11" y2="17" />
+            <line x1="14" x2="14" y1="11" y2="17" />
           </svg>
         </button>
       </div>
@@ -883,8 +898,8 @@ function addMixRoute(): void {
             :aria-label="t('connections.updateKey')"
             @click="saveKey(agent.id)"
           >
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M5 12l4 4L19 6" />
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M20 6 9 17l-5-5" />
             </svg>
           </button>
         </div>
@@ -915,14 +930,16 @@ function addMixRoute(): void {
           height="16"
           fill="none"
           stroke="currentColor"
-          stroke-width="1.8"
+          stroke-width="2"
           stroke-linecap="round"
           stroke-linejoin="round"
           aria-hidden="true"
           :class="{ spin: budgetBusy }"
         >
-          <path d="M20 12a8 8 0 1 1-2.3-5.6" />
-          <path d="M20 4v5h-5" />
+          <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+          <path d="M21 3v5h-5" />
+          <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+          <path d="M8 16H3v5" />
         </svg>
       </button>
     </div>

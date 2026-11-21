@@ -133,13 +133,33 @@ export function parseDeepSeekBalance(payload: unknown): AccountFacts {
   };
 }
 
-/** Цена OpenRouter: USD за 1M токенов, вход / выход. */
-export function formatTokenPrice(prompt: unknown, completion: unknown): string {
+/**
+ * Цена: USD за 1M токенов, вход / выход.
+ * `perMillion` — числа уже за миллион, их не умножаем.
+ */
+export function formatTokenPrice(prompt: unknown, completion: unknown, perMillion = false): string {
   const pin = Number(prompt);
   const pout = Number(completion);
-  if (!Number.isFinite(pin) || !Number.isFinite(pout)) return "";
-  const perM = (value: number) => (value * 1_000_000).toFixed(2);
+  if (!Number.isFinite(pin) || !Number.isFinite(pout) || pin < 0 || pout < 0) return "";
+  const scale = perMillion ? 1 : 1_000_000;
+  const perM = (value: number) => (value * scale).toFixed(2);
   return `$${perM(pin)} / $${perM(pout)} per 1M`;
+}
+
+function priceNumbers(row: Record<string, unknown>): { prompt: unknown; completion: unknown; perMillion: boolean } | null {
+  const pricing = asRecord(row.pricing);
+  const prompt = pricing?.prompt ?? pricing?.input ?? row.prompt_price ?? row.input;
+  const completion = pricing?.completion ?? pricing?.output ?? row.completion_price ?? row.output;
+  if (prompt === undefined || completion === undefined) return null;
+  const unit = text(pricing?.unit ?? row.price_unit).toLowerCase();
+  const pin = Number(prompt);
+  const pout = Number(completion);
+  const perMillion =
+    unit === "per_million" ||
+    unit === "million" ||
+    unit === "1m" ||
+    (Number.isFinite(pin) && Number.isFinite(pout) && (pin > 0.01 || pout > 0.01));
+  return { prompt, completion, perMillion };
 }
 
 /** Карта id модели → цена из ответа `/models`. */
@@ -151,10 +171,83 @@ export function pricesFromModels(payload: unknown): Record<string, string> {
     const row = asRecord(item);
     if (!row) continue;
     const id = text(row.id);
-    const pricing = asRecord(row.pricing);
-    if (!id || !pricing) continue;
-    const price = formatTokenPrice(pricing.prompt, pricing.completion);
+    const pair = id ? priceNumbers(row) : null;
+    if (!id || !pair) continue;
+    const price = formatTokenPrice(pair.prompt, pair.completion, pair.perMillion);
     if (price) out[id] = price;
+  }
+  return out;
+}
+
+const DEEPSEEK_PRICING_URL = "https://api-docs.deepseek.com/quick_start/pricing";
+
+function stripTags(value: string): string {
+  return value
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function modelSlug(cell: string): string {
+  const match = cell.match(/deepseek-[a-z0-9.-]+/i);
+  return match ? match[0].toLowerCase() : "";
+}
+
+function dollarCells(cells: string[]): number[] {
+  const values: number[] = [];
+  for (const cell of cells) {
+    const match = cell.match(/^\$([0-9]+(?:\.[0-9]+)?)$/);
+    if (match) values.push(Number(match[1]));
+  }
+  return values;
+}
+
+/** Публичная таблица DeepSeek: cache miss и output в пиковые часы, USD за 1M. */
+export function pricesFromDeepSeekPage(page: string): Record<string, string> {
+  const tables = page.match(/<table[\s\S]*?<\/table>/gi) ?? [];
+  const rows: string[][] = [];
+  for (const table of tables) {
+    const trs = table.match(/<tr[\s\S]*?<\/tr>/gi) ?? [];
+    for (const tr of trs) {
+      const cells = [...tr.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((match) => stripTags(match[1]));
+      if (cells.length > 0) rows.push(cells);
+    }
+  }
+  const header = rows.find((cells) => cells.some((cell) => modelSlug(cell)));
+  const models = header?.map(modelSlug).filter(Boolean) ?? [];
+  if (models.length === 0) return {};
+
+  const input: number[] = [];
+  const output: number[] = [];
+  let section = "";
+  for (const cells of rows) {
+    const joined = cells.join(" ").toUpperCase();
+    if (joined.includes("CACHE MISS")) section = "input";
+    else if (joined.includes("OUTPUT")) section = "output";
+    else if (joined.includes("CACHE HIT")) section = "";
+    const peak = cells[0]?.toUpperCase() === "PEAK" || joined.startsWith("PEAK");
+    if (!peak) continue;
+    const values = dollarCells(cells);
+    if (values.length < models.length) continue;
+    const rates = values.slice(-models.length);
+    if (section === "input") input.splice(0, input.length, ...rates);
+    if (section === "output") output.splice(0, output.length, ...rates);
+  }
+
+  const out: Record<string, string> = {};
+  models.forEach((id, index) => {
+    const price = formatTokenPrice(input[index], output[index], true);
+    if (price) out[id] = price;
+  });
+
+  const flash = models.find((id) => id.includes("flash"));
+  if (flash && out[flash]) {
+    const note = page.match(/legacy names([\s\S]{0,500}?)billed at the Flash/i)?.[1] ?? "";
+    for (const match of note.matchAll(/<code>(deepseek-[a-z0-9.-]+)<\/code>|`(deepseek-[a-z0-9.-]+)`/gi)) {
+      const id = (match[1] || match[2]).toLowerCase();
+      out[id] = out[flash];
+    }
   }
   return out;
 }
@@ -212,12 +305,26 @@ export function modelIdsFromPayload(payload: unknown): string[] {
   return ids;
 }
 
-/** Цены моделей с OpenAI-совместимого `/models`. Пустая карта, если цен нет. */
+/** Цены моделей с `/models`, а для DeepSeek — с публичной страницы, если API цену не отдал. */
 export async function fetchModelPrices(address: string, apiKey: string): Promise<Record<string, string>> {
   const root = address.replace(/\/+$/, "");
   if (!root || !apiKey) return {};
   try {
-    return pricesFromModels(await getJson(`${root}/models`, apiKey));
+    const payload = await getJson(`${root}/models`, apiKey);
+    const fromApi = pricesFromModels(payload);
+    if (Object.keys(fromApi).length > 0) return fromApi;
+    if (providerProfile(address).kind !== "deepseek") return {};
+    const response = await fetch(DEEPSEEK_PRICING_URL);
+    if (!response.ok) return {};
+    const catalog = pricesFromDeepSeekPage(await response.text());
+    const ids = modelIdsFromPayload(payload);
+    if (ids.length === 0) return catalog;
+    const out: Record<string, string> = {};
+    for (const id of ids) {
+      const price = catalog[id.toLowerCase()] ?? catalog[id];
+      if (price) out[id] = price;
+    }
+    return out;
   } catch {
     return {};
   }
@@ -231,6 +338,29 @@ export async function fetchModelIds(address: string, apiKey: string): Promise<st
 }
 
 const STORAGE_KEY = "gena.accountSnapshots";
+const PRICE_KEY = "gena.modelPrices";
+
+/** Сохранённые цены моделей: id → строка тарифа. */
+export function readModelPrices(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(PRICE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed !== "object" || parsed === null) return {};
+    const out: Record<string, string> = {};
+    for (const [id, price] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof price === "string" && price) out[id] = price;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+export function writeModelPrices(more: Record<string, string>): void {
+  if (Object.keys(more).length === 0) return;
+  localStorage.setItem(PRICE_KEY, JSON.stringify({ ...readModelPrices(), ...more }));
+}
 
 export interface AccountSnapshot extends AccountFacts {
   agentId: string;

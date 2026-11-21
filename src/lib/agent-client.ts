@@ -31,6 +31,8 @@ export interface AgentResponse {
   attachments?: TransportAttachment[];
   /** Идентификатор сообщения на стороне агента (Pico). */
   serverId?: string;
+  /** Расход токенов, если сервер его сообщил. */
+  usage?: unknown;
 }
 
 export { AgentClientError, type AgentClientErrorCode } from "./transports";

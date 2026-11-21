@@ -29,6 +29,18 @@ function extractContent(data: unknown): string | null {
   return typeof content === "string" && content.length > 0 ? content : null;
 }
 
+/** Расход токенов из полного JSON или последнего SSE-чанка. */
+export function extractUsage(data: unknown): Record<string, unknown> | undefined {
+  if (typeof data !== "object" || data === null) return undefined;
+  const usage = (data as { usage?: unknown }).usage;
+  if (typeof usage !== "object" || usage === null) return undefined;
+  const row = usage as Record<string, unknown>;
+  const prompt = row.prompt_tokens ?? row.input_tokens;
+  const completion = row.completion_tokens ?? row.output_tokens;
+  if (typeof prompt !== "number" && typeof completion !== "number") return undefined;
+  return row;
+}
+
 /** Достать кусок текста из SSE-события (`delta.content`) или полного ответа (`message.content`). */
 export function extractSseDelta(data: unknown): string | null {
   if (typeof data !== "object" || data === null) {
@@ -139,6 +151,7 @@ export const openaiTransport: AgentTransport = {
       model: cfg.model || agent.settings.llmModel || "",
       messages,
       stream: true,
+      stream_options: { include_usage: true },
     };
     if (cfg.temperature !== undefined) {
       body.temperature = cfg.temperature;
@@ -175,6 +188,7 @@ export const openaiTransport: AgentTransport = {
     if (contentType.includes("text/event-stream")) {
       const streamId = newId("stream");
       let acc = "";
+      let usage: Record<string, unknown> | undefined;
       let streamError: string | null = null;
       await readSseStream(response, (data) => {
         const err = (data as { error?: { message?: unknown } } | null)?.error;
@@ -182,6 +196,7 @@ export const openaiTransport: AgentTransport = {
           streamError = err.message;
           return;
         }
+        usage = extractUsage(data) ?? usage;
         const delta = extractSseDelta(data);
         if (delta) {
           acc += delta;
@@ -194,7 +209,7 @@ export const openaiTransport: AgentTransport = {
       if (!acc) {
         throw new AgentClientError("agent returned an empty or invalid response", undefined, "openai_empty");
       }
-      return { reply: acc };
+      return { reply: acc, ...(usage ? { usage } : {}) };
     }
 
     // Фолбэк: сервер проигнорировал `stream` и вернул обычный JSON.
@@ -210,6 +225,7 @@ export const openaiTransport: AgentTransport = {
       throw new AgentClientError("agent returned an empty or invalid response", undefined, "openai_empty");
     }
 
-    return { reply: content };
+    const usage = extractUsage(data);
+    return { reply: content, ...(usage ? { usage } : {}) };
   },
 };

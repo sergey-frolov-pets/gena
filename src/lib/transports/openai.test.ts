@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { openaiTransport, extractSseDelta, parseSseEvent, parseSseEvents } from "./openai";
+import { openaiTransport, extractSseDelta, extractUsage, parseSseEvent, parseSseEvents } from "./openai";
 import { AgentClientError } from "./client-error";
 import type { Agent, Message } from "@/storage/types";
 
@@ -270,6 +270,14 @@ describe("SSE-парсер", () => {
   it("parseSseEvents собирает события и пропускает DONE", () => {
     const text = 'data: {"a":1}\n\ndata: {"b":2}\n\ndata: [DONE]\n\n';
     expect(parseSseEvents(text)).toEqual([{ a: 1 }, { b: 2 }]);
+  });
+
+  it("extractUsage берёт prompt и completion из ответа", () => {
+    expect(extractUsage({ usage: { prompt_tokens: 3, completion_tokens: 4 } })).toEqual({
+      prompt_tokens: 3,
+      completion_tokens: 4,
+    });
+    expect(extractUsage({ choices: [{ message: { content: "ok" } }] })).toBeUndefined();
   });
 
   it("extractSseDelta берёт delta.content или message.content", () => {
