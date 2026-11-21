@@ -46,36 +46,40 @@ const VERSION = "0.1.44";
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: nowrap;
-  padding: 4px 12px;
+  min-height: 0;
+  padding: 2px 10px;
   border-top: 1px solid var(--border);
   background: var(--panel);
+  line-height: 1;
 }
 
 .app-footer__brand {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 11px;
+  line-height: 1;
 }
 
 .app-footer__logo {
-  height: 0.9rem;
+  height: 10px;
   width: auto;
   display: block;
 }
 
 .app-footer__links {
   display: flex;
-  gap: 14px;
+  gap: 10px;
 }
 
 .app-footer__links a {
   color: var(--muted);
   text-decoration: none;
-  font-size: 13px;
+  font-size: 11px;
+  line-height: 1;
 }
 
 .app-footer__links a:hover {
@@ -91,7 +95,8 @@ const VERSION = "0.1.44";
 
 .app-footer__version {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 1;
 }
 
 .app-footer__donate {
@@ -101,8 +106,8 @@ const VERSION = "0.1.44";
 }
 
 .app-footer__donate svg {
-  width: 16px;
-  height: 16px;
+  width: 12px;
+  height: 12px;
   fill: currentColor;
 }
 

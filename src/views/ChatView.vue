@@ -3070,10 +3070,9 @@ function onRateChange(event: Event): void {
           </div>
         </div>
       </form>
-    </div>
-
-    <div v-if="stickBottom" class="chat-panel__footer">
-      <AppFooter />
+      <div v-if="stickBottom" class="chat-panel__footer">
+        <AppFooter />
+      </div>
     </div>
 
     <div
@@ -3591,9 +3590,18 @@ function onRateChange(event: Event): void {
   min-height: 100%;
 }
 
-/* Футер под композером, только когда лента долистана до низа. */
+/* Футер сразу под полем ввода, одной низкой строкой. */
 .chat-panel__footer {
   flex: 0 0 auto;
+  margin: 0;
+  line-height: 1;
+}
+
+.chat-panel__footer :deep(.app-footer) {
+  padding: 0 2px 2px;
+  border-top: 0;
+  background: transparent;
+  line-height: 1;
 }
 
 /* Кнопка «показать раньше»: над окном рендера, по центру, ненавязчивая. */
@@ -3849,7 +3857,7 @@ function onRateChange(event: Event): void {
   flex-direction: column;
   gap: 4px;
   margin-top: auto;
-  padding: 0 8px 8px;
+  padding: 0 8px 4px;
 }
 
 /* Мягкая маска: сообщения «уходят» под композер, а не обрываются. */
