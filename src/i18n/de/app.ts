@@ -50,7 +50,7 @@ export const appMessages = {
   "about.ask.copy": "Text kopieren",
   "about.ask.copied": "Kopiert",
   "providers.title": "Modelle und Agenten zum Verbinden",
-  "providers.lead": "Diese Dienste sprechen die OpenAI-kompatible Chat-API. Unter Verbindungen OpenAI-kompatibel wählen, Basis-URL, eigenen Schlüssel (BYOK) und die Modell-ID des Dienstes einfügen.",
+  "providers.lead": "Diese Dienste sprechen die OpenAI-kompatible Chat-API, darunter Hugging Face, OpenRouter und russische Anbieter. Unter Verbindungen OpenAI-kompatibel und den Anbieternamen wählen — die Basis-URL wird eingesetzt. Danach den eigenen Schlüssel (BYOK). Ist ein Schlüssel schon da, lässt sich die Modellliste abrufen.",
   "providers.cors": "Gena ruft die Adresse aus dem Browser auf. Der Dienst muss das erlauben (CORS). Schlägt Verbindung prüfen wegen CORS fehl, nutzen Sie ein Gateway, einen lokalen Server oder Ihren eigenen HTTP-JSON-Agenten.",
   "providers.openSite": "Website öffnen",
   "providers.baseLabel": "Basis-URL",

@@ -199,6 +199,19 @@ export async function fetchAccount(address: string, apiKey: string): Promise<Acc
   return parseDeepSeekBalance(await getJson(balanceUrl, apiKey));
 }
 
+/** Идентификаторы из OpenAI-совместимого `/models`. */
+export function modelIdsFromPayload(payload: unknown): string[] {
+  const root = asRecord(payload);
+  const list = Array.isArray(payload) ? payload : Array.isArray(root?.data) ? root.data : [];
+  const ids: string[] = [];
+  for (const item of list) {
+    const row = asRecord(item);
+    const id = row ? text(row.id) : "";
+    if (id && !ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
+
 /** Цены моделей с OpenAI-совместимого `/models`. Пустая карта, если цен нет. */
 export async function fetchModelPrices(address: string, apiKey: string): Promise<Record<string, string>> {
   const root = address.replace(/\/+$/, "");
@@ -208,6 +221,13 @@ export async function fetchModelPrices(address: string, apiKey: string): Promise
   } catch {
     return {};
   }
+}
+
+/** Список моделей провайдера. Бросает ошибку, если ключ или адрес не приняты. */
+export async function fetchModelIds(address: string, apiKey: string): Promise<string[]> {
+  const root = address.replace(/\/+$/, "");
+  if (!root || !apiKey) return [];
+  return modelIdsFromPayload(await getJson(`${root}/models`, apiKey));
 }
 
 const STORAGE_KEY = "gena.accountSnapshots";

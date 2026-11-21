@@ -51,6 +51,13 @@ export const connectableAgents: ConnectableAgent[] = [
   },
 ];
 
+/** Провайдер с тем же base URL, без завершающего слэша. */
+export function providerByBaseUrl(address: string): ConnectableProvider | undefined {
+  const norm = address.trim().replace(/\/+$/, "").toLowerCase();
+  if (!norm) return undefined;
+  return connectableProviders.find((item) => item.baseUrl.replace(/\/+$/, "").toLowerCase() === norm);
+}
+
 export const connectableProviders: ConnectableProvider[] = [
   {
     id: "openai",
@@ -99,6 +106,41 @@ export const connectableProviders: ConnectableProvider[] = [
     name: "OpenRouter",
     site: "https://openrouter.ai",
     baseUrl: "https://openrouter.ai/api/v1",
+    hint: "router",
+  },
+  {
+    id: "huggingface",
+    name: "Hugging Face",
+    site: "https://huggingface.co/settings/tokens",
+    baseUrl: "https://router.huggingface.co/v1",
+    hint: "router",
+  },
+  {
+    id: "yandex",
+    name: "Yandex AI",
+    site: "https://aistudio.yandex.ru",
+    baseUrl: "https://ai.api.cloud.yandex.net/v1",
+    hint: "cloud",
+  },
+  {
+    id: "gigachat",
+    name: "GigaChat",
+    site: "https://developers.sber.ru/studio",
+    baseUrl: "https://gigachat.devices.sberbank.ru/api/v1",
+    hint: "cloud",
+  },
+  {
+    id: "cloudru",
+    name: "Cloud.ru",
+    site: "https://cloud.ru",
+    baseUrl: "https://foundation-models.api.cloud.ru/v1",
+    hint: "cloud",
+  },
+  {
+    id: "vsegpt",
+    name: "VseGPT",
+    site: "https://vsegpt.ru",
+    baseUrl: "https://api.vsegpt.ru/v1",
     hint: "router",
   },
   {

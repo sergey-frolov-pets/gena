@@ -50,7 +50,7 @@ export const appMessages = {
   "about.ask.copy": "文をコピー",
   "about.ask.copied": "コピーしました",
   "providers.title": "接続できるモデルとエージェント",
-  "providers.lead": "これらは OpenAI 互換のチャット API です。接続で OpenAI 互換を選び、ベース URL、自分のキー（BYOK）、そのサービスのモデル id を貼ります。",
+  "providers.lead": "これらは OpenAI 互換のチャット API です。Hugging Face、OpenRouter、ロシアのプロバイダも含みます。接続で OpenAI 互換とプロバイダ名を選ぶとベース URL が入ります。その後、自分のキー（BYOK）。キーがあればモデル一覧を取得できます。",
   "providers.cors": "Gena はブラウザーからアドレスを呼びます。サービスが CORS を許可する必要があります。CORS で接続確認が失敗したら、ブラウザーを許可するゲートウェイ、ローカルサーバー、または自分の HTTP JSON エージェントを使います。",
   "providers.openSite": "サイトを開く",
   "providers.baseLabel": "ベース URL",

@@ -31,12 +31,14 @@ import {
 } from "@/lib/agent-settings-file";
 import {
   fetchAccount,
+  fetchModelIds,
   fetchModelPrices,
   providerProfile,
   readSnapshots,
   writeSnapshot,
   type AccountSnapshot,
 } from "@/lib/provider-account";
+import { connectableProviders, providerByBaseUrl } from "@/lib/providers";
 
 const { t } = useLocale();
 
@@ -61,6 +63,8 @@ const notice = ref("");
 const accounts = ref<Record<string, AccountSnapshot>>({});
 const prices = ref<Record<string, string>>({});
 const budgetBusy = ref(false);
+const listedModels = ref<string[]>([]);
+const modelsBusy = ref(false);
 const agentsFileInput = ref<HTMLInputElement | null>(null);
 
 onMounted(() => {
@@ -125,6 +129,60 @@ const addressLabel = computed(() => {
   if (protocol.value === "pico_ws") return t("connections.field.wsUrl");
   return t("connections.field.address");
 });
+
+const matchedProviderId = computed(() => providerByBaseUrl(address.value)?.id ?? "");
+
+/** Ключ уже в форме или сохранён у редактируемого агента — можно спросить /models. */
+const canListModels = computed(() => {
+  if (protocol.value !== "openai" && protocol.value !== "model_pool") return false;
+  if (!address.value.trim()) return false;
+  if (apiKey.value.trim()) return true;
+  if (!editingId.value) return false;
+  if ((keyDrafts.value[editingId.value] ?? "").trim()) return true;
+  return Boolean(agents.value.find((agent) => agent.id === editingId.value)?.sealedKey);
+});
+
+function applyProvider(event: Event): void {
+  const id = (event.target as HTMLSelectElement).value;
+  const provider = connectableProviders.find((item) => item.id === id);
+  if (!provider) return;
+  address.value = provider.baseUrl;
+  listedModels.value = [];
+}
+
+function pickListedModel(event: Event): void {
+  const id = (event.target as HTMLSelectElement).value;
+  if (!id) return;
+  if (protocol.value === "model_pool") {
+    if (!poolModels.value.some((row) => row.id === id)) {
+      poolModels.value.push({ id, free: false, dailyLimit: 0 });
+    }
+    return;
+  }
+  model.value = id;
+}
+
+async function loadProviderModels(): Promise<void> {
+  error.value = "";
+  modelsBusy.value = true;
+  listedModels.value = [];
+  try {
+    let key = apiKey.value.trim();
+    if (!key && editingId.value) key = (keyDrafts.value[editingId.value] ?? "").trim();
+    if (!key && editingId.value) {
+      const agent = agents.value.find((item) => item.id === editingId.value);
+      if (agent) key = await getAgentKey(agent);
+    }
+    if (!key) return;
+    const ids = await fetchModelIds(address.value, key);
+    listedModels.value = ids;
+    if (ids.length === 0) error.value = t("connections.modelsNone");
+  } catch (e) {
+    error.value = describeError(e, t);
+  } finally {
+    modelsBusy.value = false;
+  }
+}
 
 const addressPlaceholder = computed(() => {
   if (protocol.value === "openai" || protocol.value === "model_pool") return t("connections.field.baseUrlPlaceholder");
@@ -374,10 +432,22 @@ async function refreshBudget(): Promise<void> {
   try {
     for (const agent of budgetAgents.value) {
       const key = await getAgentKey(agent);
-      if (key) await rememberAccount(agent.id, agent.address, key);
+      if (!key) continue;
+      try {
+        const facts = await fetchAccount(agent.address, key);
+        const snapshot: AccountSnapshot = { agentId: agent.id, fetchedAt: Date.now(), ...facts };
+        writeSnapshot(snapshot);
+        accounts.value = { ...accounts.value, [agent.id]: snapshot };
+      } catch (e) {
+        error.value = describeError(e, t);
+      }
+      try {
+        const more = await fetchModelPrices(agent.address, key);
+        if (Object.keys(more).length > 0) prices.value = { ...prices.value, ...more };
+      } catch {
+        // Прайс необязателен: баланс уже записан.
+      }
     }
-  } catch (e) {
-    error.value = describeError(e, t);
   } finally {
     budgetBusy.value = false;
   }
@@ -499,6 +569,7 @@ function addMixRoute(): void {
     <h2>{{ t("connections.title") }}</h2>
     <p class="muted">{{ t("connections.intro") }}</p>
 
+    <h3 class="block-title">{{ t("connections.block.setup") }}</h3>
     <form class="card" @submit.prevent="submit">
       <h3>{{ formTitle }}</h3>
       <div class="pair">
@@ -516,6 +587,16 @@ function addMixRoute(): void {
           <option value="model_mix">{{ t("connections.protocol.model_mix") }}</option>
           </select>
         </div>
+      </div>
+
+      <div class="field" v-if="protocol === 'openai' || protocol === 'model_pool'">
+        <label>{{ t("connections.field.providerPreset") }}</label>
+        <select :value="matchedProviderId" @change="applyProvider">
+          <option value="">{{ t("connections.field.providerCustom") }}</option>
+          <option v-for="item in connectableProviders" :key="item.id" :value="item.id">
+            {{ item.name }}
+          </option>
+        </select>
       </div>
 
       <div class="pair" v-if="protocol !== 'model_mix'">
@@ -538,7 +619,21 @@ function addMixRoute(): void {
       <template v-if="protocol === 'openai'">
         <div class="field">
           <label>{{ t("connections.field.llmModel") }}</label>
-          <input v-model="model" :placeholder="t('connections.field.llmModelPlaceholder')" />
+          <div class="key-row">
+            <input v-model="model" :placeholder="t('connections.field.llmModelPlaceholder')" list="provider-models" />
+            <button type="button" class="icon-btn" :disabled="!canListModels || modelsBusy" :title="modelsBusy ? t('connections.listingModels') : t('connections.listModels')" :aria-label="modelsBusy ? t('connections.listingModels') : t('connections.listModels')" @click="loadProviderModels">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M4 7h16M4 12h16M4 17h10" />
+              </svg>
+            </button>
+          </div>
+          <datalist id="provider-models">
+            <option v-for="id in listedModels" :key="id" :value="id" />
+          </datalist>
+          <select v-if="listedModels.length > 0" class="model-pick" :value="model" @change="pickListedModel">
+            <option value="">{{ t("connections.pickModel") }}</option>
+            <option v-for="id in listedModels" :key="id" :value="id">{{ id }}</option>
+          </select>
         </div>
       </template>
 
@@ -556,7 +651,16 @@ function addMixRoute(): void {
             <button type="button" :disabled="index === poolModels.length - 1" @click="moveRow(poolModels, index, 1)">↓</button>
             <button type="button" @click="poolModels.splice(index, 1)">{{ t("connections.removeRow") }}</button>
           </div>
-          <button type="button" @click="addPoolModel">{{ t("connections.addModel") }}</button>
+          <div class="key-row">
+            <button type="button" @click="addPoolModel">{{ t("connections.addModel") }}</button>
+            <button type="button" :disabled="!canListModels || modelsBusy" @click="loadProviderModels">
+              {{ modelsBusy ? t("connections.listingModels") : t("connections.listModels") }}
+            </button>
+          </div>
+          <select v-if="listedModels.length > 0" class="model-pick" value="" @change="pickListedModel">
+            <option value="">{{ t("connections.pickModel") }}</option>
+            <option v-for="id in listedModels" :key="id" :value="id">{{ id }}</option>
+          </select>
           <p class="muted small">{{ t("connections.hint.pool") }}</p>
         </div>
         <label class="check">
@@ -659,10 +763,45 @@ function addMixRoute(): void {
     </form>
 
     <div class="agent-head">
-      <h3>{{ t("connections.list") }}</h3>
-      <button type="button" @click="exportAgents('json')">{{ t("connections.file.saveJson") }}</button>
-      <button type="button" @click="exportAgents('yaml')">{{ t("connections.file.saveYaml") }}</button>
-      <button type="button" @click="agentsFileInput?.click()">{{ t("connections.file.load") }}</button>
+      <h3 class="block-title">{{ t("connections.list") }}</h3>
+      <button
+        type="button"
+        class="icon-btn"
+        :title="t('connections.file.saveJson')"
+        :aria-label="t('connections.file.saveJson')"
+        @click="exportAgents('json')"
+      >
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M8 8h2.5a2 2 0 0 1 0 4H8V8z" />
+          <path d="M8 12h2.8a2 2 0 0 1 0 4H8" />
+          <path d="M14 8v8M14 8h3.2a1.6 1.6 0 0 1 0 3.2H14" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        class="icon-btn"
+        :title="t('connections.file.saveYaml')"
+        :aria-label="t('connections.file.saveYaml')"
+        @click="exportAgents('yaml')"
+      >
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M6 6h12v12H6z" />
+          <path d="M9 10h6M9 14h4" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        class="icon-btn"
+        :title="t('connections.file.load')"
+        :aria-label="t('connections.file.load')"
+        @click="agentsFileInput?.click()"
+      >
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 16V6" />
+          <path d="M8 10l4-4 4 4" />
+          <path d="M6 18h12" />
+        </svg>
+      </button>
       <input
         ref="agentsFileInput"
         class="file-input"
@@ -677,18 +816,43 @@ function addMixRoute(): void {
       <div class="agent-head">
         <strong>{{ agent.name }}</strong>
         <span class="badge">{{ protocolLabel(agent) }}</span>
-        <button @click="startEdit(agent)">{{ t("connections.edit") }}</button>
         <button
+          class="icon-btn"
+          :title="t('connections.edit')"
+          :aria-label="t('connections.edit')"
+          @click="startEdit(agent)"
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3z" />
+            <path d="M13.5 6.5l3 3" />
+          </svg>
+        </button>
+        <button
+          class="icon-btn"
           :disabled="testStates[agent.id]?.state === 'testing'"
+          :title="testStates[agent.id]?.state === 'testing' ? t('connections.testing') : t('connections.test')"
+          :aria-label="testStates[agent.id]?.state === 'testing' ? t('connections.testing') : t('connections.test')"
           @click="testConnection(agent)"
         >
-          {{
-            testStates[agent.id]?.state === "testing"
-              ? t("connections.testing")
-              : t("connections.test")
-          }}
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9 8v8M15 8v8" />
+            <path d="M7 12H4M20 12h-3" />
+            <path d="M9 8H7a2 2 0 0 0-2 2v4" />
+            <path d="M15 16h2a2 2 0 0 0 2-2v-4" />
+          </svg>
         </button>
-        <button class="danger" @click="confirmRemoveId = agent.id">{{ t("connections.remove") }}</button>
+        <button
+          class="icon-btn danger"
+          :title="t('connections.remove')"
+          :aria-label="t('connections.remove')"
+          @click="confirmRemoveId = agent.id"
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M5 7h14" />
+            <path d="M9 7V5h6v2" />
+            <path d="M8 7l1 12h6l1-12" />
+          </svg>
+        </button>
       </div>
       <div v-if="agent.address" class="muted">{{ agent.address }}</div>
       <div class="muted small">
@@ -712,7 +876,17 @@ function addMixRoute(): void {
             :placeholder="agent.sealedKey ? t('connections.keySaved') : t('connections.keyMissing')"
             autocomplete="off"
           />
-          <button type="button" @click="saveKey(agent.id)">{{ t("connections.updateKey") }}</button>
+          <button
+            type="button"
+            class="icon-btn"
+            :title="t('connections.updateKey')"
+            :aria-label="t('connections.updateKey')"
+            @click="saveKey(agent.id)"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M5 12l4 4L19 6" />
+            </svg>
+          </button>
         </div>
       </details>
       <p
@@ -723,6 +897,36 @@ function addMixRoute(): void {
         {{ testStates[agent.id].msg }}
       </p>
     </div>
+    <hr class="block-split" />
+
+    <div class="agent-head">
+      <h3 class="block-title">{{ t("connections.block.prices") }}</h3>
+      <button
+        type="button"
+        class="icon-btn"
+        :disabled="budgetBusy || budgetAgents.length === 0"
+        :title="budgetBusy ? t('connections.refreshing') : t('connections.refresh')"
+        :aria-label="budgetBusy ? t('connections.refreshing') : t('connections.refresh')"
+        @click="refreshBudget"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          width="16"
+          height="16"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+          :class="{ spin: budgetBusy }"
+        >
+          <path d="M20 12a8 8 0 1 1-2.3-5.6" />
+          <path d="M20 4v5h-5" />
+        </svg>
+      </button>
+    </div>
+
     <div class="card">
       <h3>{{ t("connections.modelsTable") }}</h3>
       <p v-if="modelLines.length === 0" class="muted">{{ t("connections.modelsEmptyTable") }}</p>
@@ -749,12 +953,7 @@ function addMixRoute(): void {
     </div>
 
     <div class="card">
-      <div class="agent-head">
-        <h3>{{ t("connections.budgetTable") }}</h3>
-        <button type="button" :disabled="budgetBusy || budgetAgents.length === 0" @click="refreshBudget">
-          {{ budgetBusy ? t("connections.refreshing") : t("connections.refresh") }}
-        </button>
-      </div>
+      <h3>{{ t("connections.budgetTable") }}</h3>
       <p v-if="budgetAgents.length === 0" class="muted">{{ t("connections.budgetEmpty") }}</p>
       <div v-else class="sheet-wrap">
         <table class="sheet">
@@ -911,7 +1110,38 @@ function addMixRoute(): void {
 .agent-head h3 {
   margin-right: auto;
 }
+.block-title {
+  margin: 18px 0 10px;
+}
+.block-split {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 28px 0 4px;
+}
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+}
+.icon-btn.danger {
+  color: var(--danger, #c44747);
+}
+.spin {
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 .file-input {
   display: none;
+}
+.model-pick {
+  margin-top: 8px;
+  width: 100%;
 }
 </style>

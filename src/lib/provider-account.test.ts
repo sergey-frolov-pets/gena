@@ -4,6 +4,7 @@ import {
   formatTokenPrice,
   parseDeepSeekBalance,
   parseOpenRouterAccount,
+  modelIdsFromPayload,
   pricesFromModels,
   providerProfile,
 } from "./provider-account";
@@ -33,6 +34,14 @@ describe("разбор ответов провайдера", () => {
     });
     expect(facts.money).toBe("3.00 USD");
     expect(facts.free).toBe("1.00 USD");
+  });
+
+  it("из /models берёт id, даже если цены нет", () => {
+    expect(
+      modelIdsFromPayload({
+        data: [{ id: "gpt-4o-mini" }, { id: "gpt-4o-mini" }, { id: "" }, { name: "skip" }],
+      }),
+    ).toEqual(["gpt-4o-mini"]);
   });
 
   it("пустой ответ не выдумывает цифры", () => {

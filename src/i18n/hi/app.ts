@@ -50,7 +50,7 @@ export const appMessages = {
   "about.ask.copy": "पाठ कॉपी करें",
   "about.ask.copied": "कॉपी हो गया",
   "providers.title": "मॉडल और एजेंट जिन्हें जोड़ा जा सकता है",
-  "providers.lead": "ये सेवाएँ OpenAI-संगत चैट API बोलती हैं। कनेक्शन में OpenAI-संगत चुनें, आधार URL, अपनी कुंजी (BYOK) और उस सेवा का मॉडल id चिपकाएँ।",
+  "providers.lead": "ये सेवाएँ OpenAI-संगत चैट API बोलती हैं, जिनमें Hugging Face, OpenRouter और रूसी प्रदाता शामिल हैं। कनेक्शन में OpenAI-संगत और प्रदाता का नाम चुनें — आधार URL भर जाता है। फिर अपनी कुंजी (BYOK)। कुंजी हो तो मॉडल सूची माँगी जा सकती है।",
   "providers.cors": "Gena पता ब्राउज़र से बुलाता है। सेवा को CORS से अनुमति देनी होगी। अगर जाँच CORS पर रुके, तो ऐसा गेटवे, स्थानीय सर्वर या अपना HTTP JSON एजेंट उपयोग करें।",
   "providers.openSite": "साइट खोलें",
   "providers.baseLabel": "आधार URL",
