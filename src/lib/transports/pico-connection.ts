@@ -89,6 +89,9 @@ export class PicoConnection {
       socket.addEventListener("error", onError);
       socket.addEventListener("close", onEarlyClose);
       socket.addEventListener("message", (ev: unknown) => {
+        // Кадр от сокета, который уже заменён новым (переподключение), — не про
+        // текущую связь. Без этой проверки после восстановления прилетал дубль.
+        if (this.socket !== socket) return;
         const raw = (ev as { data?: unknown } | null)?.data;
         let frame: PicoFrame;
         if (typeof raw === "string") {
@@ -104,7 +107,13 @@ export class PicoConnection {
         }
         this.handlers?.onMessage(frame);
       });
-      socket.addEventListener("close", (ev: unknown) => this.handlers?.onClose(ev));
+      socket.addEventListener("close", (ev: unknown) => {
+        // Поздний `close` отброшенного сокета (неудачная попытка переподключения
+        // закрывается уже после того, как открылся новый) не должен выглядеть
+        // обрывом текущей связи — иначе восстановление запускается по кругу.
+        if (this.socket !== socket) return;
+        this.handlers?.onClose(ev);
+      });
     });
   }
 

@@ -70,6 +70,7 @@ export function describeError(error: unknown, t: TranslateFn = tDefault): string
       ws_closed: "errors.ws.closed",
       ws_timeout: "errors.ws.timeout",
       no_active_turn: "errors.ws.noActiveTurn",
+      turn_lost: "errors.ws.closed",
       openai_empty: "errors.openai.empty",
     };
     if (error.code && byCode[error.code]) {

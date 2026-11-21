@@ -41,6 +41,8 @@ export const chatMessages = {
   "chat.stopped": "Остановлено",
   "chat.link.reconnecting": "Связь прервалась — переподключаюсь…",
   "chat.link.restored": "Связь восстановлена",
+  "chat.link.lost": "Связь прервалась — ответ подхвачу, как только она вернётся.",
+  "chat.link.resend": "Связь восстановлена — повторяю запрос.",
   "chat.jumpTop": "В начало",
   "chat.jumpEnd": "В конец",
   "chat.retry": "Повторить",

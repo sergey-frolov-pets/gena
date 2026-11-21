@@ -12,6 +12,7 @@ export type AgentClientErrorCode =
   | "ws_closed"
   | "ws_timeout"
   | "no_active_turn"
+  | "turn_lost"
   | "pico_error"
   | "openai_error"
   | "openai_empty";

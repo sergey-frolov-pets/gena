@@ -411,6 +411,9 @@ const online = ref(typeof navigator === "undefined" ? true : navigator.onLine);
 
 function onOnline(): void {
   online.value = true;
+  // Сеть вернулась — сразу пробуем подобрать ответ брошенного хода.
+  const id = activeSessionId.value;
+  if (id) void resumePending(id);
 }
 
 function onOffline(): void {
@@ -1260,6 +1263,25 @@ function onVisibility(): void {
   if (id) void resumePending(id);
 }
 
+/** Пауза перед самостоятельным догоном после обрыва связи. */
+const LINK_RETRY_MS = 15_000;
+let linkRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Обрыв связи — не ошибка, а пауза: через несколько секунд сами пробуем
+ * подобрать ход (сервер копит кадры сессии). Не вышло — догон повторится
+ * при возврате на вкладку или при появлении сети.
+ */
+function scheduleLinkRetry(sessionId: string): void {
+  if (linkRetryTimer) clearTimeout(linkRetryTimer);
+  linkRetryTimer = setTimeout(() => {
+    linkRetryTimer = null;
+    if (!online.value) return;
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+    void resumePending(sessionId);
+  }, LINK_RETRY_MS);
+}
+
 // Агент выбран (вручную или автоматически) — поднимаем его последний диалог.
 // Диалоги могут читаться ещё с холодного старта: тогда ждём `sessionsLoaded`.
 watch(agentId, async (id) => {
@@ -1574,6 +1596,7 @@ async function exchange(
   text: string,
   media: string[],
   history: Message[],
+  allowResend = true,
 ): Promise<void> {
   stopDictation();
   lastText.value = text;
@@ -1594,6 +1617,11 @@ async function exchange(
   streamSessionId.value = session.id;
   if (session.id === activeSessionId.value) streamingText.value = "";
   let failed = false;
+  /**
+   * Ход на сервере не значится и кадров в буфере нет: реплику надо отправить
+   * заново (один раз, чтобы не устроить петлю при недоступном агенте).
+   */
+  let resend = false;
   stoppedByUser.value = false;
   const controller = new AbortController();
   abortCtrl.value = controller;
@@ -1678,12 +1706,23 @@ async function exchange(
     const code = (e as { code?: string }).code;
     const retryable = !controller.signal.aborted &&
       code !== undefined &&
-      ["network", "ws_closed", "ws_timeout", "ws_connect"].includes(code);
+      ["network", "ws_closed", "ws_timeout", "ws_connect", "turn_lost"].includes(code);
     if (!retryable) forgetPendingTurn(session.id, text);
-    if (stoppedByUser.value) {
+    if (code === "turn_lost" && allowResend && !controller.signal.aborted) {
+      // Сервер ход не начинал (сокет умер сразу после отправки) — повторяем.
+      resend = true;
+      error.value = "";
+      showNotice(t("chat.link.resend"), 8_000);
+    } else if (stoppedByUser.value) {
       // «Стоп»: ход прекращён намеренно — это не ошибка, а сообщение-статус.
       error.value = "";
       showNotice(t("chat.stopped"));
+    } else if (retryable && code !== "ws_timeout") {
+      // Обрыв связи — не ошибка пользователя. Строка статуса вместо красной
+      // плашки, ход догоняется сам, как только связь вернётся.
+      error.value = "";
+      showNotice(t("chat.link.lost"), 20_000);
+      scheduleLinkRetry(session.id);
     } else {
       error.value = describeError(e, t);
     }
@@ -1697,6 +1736,11 @@ async function exchange(
     stopTurnClock();
     await nextTick();
     if (session.id === activeSessionId.value) composerEl.value?.focus();
+    if (resend) {
+      // Повтор идёт с тем же текстом, но уже без права на ещё один повтор.
+      void exchange(session, agent, text, media, history, false);
+      return;
+    }
     // «Отправить сейчас» важнее ошибки; иначе тянем следующую реплику очереди.
     const next = immediate.value;
     immediate.value = null;

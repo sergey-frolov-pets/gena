@@ -41,6 +41,8 @@ export const chatMessages = {
   "chat.stopped": "已停止",
   "chat.link.reconnecting": "连接中断，正在重新连接…",
   "chat.link.restored": "连接已恢复",
+  "chat.link.lost": "连接中断——网络恢复后我会继续接收回答。",
+  "chat.link.resend": "连接已恢复——正在重新发送请求。",
   "chat.jumpTop": "回到开头",
   "chat.jumpEnd": "回到最新",
   "chat.retry": "重试",
