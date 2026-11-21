@@ -8,7 +8,6 @@ import ThemeSwitcher from "./components/ThemeSwitcher.vue";
 import InstallButton from "./components/InstallButton.vue";
 import AppFooter from "./components/AppFooter.vue";
 import { agentId } from "./lib/active-agent";
-import { setSpeechVoice, speechAvailable, speechVoiceId, speechVoiceTick, speechVoices } from "./lib/speech";
 import { agents, loadAgents, loadSessions } from "./lib/store";
 import { useTheme } from "./lib/theme";
 import { watchForUpdate } from "./lib/version-update";
@@ -52,13 +51,19 @@ function applyUpdate(): void {
   window.location.reload();
 }
 
-const voices = computed(() => {
-  speechVoiceTick.value;
-  return speechAvailable.value ? speechVoices() : [];
-});
-
-function onSpeechVoice(event: Event): void {
-  setSpeechVoice((event.target as HTMLSelectElement).value);
+/** Системный экран голосов: Windows, Android (TTS), macOS. */
+function openSystemVoiceSettings(): void {
+  menuOpen.value = false;
+  const ua = navigator.userAgent;
+  let url = "";
+  if (/Android/i.test(ua)) {
+    url = "intent:#Intent;action=com.android.settings.TTS_SETTINGS;end";
+  } else if (/Windows/i.test(ua)) {
+    url = "ms-settings:speech";
+  } else if (/Macintosh|Mac OS X/i.test(ua)) {
+    url = "x-apple.systempreferences:com.apple.preference.speech";
+  }
+  if (url) window.location.assign(url);
 }
 onMounted(async () => {
   document.addEventListener("pointerdown", onPointerDown);
@@ -133,17 +138,14 @@ onBeforeUnmount(() => {
           </svg>
           {{ t("app.nav.chat") }}
         </button>
-        <div v-if="speechAvailable" class="menu-voice">
-          <label class="menu-voice__rate">
-            <span>{{ t("chat.voice") }}</span>
-            <select :value="speechVoiceId" :aria-label="t('chat.voice')" @change="onSpeechVoice">
-              <option value="">{{ t("chat.voice.default") }}</option>
-              <option v-for="voice in voices" :key="voice.voiceURI" :value="voice.voiceURI">
-                {{ voice.name }}
-              </option>
-            </select>
-          </label>
-        </div>
+        <button type="button" role="menuitem" @click="openSystemVoiceSettings">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M11 5 6 9H3v6h3l5 4z" />
+            <path d="M16 9a4 4 0 0 1 0 6" />
+            <path d="M19 6a8 8 0 0 1 0 12" />
+          </svg>
+          {{ t("chat.voice") }}
+        </button>
         <LanguageSwitcher />
         <ThemeSwitcher />
         <div class="menu-row">
@@ -232,31 +234,6 @@ onBeforeUnmount(() => {
 
 .menu-btn {
   margin-inline-start: auto;
-}
-
-.menu-voice {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 8px 8px 10px;
-  border-top: 1px solid var(--border);
-}
-
-.menu-voice__rate {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 0;
-  padding: 0 4px;
-  font-size: 0.82rem;
-  color: var(--muted);
-}
-
-.menu-voice__rate select {
-  width: auto;
-  padding: 4px 8px;
-  font-size: 0.82rem;
 }
 
 .menu {
