@@ -379,16 +379,20 @@ function closeComposer(): void {
   composerOpen.value = false;
 }
 
-/** Тап по полотну чата открывает ввод; кнопки и ссылки не перехватываем. */
+/** Тап по полотну чата открывает ввод, повторный — прячет его. Кнопки и ссылки не перехватываем. */
 function onChatTap(event: MouseEvent): void {
   // Открытая панель стандартных сообщений: первый тап по полотну её сворачивает.
   if (quickOpen.value) {
     quickOpen.value = false;
     return;
   }
-  if (!compact.value || composerOpen.value) return;
+  if (!compact.value) return;
   const target = event.target as HTMLElement | null;
   if (target?.closest("button, a, input, textarea, select, details, summary")) return;
+  if (composerOpen.value) {
+    closeComposer();
+    return;
+  }
   openComposer();
 }
 
@@ -1904,6 +1908,8 @@ function onMessageClick(event: MouseEvent, m: Message): void {
   const target = event.target as HTMLElement | null;
   if (target?.closest("button, a, img, summary, details, textarea, input, .md-code, .md-table, pre, code")) return;
   if (window.getSelection()?.toString()) return;
+  // Иначе тап всплывёт к ленте и сразу закроет только что открытое поле.
+  event.stopPropagation();
   startEdit(m);
 }
 
