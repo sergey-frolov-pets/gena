@@ -13,7 +13,7 @@ export const chatMessages = {
   "chat.sessionName": "اسم الحوار",
   "chat.selectOrCreate": "اختر حوارًا أو أنشئ واحدًا",
   "chat.messagesEmpty": "لا توجد رسائل بعد.",
-  "chat.composerPlaceholder": "رسالة… (Shift+Enter للإرسال)",
+  "chat.composerPlaceholder": "{name}… (Shift+Enter للإرسال)",
   "chat.send": "إرسال",
   "chat.usage": "{used} / {limit} استدعاء اليوم",
   "chat.remaining": "الاستدعاءات المتبقية اليوم: {remaining}",

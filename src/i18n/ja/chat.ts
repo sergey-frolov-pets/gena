@@ -13,7 +13,7 @@ export const chatMessages = {
   "chat.sessionName": "ダイアログ名",
   "chat.selectOrCreate": "ダイアログを選択または作成してください",
   "chat.messagesEmpty": "メッセージはまだありません。",
-  "chat.composerPlaceholder": "メッセージ…（Shift+Enter で送信）",
+  "chat.composerPlaceholder": "{name}…（Shift+Enter で送信）",
   "chat.send": "送信",
   "chat.usage": "本日 {used} / {limit} 回呼び出し",
   "chat.remaining": "本日の残り呼び出し回数: {remaining}",
