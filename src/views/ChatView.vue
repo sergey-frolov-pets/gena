@@ -3026,6 +3026,9 @@ function onRateChange(event: Event): void {
 }
 
 .chat-panel__toolbar {
+  /* Строки над лентой не сжимаются: иначе при нехватке высоты (плашка обновления,
+     ландшафт) браузер режет их, и заголовки вкладок уезжают под край панели. */
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -3101,6 +3104,7 @@ function onRateChange(event: Event): void {
 }
 
 .chat-panel__agentbar {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -3192,12 +3196,17 @@ function onRateChange(event: Event): void {
 
 /* --- Полоска недавних диалогов: вкладки как в редакторе (Cursor/VS Code) -- */
 .chat-panel__tabs {
+  /* Полоса вкладок не сжимается по высоте: `overflow-x: auto` делает её ещё и
+     скролл-контейнером (overflow-y становится auto), а значит min-height = 0,
+     и при нехватке места вкладки сплющивались, а их верх обрезался краем панели. */
+  flex: 0 0 auto;
   display: flex;
   align-items: flex-end;
   gap: 2px;
   padding: 6px 8px 0;
   margin-bottom: -6px;
   overflow-x: auto;
+  overflow-y: hidden;
   scrollbar-width: none;
   background: var(--panel-2);
   position: relative;
@@ -3224,7 +3233,7 @@ function onRateChange(event: Event): void {
   position: relative;
   z-index: 1;
   align-items: center;
-  min-height: 2.15rem;
+  min-height: 2.5rem;
   max-width: 10rem;
   border: 1px solid transparent;
   border-bottom-color: var(--border);
@@ -3249,13 +3258,15 @@ function onRateChange(event: Event): void {
   display: flex;
   align-items: center;
   gap: 5px;
-  min-height: 2.15rem;
+  align-self: stretch;
+  min-height: 2.5rem;
   max-width: 8rem;
   padding: 0 4px 0 8px;
   border: 0;
   background: transparent;
   color: inherit;
-  font-size: 0.76rem;
+  font-size: 0.78rem;
+  line-height: 1.15;
   cursor: pointer;
 }
 
@@ -3302,11 +3313,11 @@ function onRateChange(event: Event): void {
 /* Телефон: вкладки ещё уже — больше диалогов влезает в полоску. */
 @media (max-width: 720px) {
   .chat-panel__tab {
-    min-height: 2rem;
+    min-height: 2.25rem;
     max-width: 7rem;
   }
   .chat-panel__tab-open {
-    min-height: 2rem;
+    min-height: 2.25rem;
     max-width: 5.5rem;
     padding: 0 2px 0 7px;
     font-size: 0.74rem;
