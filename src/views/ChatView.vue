@@ -3856,34 +3856,41 @@ function onRateChange(event: Event): void {
   gap: 3px;
 }
 
-/* Две и более строк текста — кнопки перестраиваются в два ряда по высоте:
-   справа остаётся ширина под текст, а не под длинную дорожку кнопок. */
+/* Две и более строк текста — кнопки в два столбца справа:
+   «очистить» по центру над отправкой, микрофон и молния вплотную к ней. */
 .chat-panel__composer-box.is-multiline .chat-panel__composer-stack {
   flex-direction: column;
   justify-content: center;
+  gap: 2px;
 }
 
 .chat-panel__composer-box.is-multiline .chat-panel__composer-stack--send {
-  display: grid;
-  flex-direction: row;
-  grid-template-columns: auto auto;
-  grid-template-rows: auto auto;
+  flex-direction: column;
   align-items: center;
-  justify-items: center;
+  justify-content: center;
+  gap: 2px;
 }
 
 .chat-panel__composer-box.is-multiline .chat-panel__clear {
-  grid-area: 1 / 1;
-  justify-self: start;
+  width: 22px;
+  height: 22px;
+  border-radius: 8px;
+}
+
+.chat-panel__composer-box.is-multiline .chat-panel__clear svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* В многострочном режиме отправка чуть компактнее — столбец кнопок ниже. */
+.chat-panel__composer-box.is-multiline .chat-panel__send.is-primary {
+  width: 32px;
+  height: 32px;
 }
 
 .chat-panel__composer-box.is-multiline .chat-panel__send.is-stop {
-  grid-area: 2 / 1;
-  justify-self: end;
-}
-
-.chat-panel__composer-box.is-multiline .chat-panel__send.is-primary {
-  grid-area: 2 / 2;
+  width: 26px;
+  height: 26px;
 }
 
 .chat-panel__composer-stack .chat-panel__icon-btn {
