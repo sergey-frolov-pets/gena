@@ -62,7 +62,9 @@ const en = {
   "chat.tokenMode": "Token mode",
   "chat.tokenModeOn": "Session stores tokens; values are substituted by the dictionary.",
   "chat.tokenModeOff": "Session stores plain text again.",
-  "chat.tokenModeEmpty": "The dictionary is empty — add entries first.",
+  "chat.tokenModeEmpty": "The dictionary is empty — add a match in the table or from a selection.",
+  "chat.tokenModeNoEntries":
+    "Token mode is on. The dictionary is empty for now — select text in the input field and press “Make token”, or add a match in the table.",
   "chat.tokenGuard":
     "Not sent: the token dictionary is unavailable, so the message could reach the agent with real values. Open the dictionary and check the entries.",
   "chat.viewTokens": "Show tokens",
@@ -167,7 +169,9 @@ const ru = {
   "chat.tokenMode": "Режим токенов",
   "chat.tokenModeOn": "Диалог хранит токены; значения подставляет справочник.",
   "chat.tokenModeOff": "Диалог снова хранит обычный текст.",
-  "chat.tokenModeEmpty": "Справочник пуст — сначала добавьте записи.",
+  "chat.tokenModeEmpty": "Справочник пуст — добавьте соответствие в таблице или выделением в поле ввода.",
+  "chat.tokenModeNoEntries":
+    "Режим токенов включён. Справочник пока пуст — выделите текст в поле ввода и нажмите «Сделать токеном» или добавьте соответствие в таблице.",
   "chat.tokenGuard":
     "Не отправлено: справочник подстановок не прочитан, и сообщение могло уйти агенту с настоящими значениями. Откройте «Справочник» и проверьте записи.",
   "chat.viewTokens": "Показать токены",

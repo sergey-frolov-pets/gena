@@ -111,11 +111,13 @@ import {
   saveToken,
   tokenEntries,
   tokenLookup,
+  tokensLoaded,
   TokenError,
   type TokenEntry,
 } from "@/lib/tokens/registry";
 import { formatToken, parseTokens } from "@/lib/tokens/format";
 import { findSelectionEntry, replaceRange } from "@/lib/tokens/selection";
+import { tokenModeActive } from "@/lib/tokens/mode-intent";
 import { loadMorph } from "@/lib/tokens/morph/service";
 import { forAgent, historyForAgent, tokensReady } from "@/lib/tokens/outgoing";
 import { insertTokenAt } from "@/lib/tokens/insert";
@@ -155,9 +157,21 @@ function showNotice(text: string, ttl = 12_000): void {
  * текст и контекст проходят через `lib/tokens/outgoing.ts`.
  */
 
-/** Диалог явно переведён в режим токенов: история хранится токенами. */
+/**
+ * Намерение «новый диалог в режиме токенов»: записи ещё нет, а выключатель
+ * уже должен работать. Переносится в сессию при её создании.
+ */
+const pendingTokenMode = ref(false);
+
+/** Диалог в режиме токенов: флаг записи или намерение для нового диалога. */
 function isTokenSession(session?: Session | null): boolean {
-  return session?.tokenMode === true;
+  return tokenModeActive(session, pendingTokenMode.value);
+}
+
+/** Справочник нужен движку подстановки: читаем его до первого решения. */
+async function ensureTokens(): Promise<void> {
+  if (tokensLoaded.value) return;
+  await loadTokens().catch(() => undefined);
 }
 
 /** Текст для истории: в режиме токенов значения записываются токенами. */
@@ -170,20 +184,36 @@ function displayContent(text: string): string {
   return viewValues.value ? restoreValues(text) : text;
 }
 
-/** Перевести открытый диалог в режим токенов или вернуть к обычному тексту. */
+/**
+ * Перевести диалог в режим токенов или вернуть к обычному тексту.
+ *
+ * Работает и на экране «Новый диалог»: записи ещё нет — включаем намерение,
+ * оно применится к сессии при первой отправке. Пустой справочник не помеха:
+ * первый токен человек как раз и делает из выделения в поле ввода.
+ */
 async function toggleTokenMode(): Promise<void> {
-  const session = activeSession.value;
-  if (!session || busy.value) return;
+  if (busy.value) return;
   error.value = "";
   tokenSheetOpen.value = false;
+  const session = activeSession.value;
   const next = !isTokenSession(session);
-  if (next && tokenEntries.value.length === 0) {
-    showNotice(t("chat.tokenModeEmpty"));
+  if (next) await ensureTokens();
+  if (!session) {
+    pendingTokenMode.value = next;
+    showNotice(
+      next
+        ? t(tokenEntries.value.length > 0 ? "chat.tokenModeOn" : "chat.tokenModeNoEntries")
+        : t("chat.tokenModeOff"),
+    );
     return;
   }
   try {
     const result = await setSessionTokenMode(session.id, next);
-    showNotice(t(next ? "chat.tokenModeOn" : "chat.tokenModeOff"));
+    showNotice(
+      next
+        ? t(tokenEntries.value.length > 0 ? "chat.tokenModeOn" : "chat.tokenModeNoEntries")
+        : t("chat.tokenModeOff"),
+    );
     // История переписана — перечитываем, чтобы лента совпала с базой.
     if (result.rewritten > 0) await loadMessages(session.id);
   } catch (e) {
@@ -217,8 +247,11 @@ const tokenPickVisible = computed(
 );
 
 function toggleTokenPick(): void {
+  // Пустой справочник — не тупик: сразу открываем таблицу соответствий,
+  // где запись добавляется вручную, а не показываем «сначала заполните».
   if (tokenEntries.value.length === 0) {
-    showNotice(t("chat.tokenModeEmpty"));
+    tokenPickOpen.value = false;
+    tokenSheetOpen.value = true;
     return;
   }
   tokenPickOpen.value = !tokenPickOpen.value;
@@ -244,17 +277,14 @@ function insertTokenName(name: string): void {
   });
 }
 
-/** Ввод в поле: обновляем подсказку токенов; вне защищённого диалога её нет. */
+/** Ввод в поле: обновляем подсказку токенов (⟦…). Справочник работает в любом диалоге. */
 function onComposerInput(event: Event): void {
   // Выделение сдвинулось — плашка под полем больше не про этот фрагмент.
   if (selectionRange.value) clearSelection();
-  if (!isTokenSession(activeSession.value)) {
-    tokenTrigger.value = null;
-    return;
-  }
   const el = event.target as HTMLTextAreaElement | null;
   const caret = el && el.selectionStart !== null ? el.selectionStart : draft.value.length;
   tokenTrigger.value = findTokenTrigger(draft.value, caret);
+  if (tokenTrigger.value) void ensureTokens();
 }
 
 /** Открыть выезжающую таблицу соответствий прямо в чате. */
@@ -306,10 +336,15 @@ function clearSelection(): void {
   selectionConfirm.value = null;
 }
 
-/** Выделение изменилось: показать плашку под полем. */
+/**
+ * Выделение изменилось: показать плашку под полем.
+ *
+ * Плашка не зависит от режима токенов: справочник — свойство устройства,
+ * а не диалога. Иначе в обычном диалоге выделение «ничего не делает».
+ */
 function onComposerSelect(): void {
   const el = composerEl.value;
-  if (!el || !isTokenSession(activeSession.value)) {
+  if (!el) {
     clearSelection();
     return;
   }
@@ -324,6 +359,7 @@ function onComposerSelect(): void {
     clearSelection();
     return;
   }
+  void ensureTokens();
   const known = findSelectionEntry(text, tokenEntries.value);
   selectionRange.value = { start, end, text };
   selectionName.value = known ? known.name : selectionName.value || text.slice(0, 40);
@@ -1712,6 +1748,8 @@ watch(sessionsLoaded, (loaded) => {
 watch(activeSessionId, (id) => {
   stickBottom.value = true;
   if (id) rememberTab(id);
+  // Открыли настоящий диалог — намерение «токеновый новый диалог» больше не нужно.
+  if (id) pendingTokenMode.value = false;
   // Диалог сменился — забранная реплика возвращается в свою ленту.
   if (lifted.value && lifted.value.message.sessionId !== id) lifted.value = null;
   // Таблица соответствий относится к прежнему диалогу — закрываем.
@@ -1760,11 +1798,23 @@ function sessionTitle(text: string): string {
   return line || t("chat.newDialogTitle");
 }
 
+/** Применить намерение «новый диалог в режиме токенов» к созданной записи. */
+async function applyPendingTokenMode(sessionId: string): Promise<void> {
+  if (!pendingTokenMode.value) return;
+  pendingTokenMode.value = false;
+  try {
+    await setSessionTokenMode(sessionId, true);
+  } catch {
+    // Режим не критичен для отправки: значения всё равно уходят токенами.
+  }
+}
+
 /** Создать диалог под реплику и открыть его (экран и так был пустым). */
 async function startSession(text: string): Promise<string | undefined> {
   const agent = activeAgent.value;
   if (!agent) return undefined;
   const created = await createSession(agent.id, sessionTitle(text));
+  await applyPendingTokenMode(created.id);
   await loadMessages(created.id);
   return created.id;
 }
@@ -1893,6 +1943,8 @@ async function dispatch(
     }
     const title = sessionTitle(text);
     session = await createSession(agent.id, title);
+    // Намерение режима токенов переносим в запись до первой записи истории.
+    await applyPendingTokenMode(session.id);
     // Экран «Нового диалога» остаётся тем же — просто открываем созданную запись.
     if (activeSessionId.value === null) {
       await loadMessages(session.id);
@@ -2854,11 +2906,10 @@ function onRateChange(event: Event): void {
         <button
           type="button"
           class="chat-panel__tool"
-          :class="{ 'is-on': activeSession?.tokenMode }"
+          :class="{ 'is-on': isTokenSession(activeSession) }"
           v-tip="t('chat.tokenMode')"
           :aria-label="t('chat.tokenMode')"
-          :aria-pressed="activeSession?.tokenMode === true"
-          :disabled="!activeSession"
+          :aria-pressed="isTokenSession(activeSession)"
           @click="toggleTokenMode"
         >
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -3542,12 +3593,12 @@ function onRateChange(event: Event): void {
           class="chat-panel__token-btn"
           data-token-trigger
           :aria-expanded="tokenPickOpen"
-          :disabled="tokenEntries.length === 0"
           @click="toggleTokenPick"
         >
           {{ t("chat.tokens.insert") }}
         </button>
         <button
+          v-if="activeSession"
           type="button"
           class="chat-panel__token-btn"
           :aria-pressed="!viewValues"
