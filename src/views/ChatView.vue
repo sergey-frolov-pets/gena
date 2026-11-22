@@ -36,6 +36,7 @@ import { composerFieldHeight, isSendKey } from "@/lib/composer";
 import AppFooter from "@/components/AppFooter.vue";
 import TokenSheet from "@/components/TokenSheet.vue";
 import SessionTabs from "@/components/SessionTabs.vue";
+import HistorySheet from "@/components/HistorySheet.vue";
 import { listenToAgent, sendToAgent, type TransportAttachment } from "@/lib/agent-client";
 import { cancelAgentTurn } from "@/lib/agent-client";
 import { describeError } from "@/lib/errors";
@@ -93,7 +94,6 @@ import { capabilitiesOf } from "@/lib/transports";
 import { isBusySession as isSessionBusy, liveSessionCount, pickRunnable } from "@/lib/turn-queue";
 import { useSessionTabs } from "@/composables/useSessionTabs";
 import { useLiveTurns } from "@/composables/useLiveTurns";
-import { useAgentFilter } from "@/composables/useAgentFilter";
 import {
   AGENT_STORAGE_KEY,
   FEED_WINDOW,
@@ -853,7 +853,6 @@ const COMPOSER_MANUAL_MIN = 38;
 const COMPOSER_MANUAL_MAX = 360;
 /** Шит истории диалогов (как в AiChatPanel). */
 const historyOpen = ref(false);
-const historyQuery = ref("");
 /** Режим переименования диалога в шапке. */
 const renaming = ref(false);
 const renameDraft = ref("");
@@ -1413,41 +1412,15 @@ function agentRoleLabel(): string {
 }
 
 /**
- * История — все диалоги, без деления по агенту (решение Сергея, 22.11.2026):
- * по умолчанию видно всё, а нужный агент выбирается фильтром в списке.
+ * Все диалоги: по ним строятся вкладки. Фильтр по агенту и поиск живут
+ * в HistorySheet — список там один и тот же, без деления по агенту
+ * (решение Сергея, 22.11.2026).
  */
 const allSessions = computed<Session[]>(() => sessions.value);
-
-/** История — все диалоги; агент выбирается чипами над списком. */
-const {
-  filter: historyAgent,
-  agentsInUse: historyAgents,
-  filtered: sessionsOfAgent,
-} = useAgentFilter(allSessions, agents);
-
-/** Имя агента для строки истории (свой у каждой сессии). */
-function agentNameOf(id: string): string {
-  return agents.value.find((agent) => agent.id === id)?.name?.trim() || t("chat.agent");
-}
 
 /** Индикаторы хода показываем только в том диалоге, где идёт ответ. */
 const liveStreaming = computed(() => activeTurn.value?.streaming ?? "");
 const liveTyping = computed(() => activeTurn.value?.typing === true);
-
-const filteredSessions = computed<Session[]>(() => {
-  const query = historyQuery.value.trim().toLowerCase();
-  const byAgent = sessionsOfAgent.value;
-  const list = query
-    ? byAgent.filter((s) => s.title.toLowerCase().includes(query))
-    : [...byAgent];
-  // Закреплённые сверху, дальше — по времени обновления.
-  return list.sort((a, b) => {
-    const pinA = a.pinned ? 1 : 0;
-    const pinB = b.pinned ? 1 : 0;
-    if (pinA !== pinB) return pinB - pinA;
-    return b.updatedAt - a.updatedAt;
-  });
-});
 
 /** Полоска недавних диалогов: порядок вкладок и закрытые живут в useSessionTabs. */
 const {
@@ -3317,140 +3290,19 @@ function onRateChange(event: Event): void {
         @insert="insertTokenName"
         @open-tokens="openTokensTab"
       />
-      <div
-        v-if="historyOpen"
-        class="chat-panel__sheet-backdrop"
-        @click="historyOpen = false"
+      <HistorySheet
+        :open="historyOpen"
+        :sessions="sessions"
+        :agents="agents"
+        :active-id="activeSessionId"
+        :busy-ids="busySessionIds"
+        @close="historyOpen = false"
+        @pick="onTabClick"
+        @pin="togglePin"
+        @duplicate="duplicate"
+        @delete="confirmDeleteId = $event"
+        @title="showTitle"
       />
-      <aside
-        v-if="historyOpen"
-        class="chat-panel__sheet"
-        role="dialog"
-        aria-modal="true"
-        :aria-label="t('chat.dialogs')"
-      >
-        <div class="chat-panel__sheet-head">
-          <input
-            v-model="historyQuery"
-            class="chat-panel__search"
-            type="search"
-            :placeholder="t('chat.searchDialogs')"
-            :aria-label="t('chat.searchDialogs')"
-          />
-          <button
-            type="button"
-            class="chat-panel__tool"
-            v-tip="t('chat.close')"
-            :aria-label="t('chat.close')"
-            @click="historyOpen = false"
-          >
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
-              <path d="M6 6l12 12M18 6L6 18" />
-            </svg>
-          </button>
-        </div>
-        <div
-          class="chat-panel__filter-chips"
-          role="group"
-          :aria-label="t('chat.filterAgent')"
-        >
-          <button
-            type="button"
-            class="chat-panel__filter-chip"
-            :class="{ 'is-on': !historyAgent }"
-            :aria-pressed="!historyAgent"
-            @click="historyAgent = ''"
-          >
-            {{ t("chat.allAgents") }}
-          </button>
-          <button
-            v-for="agent in historyAgents"
-            :key="agent.id"
-            type="button"
-            class="chat-panel__filter-chip"
-            :class="{ 'is-on': historyAgent === agent.id }"
-            :aria-pressed="historyAgent === agent.id"
-            @click="historyAgent = agent.id"
-          >
-            {{ agent.name }}
-          </button>
-        </div>
-        <p v-if="filteredSessions.length === 0" class="chat-panel__muted">
-          {{ t("chat.selectOrCreate") }}
-        </p>
-        <ul class="chat-panel__session-list">
-          <li
-            v-for="s in filteredSessions"
-            :key="s.id"
-            class="chat-panel__session"
-            :class="{
-              'is-active': s.id === activeSessionId,
-              'is-pinned': s.pinned,
-              'is-busy': busySessionIds.has(s.id),
-            }"
-          >
-            <button
-              class="chat-panel__session-open"
-              type="button"
-              v-longpress="() => showTitle(s.title)"
-              @click="onTabClick(s.id)"
-            >
-              <span class="chat-panel__session-main">
-                <span class="chat-panel__session-title">
-                  <span
-                    v-if="busySessionIds.has(s.id)"
-                    class="chat-panel__busy-dot"
-                    aria-hidden="true"
-                  />{{ s.title }}
-                </span>
-                <span v-if="!historyAgent" class="chat-panel__session-agent">
-                  {{ agentNameOf(s.agentId) }}
-                </span>
-              </span>
-              <span class="chat-panel__session-count">{{ s.messageCount }}</span>
-            </button>
-
-            <div class="chat-panel__session-actions">
-              <button
-                type="button"
-                class="chat-panel__action"
-                :class="{ 'is-on': s.pinned }"
-                v-tip="s.pinned ? t('chat.unpin') : t('chat.pin')"
-                :aria-label="s.pinned ? t('chat.unpin') : t('chat.pin')"
-                @click="togglePin(s)"
-              >
-                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M12 17v5" />
-                  <path d="M9 3h6l-1 6 3 3H7l3-3z" />
-                </svg>
-              </button>
-              <button
-                type="button"
-                class="chat-panel__action"
-                v-tip="t('chat.duplicate')"
-                :aria-label="t('chat.duplicate')"
-                @click="duplicate(s)"
-              >
-                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <rect x="9" y="9" width="11" height="11" rx="2" />
-                  <path d="M5 15V5a2 2 0 0 1 2-2h10" />
-                </svg>
-              </button>
-              <button
-                type="button"
-                class="chat-panel__action is-danger"
-                v-tip="t('chat.deleteDialog')"
-                :aria-label="t('chat.deleteDialog')"
-                @click="confirmDeleteId = s.id"
-              >
-                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" />
-                </svg>
-              </button>
-            </div>
-          </li>
-        </ul>
-      </aside>
 
       <div
         ref="messagesEl"
@@ -4482,42 +4334,6 @@ function onRateChange(event: Event): void {
   padding: 6px 8px;
 }
 
-.chat-panel__tool {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 0;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-}
-
-.chat-panel__tool:hover:not(:disabled) {
-  color: var(--text);
-  background: var(--panel-2);
-}
-
-.chat-panel__tool:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.chat-panel__tool.is-on {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-}
-
-.chat-panel__tool.is-text {
-  width: auto;
-  padding: 0 10px;
-  font-size: 0.82rem;
-}
-
 .chat-panel__agentbar {
   flex: 0 0 auto;
   display: flex;
@@ -4559,212 +4375,6 @@ function onRateChange(event: Event): void {
   min-height: 0;
   display: flex;
   flex-direction: column;
-}
-
-.chat-panel__sheet-backdrop {
-  position: absolute;
-  inset: 0;
-  z-index: 30;
-  background: rgba(0, 0, 0, 0.45);
-  animation: gena-fade-in 160ms ease;
-}
-
-.chat-panel__sheet {
-  position: absolute;
-  inset-block: 0;
-  inset-inline-end: 0;
-  z-index: 31;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  width: min(86vw, 360px);
-  padding: 10px;
-  border-inline-start: 1px solid var(--border);
-  background: var(--panel);
-  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.28);
-  overflow-y: auto;
-  animation: gena-sheet-in 180ms ease;
-}
-
-@keyframes gena-fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes gena-sheet-in {
-  from {
-    transform: translateX(100%);
-  }
-  to {
-    transform: translateX(0);
-  }
-}
-
-.chat-panel__sheet-head {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-/* Агент отвечает (или реплика ждёт очереди) — диалог в списке выделяем жирным. */
-.chat-panel__session.is-busy .chat-panel__session-title {
-  font-weight: 650;
-  color: var(--text);
-}
-
-.chat-panel__session-title .chat-panel__busy-dot {
-  display: inline-block;
-  margin-inline-end: 6px;
-  vertical-align: middle;
-}
-
-.chat-panel__search {
-  padding: 6px 10px;
-}
-
-/* Фильтр истории по агенту: чипы «Все агенты» + те, у кого есть диалоги. */
-.chat-panel__filter-chips {
-  display: flex;
-  gap: 6px;
-  margin: 6px 0 4px;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.chat-panel__filter-chips::-webkit-scrollbar {
-  display: none;
-}
-
-.chat-panel__filter-chip {
-  flex: 0 0 auto;
-  max-width: 11rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: 4px 10px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--panel);
-  color: var(--muted);
-  font: inherit;
-  font-size: 0.76rem;
-  cursor: pointer;
-}
-
-.chat-panel__filter-chip.is-on {
-  border-color: var(--accent);
-  background: var(--panel-2);
-  color: var(--text);
-  font-weight: 600;
-}
-
-.chat-panel__session-main {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  text-align: start;
-}
-
-.chat-panel__session-agent {
-  color: var(--muted);
-  font-size: 0.7rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.chat-panel__session-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.chat-panel__session {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.chat-panel__session-actions {
-  display: flex;
-  flex: 0 0 auto;
-  gap: 2px;
-  opacity: 0;
-  transition: opacity 120ms ease;
-}
-
-.chat-panel__session:hover .chat-panel__session-actions,
-.chat-panel__session:focus-within .chat-panel__session-actions,
-.chat-panel__session.is-active .chat-panel__session-actions {
-  opacity: 1;
-}
-
-@media (hover: none) {
-  .chat-panel__session-actions {
-    opacity: 1;
-  }
-}
-
-.chat-panel__session.is-pinned .chat-panel__session-title {
-  font-weight: 600;
-}
-
-.chat-panel__session .chat-panel__action {
-  width: 28px;
-  height: 28px;
-}
-
-.chat-panel__action.is-danger:hover {
-  color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 14%, transparent);
-}
-
-.chat-panel__link.is-danger {
-  color: var(--danger);
-}
-
-.chat-panel__session-open {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--text);
-  text-align: start;
-  cursor: pointer;
-}
-
-.chat-panel__session-open:hover {
-  background: var(--panel-2);
-}
-
-.chat-panel__session.is-active .chat-panel__session-open {
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-}
-
-.chat-panel__session-title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.86rem;
-}
-
-.chat-panel__session-count {
-  flex: 0 0 auto;
-  color: var(--muted);
-  font-size: 0.72rem;
 }
 
 .chat-panel__messages {
@@ -4929,30 +4539,6 @@ function onRateChange(event: Event): void {
   opacity: 1;
 }
 
-.chat-panel__action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-}
-
-.chat-panel__action:hover {
-  color: var(--text);
-  background: var(--panel-2);
-}
-
-.chat-panel__action.is-on {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-}
-
 /* Кнопка шагов хода: иконка-шеврон + счётчик шагов. */
 .chat-panel__action--steps {
   width: auto;
@@ -5028,12 +4614,6 @@ function onRateChange(event: Event): void {
 .chat-panel__thought.is-open .chat-panel__thought-inner {
   padding-top: 4px;
   padding-bottom: 2px;
-}
-
-.chat-panel__muted {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.86rem;
 }
 
 .chat-panel__thinking {
@@ -5560,10 +5140,6 @@ function onRateChange(event: Event): void {
   }
   .chat-panel__message-actions {
     opacity: 1;
-  }
-  .chat-panel__tool {
-    width: 36px;
-    height: 36px;
   }
   .chat-panel__dock {
     padding-bottom: calc(8px + env(safe-area-inset-bottom));
@@ -6374,9 +5950,90 @@ function onRateChange(event: Event): void {
 </style>
 
 <style>
-/* Markdown в ленте приходит через v-html: scoped-атрибут на вставленные
-   элементы не попадает, поэтому эти правила — глобальные. */
-/* ---------- Markdown в ленте (lib/markdown.ts) ---------- */
+/* ---------- Кнопки-иконки и приглушённый текст ----------
+   Общие для ChatView и HistorySheet, поэтому глобально (по-прежнему
+   под префиксом chat-panel__, в другие экраны не течёт). */
+.chat-panel__tool {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.chat-panel__tool:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--panel-2);
+}
+
+.chat-panel__tool:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.chat-panel__tool.is-on {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.chat-panel__tool.is-text {
+  width: auto;
+  padding: 0 10px;
+  font-size: 0.82rem;
+}
+
+.chat-panel__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.chat-panel__action:hover {
+  color: var(--text);
+  background: var(--panel-2);
+}
+
+.chat-panel__action.is-on {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.chat-panel__muted {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.chat-panel__action.is-danger:hover {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+
+@media (max-width: 720px) {
+  .chat-panel__tool {
+    width: 36px;
+    height: 36px;
+  }
+}
+
+/* ---------- Markdown в ленте (lib/markdown.ts) ----------
+   Приходит через v-html: scoped-атрибут на вставленные элементы не попадает,
+   поэтому эти правила глобальные. */
 
 .chat-panel__content.md {
   white-space: normal;
