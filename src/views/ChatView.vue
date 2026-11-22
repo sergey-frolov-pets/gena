@@ -37,6 +37,8 @@ import AppFooter from "@/components/AppFooter.vue";
 import TokenSheet from "@/components/TokenSheet.vue";
 import SessionTabs from "@/components/SessionTabs.vue";
 import HistorySheet from "@/components/HistorySheet.vue";
+import SessionQueue from "@/components/SessionQueue.vue";
+import AttachmentTray from "@/components/AttachmentTray.vue";
 import { listenToAgent, sendToAgent, type TransportAttachment } from "@/lib/agent-client";
 import { cancelAgentTurn } from "@/lib/agent-client";
 import { describeError } from "@/lib/errors";
@@ -3624,54 +3626,12 @@ function onRateChange(event: Event): void {
       </p>
       <p v-if="notice" class="chat-panel__notice" role="status">{{ notice }}</p>
 
-      <div v-if="sessionQueue.length > 0" class="chat-panel__queue">
-        <p class="chat-panel__queue-title">
-          {{ t("chat.queue.title", { count: sessionQueue.length }) }}
-        </p>
-        <ul class="chat-panel__queue-list">
-          <li v-for="q in sessionQueue" :key="q.id" class="chat-panel__queue-item">
-            <span class="chat-panel__queue-text">
-              {{ q.text || t("chat.queue.attachment") }}
-            </span>
-            <span class="chat-panel__queue-actions">
-              <button
-                type="button"
-                class="chat-panel__action"
-                v-tip="t('chat.queue.sendNow')"
-                :aria-label="t('chat.queue.sendNow')"
-                @click="sendQueuedNow(q.id)"
-              >
-                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M12 19V5" />
-                  <path d="m6 11 6-6 6 6" />
-                </svg>
-              </button>
-              <button
-                type="button"
-                class="chat-panel__action"
-                v-tip="t('chat.queue.edit')"
-                :aria-label="t('chat.queue.edit')"
-                @click="editQueued(q.id)"
-              >
-                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M4 20h4l10-10a2.8 2.8 0 1 0-4-4L4 16z" />
-                </svg>
-              </button>
-              <button
-                type="button"
-                class="chat-panel__action is-danger"
-                v-tip="t('chat.queue.remove')"
-                :aria-label="t('chat.queue.remove')"
-                @click="removeQueued(q.id)"
-              >
-                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
-                  <path d="M6 6l12 12M18 6L6 18" />
-                </svg>
-              </button>
-            </span>
-          </li>
-        </ul>
-      </div>
+      <SessionQueue
+        :items="sessionQueue"
+        @send-now="sendQueuedNow"
+        @edit="editQueued"
+        @remove="removeQueued"
+      />
 
       <div
         v-if="compact && !composerOpen && (canStopHere || quickReplies.length > 0 || turnElapsed || isTokenSession(activeSession))"
@@ -3851,38 +3811,12 @@ function onRateChange(event: Event): void {
         @submit.prevent="send"
         @focusout="onComposerBlur"
       >
-        <div v-if="pendingImages.length > 0 || pendingDocs.length > 0" class="chat-panel__chips">
-          <div v-for="(img, i) in pendingImages" :key="i" class="chat-panel__chip">
-            <img :src="img.thumb" alt="" />
-            <button
-              type="button"
-              class="chat-panel__chip-remove"
-              v-tip="t('chat.attachRemove')"
-              :aria-label="t('chat.attachRemove')"
-              @click="removeImage(i)"
-            >
-              ×
-            </button>
-          </div>
-          <div
-            v-for="(doc, i) in pendingDocs"
-            :key="`doc-${i}`"
-            class="chat-panel__chip is-file"
-            :title="`${doc.name} · ${formatBytes(doc.bytes)}`"
-          >
-            <span class="chat-panel__chip-name">{{ doc.name }}</span>
-            <span class="chat-panel__chip-size">{{ formatBytes(doc.bytes) }}</span>
-            <button
-              type="button"
-              class="chat-panel__chip-remove"
-              v-tip="t('chat.attachRemove')"
-              :aria-label="t('chat.attachRemove')"
-              @click="removeDocument(i)"
-            >
-              ×
-            </button>
-          </div>
-        </div>
+        <AttachmentTray
+          :images="pendingImages"
+          :docs="pendingDocs"
+          @remove-image="removeImage"
+          @remove-document="removeDocument"
+        />
         <input
           ref="fileInput"
           class="chat-panel__file"
@@ -5041,54 +4975,6 @@ function onRateChange(event: Event): void {
   cursor: pointer;
 }
 
-/* --- Очередь реплик ------------------------------------------------------ */
-.chat-panel__queue {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 6px 8px;
-  border: 1px dashed var(--border);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--panel-2) 70%, transparent);
-}
-
-.chat-panel__queue-title {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.7rem;
-}
-
-.chat-panel__queue-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.chat-panel__queue-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.chat-panel__queue-text {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.78rem;
-  color: var(--text);
-}
-
-.chat-panel__queue-actions {
-  display: flex;
-  flex: 0 0 auto;
-  gap: 2px;
-}
-
 /* --- Реплика, забранная в поле ввода ------------------------------------ */
 .chat-panel__lift {
   display: flex;
@@ -5187,72 +5073,6 @@ function onRateChange(event: Event): void {
 /* --- Вложения ------------------------------------------------------------ */
 .chat-panel__file {
   display: none;
-}
-
-.chat-panel__chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.chat-panel__chip {
-  position: relative;
-  width: 56px;
-  height: 56px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  overflow: hidden;
-  background: var(--panel-2);
-}
-
-.chat-panel__chip img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-/* Документ в чипе: имя + размер вместо миниатюры. */
-.chat-panel__chip.is-file {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 2px;
-  width: auto;
-  min-width: 120px;
-  max-width: 200px;
-  height: 56px;
-  padding: 6px 26px 6px 10px;
-}
-
-.chat-panel__chip-name {
-  display: block;
-  overflow: hidden;
-  color: var(--text);
-  font-size: 0.78rem;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.chat-panel__chip-size {
-  color: var(--muted);
-  font-size: 0.72rem;
-}
-
-.chat-panel__chip-remove {
-  position: absolute;
-  top: 2px;
-  inset-inline-end: 2px;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: rgba(13, 17, 23, 0.72);
-  color: #fff;
-  font-size: 13px;
-  line-height: 1;
 }
 
 .chat-panel__images {
