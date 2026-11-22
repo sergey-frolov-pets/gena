@@ -31,6 +31,7 @@ import { newId } from "@/lib/id";
 import { shouldOpenLastSession } from "@/lib/session-open";
 import { composerFieldHeight, isSendKey } from "@/lib/composer";
 import AppFooter from "@/components/AppFooter.vue";
+import TokenSheet from "@/components/TokenSheet.vue";
 import { listenToAgent, sendToAgent, type TransportAttachment } from "@/lib/agent-client";
 import { cancelAgentTurn } from "@/lib/agent-client";
 import { describeError } from "@/lib/errors";
@@ -103,9 +104,12 @@ import {
 import { canTakeNext, idleTurn, stepTurn, type TurnState } from "@/turn/machine";
 import {
   loadTokens,
+  replaceValues,
   restoreValues,
   tokenEntries,
+  tokenLookup,
 } from "@/lib/tokens/registry";
+import { parseTokens } from "@/lib/tokens/format";
 import { loadMorph } from "@/lib/tokens/morph/service";
 import { forAgent, historyForAgent, tokensReady } from "@/lib/tokens/outgoing";
 import { insertTokenAt } from "@/lib/tokens/insert";
@@ -165,6 +169,7 @@ async function toggleTokenMode(): Promise<void> {
   const session = activeSession.value;
   if (!session || busy.value) return;
   error.value = "";
+  tokenSheetOpen.value = false;
   const next = !isTokenSession(session);
   if (next && tokenEntries.value.length === 0) {
     showNotice(t("chat.tokenModeEmpty"));
@@ -179,6 +184,9 @@ async function toggleTokenMode(): Promise<void> {
     error.value = describeError(e, t);
   }
 }
+
+/** Выезжающая таблица соответствий «токен ↔ значение» — главный экран режима. */
+const tokenSheetOpen = ref(false);
 
 /** Панель «Вставить токен»: имена из справочника. */
 const tokenPickOpen = ref(false);
@@ -241,7 +249,14 @@ function onComposerInput(event: Event): void {
   tokenTrigger.value = findTokenTrigger(draft.value, caret);
 }
 
+/** Открыть выезжающую таблицу соответствий прямо в чате. */
 function openDictionary(): void {
+  tokenPickOpen.value = false;
+  tokenSheetOpen.value = true;
+}
+
+/** Полный справочник — перенос файлом и морфологический словарь (дополнение). */
+function openTokensTab(): void {
   emit("open-tokens");
 }
 
@@ -1102,10 +1117,35 @@ const typingLabel = computed(() =>
 
 /** Писать можно сразу: сессия создастся при первом «Отправить». */
 const composerPlaceholder = computed(() =>
-  t("chat.composerPlaceholder", {
-    name: activeAgent.value?.name?.trim() || t("chat.agent"),
-  }),
+  isTokenSession(activeSession.value)
+    ? t("chat.tokens.composerPlaceholder")
+    : t("chat.composerPlaceholder", {
+        name: activeAgent.value?.name?.trim() || t("chat.agent"),
+      }),
 );
+
+/**
+ * Что реально уйдёт агенту из текущего черновика: значения уже заменены
+ * токенами. Строка над полем показывает это до отправки — видно, какие
+ * значения станут токенами и сколько замен движок сделал.
+ */
+const outgoingDraft = computed(() =>
+  isTokenSession(activeSession.value)
+    ? replaceValues(draft.value)
+    : { text: draft.value, hits: 0 },
+);
+
+/** Уникальные имена токенов в том виде, в каком их получит агент. */
+const outgoingTokens = computed(() => {
+  if (!isTokenSession(activeSession.value)) return [];
+  return [...new Set(parseTokens(outgoingDraft.value.text).map((token) => token.name))];
+});
+
+/** Подсказка к чипу: значение, если человек как раз смотрит значения. */
+function tokenChipTitle(name: string): string {
+  const value = viewValues.value ? tokenLookup(name) : undefined;
+  return value ? `${value} → ⟦${name}⟧` : `⟦${name}⟧`;
+}
 
 const canSend = computed(
   () =>
@@ -1514,6 +1554,8 @@ watch(activeSessionId, (id) => {
   if (id) rememberTab(id);
   // Диалог сменился — забранная реплика возвращается в свою ленту.
   if (lifted.value && lifted.value.message.sessionId !== id) lifted.value = null;
+  // Таблица соответствий относится к прежнему диалогу — закрываем.
+  tokenSheetOpen.value = false;
   void scrollToBottom(true);
 });
 
@@ -2735,6 +2777,14 @@ function onRateChange(event: Event): void {
     </nav>
 
     <div class="chat-panel__stage">
+      <TokenSheet
+        v-if="tokenSheetOpen"
+        :show-values="viewValues"
+        @close="tokenSheetOpen = false"
+        @toggle-values="viewValues = !viewValues"
+        @insert="insertTokenName"
+        @open-tokens="openTokensTab"
+      />
       <div
         v-if="historyOpen"
         class="chat-panel__sheet-backdrop"
@@ -3308,7 +3358,7 @@ function onRateChange(event: Event): void {
           </svg>
         </span>
         <button type="button" class="chat-panel__token-btn" @click="openDictionary">
-          {{ t("chat.tokens.dictionary") }}
+          {{ t("chat.tokens.matches") }}
         </button>
         <button
           type="button"
@@ -3354,6 +3404,7 @@ function onRateChange(event: Event): void {
         v-if="!compact || composerOpen"
         ref="composerForm"
         class="chat-panel__composer"
+        :class="{ 'is-token-mode': isTokenSession(activeSession) }"
         @submit.prevent="send"
         @focusout="onComposerBlur"
       >
@@ -3397,6 +3448,39 @@ function onRateChange(event: Event): void {
           multiple
           @change="onFilesPicked"
         />
+        <div
+          v-if="isTokenSession(activeSession)"
+          class="chat-panel__token-draft"
+          role="status"
+          :aria-label="t('chat.tokens.outgoing')"
+        >
+          <span class="chat-panel__token-draft-label">{{ t("chat.tokens.outgoing") }}</span>
+          <button
+            v-for="name in outgoingTokens"
+            :key="name"
+            type="button"
+            class="chat-panel__token-chip"
+            :title="tokenChipTitle(name)"
+            @click="openDictionary"
+          >
+            ⟦{{ name }}⟧
+          </button>
+          <span v-if="outgoingTokens.length === 0" class="chat-panel__token-draft-empty">
+            {{ t("chat.tokens.outgoingEmpty") }}
+          </span>
+          <span v-else-if="outgoingDraft.hits > 0" class="chat-panel__token-draft-hits">
+            {{ t("chat.tokens.outgoingHits", { count: outgoingDraft.hits }) }}
+          </span>
+          <button
+            type="button"
+            class="chat-panel__token-draft-add"
+            :title="t('chat.tokens.matches')"
+            :aria-label="t('chat.tokens.matches')"
+            @click="openDictionary"
+          >
+            ⟦…⟧
+          </button>
+        </div>
         <div
           class="chat-panel__composer-box"
           :class="{ 'is-recording': dictationListening, 'is-multiline': composerMultiline }"
@@ -4358,6 +4442,78 @@ function onRateChange(event: Event): void {
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--panel-2);
+}
+
+/* Режим токенов: поле ввода заметно отличается от обычного диалога. */
+.chat-panel__composer.is-token-mode .chat-panel__composer-box {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--panel-2) 88%, var(--accent) 12%);
+}
+
+.chat-panel__composer.is-token-mode .chat-panel__composer-box:focus-within {
+  border-color: var(--accent);
+}
+
+/* Строка «что уйдёт агенту»: чипы токенов и счётчик автозамен. */
+.chat-panel__token-draft {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 38%, var(--border));
+  border-radius: 10px;
+}
+
+.chat-panel__token-draft-label {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.chat-panel__token-chip {
+  padding: 2px 6px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--accent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.74rem;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.chat-panel__token-chip:hover,
+.chat-panel__token-chip:focus-visible {
+  border-color: var(--accent);
+}
+
+.chat-panel__token-draft-empty {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.chat-panel__token-draft-hits {
+  font-size: 0.72rem;
+  color: var(--ok);
+}
+
+.chat-panel__token-draft-add {
+  margin-inline-start: auto;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.chat-panel__token-draft-add:hover,
+.chat-panel__token-draft-add:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* Скрепка и агент в один ряд, пока поле в одну строку. */
