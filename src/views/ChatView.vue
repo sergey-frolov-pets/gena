@@ -379,6 +379,14 @@ const selectionMatch = computed(() => {
   return findSelectionEntry(range.text, tokenEntries.value);
 });
 
+/** Выделен ровно канонический токен этой записи — заменять нечего. */
+const selectionAlreadyToken = computed(() => {
+  const range = selectionRange.value;
+  const match = selectionMatch.value;
+  if (!range || !match) return false;
+  return range.text.trim() === formatToken(match.name);
+});
+
 function clearSelection(): void {
   selectionRange.value = null;
   selectionName.value = "";
@@ -1080,6 +1088,9 @@ function onChatTap(event: MouseEvent): void {
   }
   if (!compact.value) return;
   const target = event.target as HTMLElement | null;
+  // Низ панели (док, панель токенов, плашки) — не «полотно чата»: тап по нему
+  // не должен прятать ввод, иначе кнопки исчезают под пальцем.
+  if (target && dockEl.value?.contains(target)) return;
   if (target?.closest("button, a, input, textarea, select, details, summary")) return;
   if (composerOpen.value) {
     closeComposer();
@@ -1088,15 +1099,20 @@ function onChatTap(event: MouseEvent): void {
   openComposer();
 }
 
-/** Потеря фокуса: закрываем, если фокус ушёл за пределы формы. */
+/**
+ * Потеря фокуса: закрываем, только если фокус ушёл за пределы нижней панели.
+ *
+ * Раньше проверялась одна форма — и любое нажатие на панель токенов, плашку
+ * выделения или подсказку ⟦…⟧ закрывало ввод вместе с ними. Проверяем весь док.
+ */
 function onComposerBlur(event: FocusEvent): void {
   if (!compact.value) return;
   if (Date.now() < blurGuardUntil) return;
   const next = event.relatedTarget as Node | null;
-  if (next && composerForm.value?.contains(next)) return;
+  if (next && dockEl.value?.contains(next)) return;
   window.setTimeout(() => {
     const active = document.activeElement;
-    if (active && composerForm.value?.contains(active)) return;
+    if (active && dockEl.value?.contains(active)) return;
     closeComposer();
   }, 150);
 }
@@ -3202,6 +3218,21 @@ function onRateChange(event: Event): void {
         <button
           type="button"
           class="chat-panel__tool"
+          v-if="isTokenSession(activeSession) && activeSession"
+          v-tip="viewValues ? t('chat.viewTokens') : t('chat.viewData')"
+          :aria-label="viewValues ? t('chat.viewTokens') : t('chat.viewData')"
+          :aria-pressed="!viewValues"
+          @click="viewValues = !viewValues"
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z" />
+            <circle cx="12" cy="12" r="2.6" />
+            <path v-if="viewValues" d="M4 4l16 16" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="chat-panel__tool"
           :class="{ 'is-on': isTokenSession(activeSession) }"
           v-tip="t('chat.tokenMode')"
           :aria-label="t('chat.tokenMode')"
@@ -3511,9 +3542,19 @@ function onRateChange(event: Event): void {
       />
 
       <div
-        v-if="compact && !composerOpen && (canStopHere || quickReplies.length > 0 || turnElapsed || isTokenSession(activeSession))"
+        v-if="compact && !composerOpen"
         class="chat-panel__open-row"
       >
+        <button
+          type="button"
+          class="chat-panel__open-input"
+          @click="openComposer"
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 7h16M4 12h10M4 17h7" />
+          </svg>
+          <span>{{ t("chat.composeHint") }}</span>
+        </button>
         <span v-if="turnElapsed" class="chat-panel__turn is-dock" role="status">
           <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
             <circle cx="12" cy="12" r="9" />
@@ -3596,7 +3637,7 @@ function onRateChange(event: Event): void {
       </p>
 
       <div
-        v-if="isTokenSession(activeSession) && (!compact || composerOpen)"
+        v-if="isTokenSession(activeSession)"
         class="chat-panel__tokenbar"
         role="group"
         :aria-label="t('chat.tokens.bar')"
@@ -3948,7 +3989,11 @@ function onRateChange(event: Event): void {
               </button>
             </span>
             <span v-if="bannerScope" class="chat-panel__selection-scope">{{ bannerScope }}</span>
+            <span v-if="selectionAlreadyToken" class="chat-panel__selection-hint">
+              {{ t("chat.tokens.alreadyToken") }}
+            </span>
             <button
+              v-if="!selectionAlreadyToken"
               type="button"
               class="chat-panel__token-btn is-icon"
               v-tip="t('chat.tokens.replaceSelection')"
@@ -4930,9 +4975,46 @@ function onRateChange(event: Event): void {
 /* --- Телефон: ввод по тапу, поверх ленты -------------------------------- */
 .chat-panel__open-row {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
   justify-content: flex-end;
+}
+
+/* Строка-приглашение: понятный вход в поле ввода, тап по ней открывает ввод. */
+.chat-panel__open-input {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  height: 42px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.86rem;
+  text-align: start;
+  cursor: text;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.14);
+}
+
+.chat-panel__open-input svg {
+  flex: 0 0 auto;
+  opacity: 0.8;
+}
+
+.chat-panel__open-input span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.chat-panel__open-input:hover,
+.chat-panel__open-input:focus-visible {
+  color: var(--text);
+  border-color: var(--accent);
 }
 
 .chat-panel__quick-trigger {

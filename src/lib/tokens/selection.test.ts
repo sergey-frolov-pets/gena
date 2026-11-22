@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   categoryBase,
   findSelectionEntry,
+  fragmentTokenName,
   NAME_BASES,
   normalizeFragment,
   replaceRange,
@@ -26,6 +27,19 @@ describe("выделение и справочник", () => {
   it("чужое значение не находит и короткое не ищет", () => {
     expect(findSelectionEntry("Альфа-Банк", entries)).toBeNull();
     expect(findSelectionEntry("В", entries)).toBeNull();
+  });
+
+  it("находит запись по имени и по уже вставленному токену", () => {
+    expect(findSelectionEntry("счёт", entries)?.name).toBe("счёт");
+    expect(findSelectionEntry("вклад ВТБ", entries)?.name).toBe("вклад ВТБ");
+    expect(findSelectionEntry("⟦вклад ВТБ⟧", entries)?.name).toBe("вклад ВТБ");
+    expect(findSelectionEntry("[[счёт]]", entries)?.name).toBe("счёт");
+  });
+
+  it("выделенный токен без записи в справочнике не считается заменой", () => {
+    expect(findSelectionEntry("⟦нет такого⟧", entries)).toBeNull();
+    expect(fragmentTokenName("⟦счёт⟧")).toBe("счёт");
+    expect(fragmentTokenName("обычный текст")).toBe("");
   });
 
   it("заменяет диапазон и ставит каретку за вставкой", () => {

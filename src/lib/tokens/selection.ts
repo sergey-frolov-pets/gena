@@ -20,7 +20,21 @@ export function normalizeFragment(text: string): string {
     .toLowerCase();
 }
 
-/** Запись справочника, значение или вариант которой совпадает с выделением. */
+/** Имя из выделенного токена `⟦имя⟧`; пустая строка — это не токен. */
+export function fragmentTokenName(selection: string): string {
+  const text = String(selection ?? "").trim();
+  const match = /^⟦([^⟦⟧\n]{1,80})⟧$/u.exec(text) ?? /^\[\[([^[\]\r\n]{1,80})\]\]$/u.exec(text);
+  return match ? normalizeFragment(match[1]) : "";
+}
+
+/**
+ * Запись справочника для выделения.
+ *
+ * Совпадением считается не только значение: человек может выделить уже
+ * вставленный токен `⟦имя⟧` или само имя записи — тогда замена тоже должна
+ * предлагаться, иначе выделение выглядит «немым». Значение и варианты
+ * проверяются первыми: у двух записей может совпасть имя и чужое значение.
+ */
 export function findSelectionEntry<T extends SelectionEntry>(
   selection: string,
   entries: readonly T[],
@@ -31,7 +45,12 @@ export function findSelectionEntry<T extends SelectionEntry>(
     const forms = [entry.value, ...(entry.variants ?? [])];
     if (forms.some((form) => normalizeFragment(form) === key)) return entry;
   }
-  return null;
+  const tokenName = fragmentTokenName(selection);
+  if (tokenName) {
+    const byToken = entries.find((entry) => normalizeFragment(entry.name) === tokenName);
+    if (byToken) return byToken;
+  }
+  return entries.find((entry) => normalizeFragment(entry.name) === key) ?? null;
 }
 
 /* ── Предложение имени токена ─────────────────────────────────────────── */
