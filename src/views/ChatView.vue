@@ -480,6 +480,12 @@ const occurrenceToken = ref("");
 const occurrenceBlocked = ref({ token: 0, word: 0, mode: 0 });
 /** Подсвеченное сообщение ленты — чтобы было видно, какое вхождение меняем. */
 const occurrenceMessageId = ref("");
+/**
+ * Учитывать регистр при поиске вхождений. По умолчанию выключено: «счёт»
+ * и «Счёт» — одно значение, человек об этом не думает. Галочка — отдельная,
+ * рядом с «Заменить все», и действует только на текущую серию.
+ */
+const occurrenceCaseSensitive = ref(false);
 /** Выбор вхождения сделан программно: событие `select` не должно сбрасывать серию. */
 let occurrencePicking = false;
 
@@ -519,7 +525,8 @@ function collectOccurrences(needle: string): {
 } {
   const items: OccurrenceTarget[] = [];
   const blocked = { token: 0, word: 0, mode: 0 };
-  for (const hit of findOccurrences(draft.value, needle, { includeBlocked: true })) {
+  const findOptions = { includeBlocked: true, caseSensitive: occurrenceCaseSensitive.value };
+  for (const hit of findOccurrences(draft.value, needle, findOptions)) {
     if (hit.blocked) blocked[hit.blocked] += 1;
     else items.push({ scope: "draft", start: hit.start, end: hit.end });
   }
@@ -528,7 +535,7 @@ function collectOccurrences(needle: string): {
   const tokenSession = isTokenSession(activeSession.value);
   for (const message of messages.value) {
     if ((message.kind && message.kind !== "text") || !message.content) continue;
-    for (const hit of findOccurrences(message.content, needle, { includeBlocked: true })) {
+    for (const hit of findOccurrences(message.content, needle, findOptions)) {
       if (hit.blocked) blocked[hit.blocked] += 1;
       else if (!tokenSession) blocked.mode += 1;
       else
@@ -582,6 +589,16 @@ function refreshOccurrences(index = 0, highlight = true): number {
   }
   if (highlight) void highlightOccurrence();
   return items.length;
+}
+
+/**
+ * Галочка «учитывать регистр» переключилась: пересобираем серию.
+ * Текущее вхождение подсвечиваем заново — после смены фильтра его может
+ * уже не быть в списке, и стрелки должны показать новое число.
+ */
+function onOccurrenceCaseChange(): void {
+  if (!occurrenceNeedle.value) return;
+  refreshOccurrences(occurrenceIndex.value);
 }
 
 /** Серия началась: первое вхождение уже заменено токеном. */
@@ -661,16 +678,17 @@ async function replaceAllOccurrences(): Promise<void> {
   const needle = occurrenceNeedle.value;
   if (!name || !needle) return;
   const insert = formatToken(name);
+  const findOptions = { caseSensitive: occurrenceCaseSensitive.value };
   let replaced = 0;
   if (isTokenSession(activeSession.value)) {
     for (const message of messages.value) {
       if ((message.kind && message.kind !== "text") || !message.content) continue;
-      const result = replaceAllInText(message.content, needle, insert);
+      const result = replaceAllInText(message.content, needle, insert, findOptions);
       if (result.replaced === 0) continue;
       if (await editMessage(message.id, result.text)) replaced += result.replaced;
     }
   }
-  const inDraft = replaceAllInText(draft.value, needle, insert);
+  const inDraft = replaceAllInText(draft.value, needle, insert, findOptions);
   if (inDraft.replaced > 0) {
     draft.value = inDraft.text;
     replaced += inDraft.replaced;
@@ -4290,6 +4308,14 @@ function onRateChange(event: Event): void {
             >
               {{ t("chat.tokens.replaceAll", { count: occurrenceTotal }) }}
             </button>
+            <label v-if="occurrenceNeedle" class="chat-panel__selection-case">
+              <input
+                v-model="occurrenceCaseSensitive"
+                type="checkbox"
+                @change="onOccurrenceCaseChange"
+              />
+              <span>{{ t("chat.tokens.caseSensitive") }}</span>
+            </label>
           </template>
           <template v-else>
             <input
@@ -6106,6 +6132,29 @@ function onRateChange(event: Event): void {
 .chat-panel__selection-all:hover,
 .chat-panel__selection-all:focus-visible {
   border-color: var(--accent);
+}
+
+/* Отдельная галочка «учитывать регистр»: по умолчанию снята. */
+.chat-panel__selection-case {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.68rem;
+  color: var(--muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.chat-panel__selection-case input {
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.chat-panel__selection-case:hover {
+  color: var(--text);
 }
 
 /* Почему часть вхождений не меняется: токен, часть слова, не тот режим. */

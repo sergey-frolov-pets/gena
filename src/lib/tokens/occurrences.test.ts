@@ -75,6 +75,20 @@ describe("замена", () => {
     expect(result.replaced).toBe(1);
     expect(result.text).toBe("⟦втб⟧ и ⟦втб⟧-банк");
   });
+
+  it("по умолчанию регистр не важен", () => {
+    const result = replaceAllInText("Счёт и счёт", "счёт", "⟦счёт⟧");
+    expect(result.replaced).toBe(2);
+    expect(result.text).toBe("⟦счёт⟧ и ⟦счёт⟧");
+  });
+
+  it("с галочкой регистра меняет только точное написание", () => {
+    const result = replaceAllInText("Счёт и счёт", "счёт", "⟦счёт⟧", {
+      caseSensitive: true,
+    });
+    expect(result.replaced).toBe(1);
+    expect(result.text).toBe("Счёт и ⟦счёт⟧");
+  });
 });
 
 describe("stepIndex", () => {
