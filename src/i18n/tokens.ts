@@ -68,6 +68,11 @@ const en = {
   "chat.viewTokens": "Show tokens",
   "chat.viewData": "Show values",
   "sessions.tokenBadge": "tokens",
+  "chat.tokens.bar": "Token mode actions",
+  "chat.tokens.dictionary": "Dictionary",
+  "chat.tokens.insert": "Insert token",
+  "chat.tokens.exit": "Leave token mode",
+  "chat.tokens.protected": "Protected chat — the agent sees only tokens",
 } as const satisfies LocaleMessages;
 
 const ru = {
@@ -129,6 +134,11 @@ const ru = {
   "chat.viewTokens": "Показать токены",
   "chat.viewData": "Показать значения",
   "sessions.tokenBadge": "токены",
+  "chat.tokens.bar": "Кнопки режима токенов",
+  "chat.tokens.dictionary": "Справочник",
+  "chat.tokens.insert": "Вставить токен",
+  "chat.tokens.exit": "Выйти из режима",
+  "chat.tokens.protected": "Защищённый диалог — агент видит только токены",
 } as const satisfies LocaleMessages;
 
 const de = {
@@ -168,6 +178,11 @@ const de = {
   "chat.viewTokens": "Tokens zeigen",
   "chat.viewData": "Werte zeigen",
   "sessions.tokenBadge": "Tokens",
+  "chat.tokens.bar": "Token-Modus-Aktionen",
+  "chat.tokens.dictionary": "Wörterbuch",
+  "chat.tokens.insert": "Token einfügen",
+  "chat.tokens.exit": "Token-Modus verlassen",
+  "chat.tokens.protected": "Geschützter Chat — der Agent sieht nur Token",
 } as const satisfies LocaleMessages;
 
 const es = {
@@ -207,6 +222,11 @@ const es = {
   "chat.viewTokens": "Mostrar tokens",
   "chat.viewData": "Mostrar valores",
   "sessions.tokenBadge": "tokens",
+  "chat.tokens.bar": "Acciones del modo token",
+  "chat.tokens.dictionary": "Diccionario",
+  "chat.tokens.insert": "Insertar token",
+  "chat.tokens.exit": "Salir del modo token",
+  "chat.tokens.protected": "Chat protegido: el agente solo ve tokens",
 } as const satisfies LocaleMessages;
 
 const pt = {
@@ -246,6 +266,11 @@ const pt = {
   "chat.viewTokens": "Mostrar tokens",
   "chat.viewData": "Mostrar valores",
   "sessions.tokenBadge": "tokens",
+  "chat.tokens.bar": "Ações do modo token",
+  "chat.tokens.dictionary": "Dicionário",
+  "chat.tokens.insert": "Inserir token",
+  "chat.tokens.exit": "Sair do modo token",
+  "chat.tokens.protected": "Conversa protegida: o agente só vê tokens",
 } as const satisfies LocaleMessages;
 
 const zh = {
@@ -283,6 +308,11 @@ const zh = {
   "chat.viewTokens": "显示令牌",
   "chat.viewData": "显示值",
   "sessions.tokenBadge": "令牌",
+  "chat.tokens.bar": "令牌模式操作",
+  "chat.tokens.dictionary": "词典",
+  "chat.tokens.insert": "插入令牌",
+  "chat.tokens.exit": "退出令牌模式",
+  "chat.tokens.protected": "受保护会话——代理只看到令牌",
 } as const satisfies LocaleMessages;
 
 const ja = {
@@ -320,6 +350,11 @@ const ja = {
   "chat.viewTokens": "トークンを表示",
   "chat.viewData": "値を表示",
   "sessions.tokenBadge": "トークン",
+  "chat.tokens.bar": "トークンモードの操作",
+  "chat.tokens.dictionary": "辞書",
+  "chat.tokens.insert": "トークンを挿入",
+  "chat.tokens.exit": "トークンモードを終了",
+  "chat.tokens.protected": "保護されたチャット — エージェントはトークンのみ参照します",
 } as const satisfies LocaleMessages;
 
 const hi = {
@@ -358,6 +393,11 @@ const hi = {
   "chat.viewTokens": "टोकन दिखाएँ",
   "chat.viewData": "मान दिखाएँ",
   "sessions.tokenBadge": "टोकन",
+  "chat.tokens.bar": "टोकन मोड क्रियाएँ",
+  "chat.tokens.dictionary": "शब्दकोश",
+  "chat.tokens.insert": "टोकन डालें",
+  "chat.tokens.exit": "टोकन मोड छोड़ें",
+  "chat.tokens.protected": "सुरक्षित चैट — एजेंट केवल टोकन देखता है",
 } as const satisfies LocaleMessages;
 
 const ar = {
@@ -396,6 +436,11 @@ const ar = {
   "chat.viewTokens": "إظهار الرموز",
   "chat.viewData": "إظهار القيم",
   "sessions.tokenBadge": "رموز",
+  "chat.tokens.bar": "إجراءات وضع الرموز",
+  "chat.tokens.dictionary": "القاموس",
+  "chat.tokens.insert": "إدراج رمز",
+  "chat.tokens.exit": "الخروج من وضع الرموز",
+  "chat.tokens.protected": "محادثة محمية — يرى الوكيل الرموز فقط",
 } as const satisfies LocaleMessages;
 
 export const tokensByLocale = {

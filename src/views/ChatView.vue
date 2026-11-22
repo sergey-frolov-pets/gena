@@ -107,6 +107,7 @@ import {
   tokenEntries,
 } from "@/lib/tokens/registry";
 import { forAgent, historyForAgent, tokensReady } from "@/lib/tokens/outgoing";
+import { insertTokenAt } from "@/lib/tokens/insert";
 import ConfirmModal from "@/components/ConfirmModal.vue";
 import TextModal from "@/components/TextModal.vue";
 import { agentId } from "@/lib/active-agent";
@@ -170,6 +171,45 @@ async function toggleTokenMode(): Promise<void> {
   } catch (e) {
     error.value = describeError(e, t);
   }
+}
+
+/** Панель «Вставить токен»: имена из справочника. */
+const tokenPickOpen = ref(false);
+const tokenNames = computed(() =>
+  tokenEntries.value.map((item) => item.name).sort((a, b) => a.localeCompare(b, "ru")),
+);
+
+function toggleTokenPick(): void {
+  if (tokenEntries.value.length === 0) {
+    showNotice(t("chat.tokenModeEmpty"));
+    return;
+  }
+  tokenPickOpen.value = !tokenPickOpen.value;
+}
+
+/** Вставить канон `⟦имя⟧` в позицию курсора и вернуть фокус в поле. */
+function insertTokenName(name: string): void {
+  const el = composerEl.value;
+  const caret = el && el.selectionStart !== null ? el.selectionStart : draft.value.length;
+  const result = insertTokenAt(draft.value, caret, name);
+  draft.value = result.text;
+  tokenPickOpen.value = false;
+  if (compact.value && !composerOpen.value) composerOpen.value = true;
+  void nextTick(() => {
+    const area = composerEl.value;
+    if (!area) return;
+    area.focus();
+    area.setSelectionRange(result.caret, result.caret);
+  });
+}
+
+function openDictionary(): void {
+  emit("open-tokens");
+}
+
+async function leaveTokenMode(): Promise<void> {
+  tokenPickOpen.value = false;
+  await toggleTokenMode();
 }
 
 /** Сколько вызовов сделано сегодня у выбранного агента. */
@@ -253,6 +293,9 @@ let threadObserver: ResizeObserver | null = null;
 let composerObserver: ResizeObserver | null = null;
 let composerWidth = 0;
 /** Поле ввода — чтобы вернуть фокус после отправки. */
+/** Переход в справочник из панели режима токенов. */
+const emit = defineEmits<{ (e: "open-tokens"): void }>();
+
 const composerEl = ref<HTMLTextAreaElement | null>(null);
 /** Сколько строк сейчас в поле: от этого зависит кнопка «Очистить» и высота. */
 const composerLines = ref(1);
@@ -413,6 +456,11 @@ function onQuickOutside(event: Event): void {
   if (quickOpen.value) {
     if (!target.closest("[data-quick-trigger]") && !target.closest(".chat-panel__quick")) {
       quickOpen.value = false;
+    }
+  }
+  if (tokenPickOpen.value) {
+    if (!target.closest("[data-token-trigger]") && !target.closest(".chat-panel__token-pick")) {
+      tokenPickOpen.value = false;
     }
   }
   if (agentMenuOpen.value) {
@@ -2474,7 +2522,14 @@ function onRateChange(event: Event): void {
 </script>
 
 <template>
-  <section class="chat-panel">
+  <section class="chat-panel" :class="{ 'is-tokens': isTokenSession(activeSession) }">
+    <div v-if="isTokenSession(activeSession)" class="chat-panel__watermark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="4" y="10" width="16" height="10" rx="2.4" />
+        <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+        <circle cx="12" cy="15" r="1.4" />
+      </svg>
+    </div>
     <!-- toolbar: заголовок диалога + действия -->
     <div class="chat-panel__toolbar">
       <button
@@ -2547,20 +2602,6 @@ function onRateChange(event: Event): void {
           </svg>
         </button>
         <button
-          v-if="activeSession?.tokenMode"
-          type="button"
-          class="chat-panel__tool"
-          v-tip="viewValues ? t('chat.viewTokens') : t('chat.viewData')"
-          :aria-label="viewValues ? t('chat.viewTokens') : t('chat.viewData')"
-          :aria-pressed="!viewValues"
-          @click="viewValues = !viewValues"
-        >
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12z" />
-            <circle cx="12" cy="12" r="2.6" />
-          </svg>
-        </button>
-        <button
           type="button"
           class="chat-panel__tool"
           v-tip="copiedId === 'chat' ? t('chat.copied') : t('chat.copyMessage')"
@@ -2625,6 +2666,12 @@ function onRateChange(event: Event): void {
           @click="onTabClick(s.id)"
         >
           <span v-if="busySessionIds.has(s.id)" class="chat-panel__busy-dot" aria-hidden="true" />
+          <span v-if="s.tokenMode" class="chat-panel__tab-lock" :title="t('chat.tokenMode')" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="4" y="10" width="16" height="10" rx="2" />
+              <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+            </svg>
+          </span>
           <span class="chat-panel__tab-title">{{ s.title }}</span>
         </button>
         <button
@@ -3118,7 +3165,7 @@ function onRateChange(event: Event): void {
       </div>
 
       <div
-        v-if="compact && !composerOpen && (canStopHere || quickReplies.length > 0 || turnElapsed)"
+        v-if="compact && !composerOpen && (canStopHere || quickReplies.length > 0 || turnElapsed || isTokenSession(activeSession))"
         class="chat-panel__open-row"
       >
         <span v-if="turnElapsed" class="chat-panel__turn is-dock" role="status">
@@ -3138,6 +3185,19 @@ function onRateChange(event: Event): void {
         >
           <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true">
             <rect x="6" y="6" width="12" height="12" rx="3" />
+          </svg>
+        </button>
+        <button
+          v-if="isTokenSession(activeSession)"
+          type="button"
+          class="chat-panel__quick-trigger is-token"
+          v-tip="t('chat.tokenMode')"
+          :aria-label="t('chat.tokenMode')"
+          @click="composerOpen = true"
+        >
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="4" y="10" width="16" height="10" rx="2" />
+            <path d="M8 10V7a4 4 0 0 1 8 0v3" />
           </svg>
         </button>
         <button
@@ -3188,6 +3248,61 @@ function onRateChange(event: Event): void {
         </svg>
         <span>{{ t("chat.turnElapsed", { time: turnElapsed }) }}</span>
       </p>
+
+      <div
+        v-if="isTokenSession(activeSession) && (!compact || composerOpen)"
+        class="chat-panel__tokenbar"
+        role="group"
+        :aria-label="t('chat.tokens.bar')"
+      >
+        <span class="chat-panel__tokenbar-lock" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4" y="10" width="16" height="10" rx="2" />
+            <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+          </svg>
+        </span>
+        <button type="button" class="chat-panel__token-btn" @click="openDictionary">
+          {{ t("chat.tokens.dictionary") }}
+        </button>
+        <button
+          type="button"
+          class="chat-panel__token-btn"
+          data-token-trigger
+          :aria-expanded="tokenPickOpen"
+          :disabled="tokenEntries.length === 0"
+          @click="toggleTokenPick"
+        >
+          {{ t("chat.tokens.insert") }}
+        </button>
+        <button
+          type="button"
+          class="chat-panel__token-btn"
+          :aria-pressed="!viewValues"
+          @click="viewValues = !viewValues"
+        >
+          {{ viewValues ? t("chat.viewTokens") : t("chat.viewData") }}
+        </button>
+        <button type="button" class="chat-panel__token-btn is-exit" @click="leaveTokenMode">
+          {{ t("chat.tokens.exit") }}
+        </button>
+      </div>
+
+      <div
+        v-if="tokenPickOpen"
+        class="chat-panel__token-pick"
+        role="group"
+        :aria-label="t('chat.tokens.insert')"
+      >
+        <button
+          v-for="name in tokenNames"
+          :key="name"
+          type="button"
+          class="chat-panel__quick-item"
+          @click="insertTokenName(name)"
+        >
+          ⟦{{ name }}⟧
+        </button>
+      </div>
 
       <form
         v-if="!compact || composerOpen"
@@ -4884,6 +4999,111 @@ function onRateChange(event: Event): void {
 .chat-panel__jump-btn:active {
   opacity: 0.95;
   color: var(--text);
+}
+
+/* --- Режим токенов: отдельный тип диалога --------------------------------- */
+/* Фон меняется, в нём полупрозрачный замок — видно, что диалог защищённый. */
+.chat-panel.is-tokens {
+  isolation: isolate;
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  background:
+    radial-gradient(130% 90% at 50% 0%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 70%),
+    color-mix(in srgb, var(--panel) 93%, var(--accent) 7%);
+}
+
+.chat-panel__watermark {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  color: var(--accent);
+  opacity: 0.08;
+}
+
+.chat-panel__watermark svg {
+  width: min(46%, 240px);
+  height: auto;
+}
+
+.chat-panel.is-tokens .chat-panel__dock.is-overlay {
+  background: color-mix(in srgb, var(--panel) 93%, var(--accent) 7%);
+}
+
+.chat-panel__tokenbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 6px;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel-2) 90%, var(--accent) 10%);
+}
+
+.chat-panel__tokenbar-lock {
+  display: inline-flex;
+  padding: 0 2px;
+  color: var(--accent);
+}
+
+.chat-panel__token-btn {
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.chat-panel__token-btn:hover,
+.chat-panel__token-btn:focus-visible {
+  border-color: var(--accent);
+}
+
+.chat-panel__token-btn[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.chat-panel__token-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.chat-panel__token-btn.is-exit {
+  margin-inline-start: auto;
+  color: var(--muted);
+}
+
+.chat-panel__token-pick {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: calc(100% + 6px);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: min(50vh, 340px);
+  overflow-y: auto;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.22);
+}
+
+.chat-panel__tab-lock {
+  display: inline-flex;
+  align-items: center;
+  margin-inline-end: 2px;
+  color: var(--accent);
 }
 
 .chat-panel__quick {

@@ -303,7 +303,7 @@ onBeforeUnmount(() => {
         </button>
       </div>
       <ConnectionsView v-if="tab === 'connections'" />
-      <ChatView v-else-if="tab === 'chat'" />
+      <ChatView v-else-if="tab === 'chat'" @open-tokens="openTab('tokens')" />
       <SessionsView v-else-if="tab === 'sessions'" />
       <TokensView v-else-if="tab === 'tokens'" />
       <AboutView v-else />
