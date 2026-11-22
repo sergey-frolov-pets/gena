@@ -19,6 +19,7 @@ export const appMessages = {
   "providers.hint.cloud": "Hosted LLM. Create a key on their site and paste it into Gena.",
   "providers.hint.router": "One key, many models. Put the model id in the model field.",
   "providers.hint.local": "Runs on this computer. Start the app, then use this base URL. If it does not check a key, any non-empty value works.",
+  "app.nav.tokens": "Tokens",
   "app.nav.main": "Main navigation",
   "about.title": "About Gena",
   "about.lead": "Gena is a browser chat for the agents and LLMs you connect. There is no Gena account. Messages, settings, and encrypted keys stay on this device.",

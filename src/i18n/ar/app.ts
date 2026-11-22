@@ -11,6 +11,7 @@ export const appMessages = {
   "app.nav.chat": "الدردشة",
   "app.nav.sessions": "الجلسات",
   "app.nav.about": "حول",
+  "app.nav.tokens": "القاموس",
   "app.nav.main": "التنقل الرئيسي",
   "about.title": "حول Gena",
   "about.lead": "Gena دردشة في المتصفح لوكلائك ونماذج اللغة التي تربطها. لا حساب لـ Gena. الرسائل والإعدادات والمفاتيح المشفّرة تبقى على هذا الجهاز.",

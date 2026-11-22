@@ -11,6 +11,7 @@ export const appMessages = {
   "app.nav.chat": "Chat",
   "app.nav.sessions": "Sessões",
   "app.nav.about": "Sobre",
+  "app.nav.tokens": "Dicionário",
   "app.nav.main": "Navegação principal",
   "about.title": "Sobre o Gena",
   "about.lead": "O Gena é um chat no navegador para os seus agentes e LLMs. Não há conta Gena. Mensagens, definições e chaves cifradas ficam neste dispositivo.",

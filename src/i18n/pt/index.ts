@@ -4,6 +4,7 @@ import { chatMessages } from "./chat";
 import { connectionsMessages } from "./connections";
 import { errorsMessages } from "./errors";
 import { sessionsMessages } from "./sessions";
+import { tokensByLocale } from "../tokens";
 
 export const ptMessages = {
   ...appMessages,
@@ -11,4 +12,5 @@ export const ptMessages = {
   ...chatMessages,
   ...sessionsMessages,
   ...errorsMessages,
+  ...tokensByLocale.pt,
 } as const satisfies LocaleMessages;

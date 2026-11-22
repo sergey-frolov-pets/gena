@@ -11,6 +11,7 @@ export const appMessages = {
   "app.nav.chat": "チャット",
   "app.nav.sessions": "セッション",
   "app.nav.about": "について",
+  "app.nav.tokens": "辞書",
   "app.nav.main": "メインナビゲーション",
   "about.title": "Gena について",
   "about.lead": "Gena は、自分のエージェントと LLM につなぐブラウザーのチャットです。Gena のアカウントはありません。メッセージ、設定、暗号化したキーはこの端末に残ります。",

@@ -26,6 +26,7 @@ import {
   putSession,
 } from "@/storage/db";
 import { openAgentKey, sealAgentKey } from "@/crypto/agent-key-cipher";
+import { replaceValues, restoreValues } from "@/lib/tokens/registry";
 import { newId } from "@/lib/id";
 
 /** Настройки из формы: лимиты — целые ≥ 0, модель — без пробелов по краям. */
@@ -208,6 +209,44 @@ export async function pinSession(sessionId: string, pinned: boolean): Promise<vo
   await loadSessions();
 }
 
+/**
+ * Перевести диалог в режим токенов или вернуть к обычному хранению.
+ *
+ * Переключение не только ставит флаг, но и переписывает уже сохранённые
+ * сообщения: при включении значения справочника заменяются токенами,
+ * при выключении — токены возвращаются в значения. Иначе история осталась бы
+ * в токенах без режима, который её расшифровывает.
+ */
+export async function setSessionTokenMode(
+  sessionId: string,
+  enabled: boolean,
+): Promise<{ rewritten: number }> {
+  const session = sessions.value.find((s) => s.id === sessionId);
+  if (!session) return { rewritten: 0 };
+
+  const stored = activeSessionId.value === sessionId ? messages.value : await listMessages(sessionId);
+  let rewritten = 0;
+  for (const message of stored) {
+    if (message.kind && message.kind !== "text") continue;
+    if (!message.content) continue;
+    const content = enabled ? replaceValues(message.content).text : restoreValues(message.content);
+    if (content === message.content) continue;
+    const updated: Message = { ...message, content };
+    await putMessage(updated);
+    rewritten += 1;
+    if (activeSessionId.value === sessionId) {
+      messages.value = messages.value.map((item) => (item.id === updated.id ? updated : item));
+    }
+  }
+
+  session.tokenMode = enabled ? true : undefined;
+  session.updatedAt = Date.now();
+  if (!enabled) delete session.tokenMode;
+  await putSession(toRaw(session));
+  await loadSessions();
+  return { rewritten };
+}
+
 /** Дублировать диалог вместе с сообщениями. */
 export async function duplicateSession(sessionId: string): Promise<Session | null> {
   const source = sessions.value.find((s) => s.id === sessionId);
@@ -221,6 +260,7 @@ export async function duplicateSession(sessionId: string): Promise<Session | nul
     updatedAt: now,
     messageCount: source.messageCount,
     pinned: false,
+    ...(source.tokenMode ? { tokenMode: true } : {}),
   };
   await putSession(copy);
   const sourceMessages = await listMessages(sessionId);

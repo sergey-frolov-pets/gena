@@ -11,6 +11,7 @@ export const appMessages = {
   "app.nav.chat": "聊天",
   "app.nav.sessions": "会话",
   "app.nav.about": "关于",
+  "app.nav.tokens": "词典",
   "app.nav.main": "主导航",
   "about.title": "关于 Gena",
   "about.lead": "Gena 是浏览器里的聊天，用来连接你自己的智能体和 LLM。没有 Gena 账号。消息、设置和加密后的密钥都留在这台设备上。",

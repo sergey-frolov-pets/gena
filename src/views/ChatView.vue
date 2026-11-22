@@ -25,6 +25,7 @@ import {
   renameSession,
   sessions,
   sessionsLoaded,
+  setSessionTokenMode,
 } from "@/lib/store";
 import { newId } from "@/lib/id";
 import { shouldOpenLastSession } from "@/lib/session-open";
@@ -100,6 +101,12 @@ import {
   writeStoredText,
 } from "@/turn/draft";
 import { canTakeNext, idleTurn, stepTurn, type TurnState } from "@/turn/machine";
+import {
+  loadTokens,
+  replaceValues,
+  restoreValues,
+  tokenEntries,
+} from "@/lib/tokens/registry";
 import ConfirmModal from "@/components/ConfirmModal.vue";
 import TextModal from "@/components/TextModal.vue";
 import { agentId } from "@/lib/active-agent";
@@ -122,6 +129,54 @@ function showNotice(text: string, ttl = 12_000): void {
     if (notice.value === text) notice.value = "";
   }, ttl);
 }
+/* ── Режим токенов: что хранится, что отправляется, что видно ─────────── */
+
+/** Диалог явно переведён в режим токенов (решение человека, не автоматика). */
+function isTokenSession(session?: Session | null): boolean {
+  return session?.tokenMode === true;
+}
+
+/** Текст для истории: значения справочника заменяются токенами. */
+function storedContent(text: string, session?: Session | null): string {
+  return isTokenSession(session) ? replaceValues(text).text : text;
+}
+
+/** Текст для агента: токены раскрываются в настоящие значения. */
+function outgoingContent(text: string, session?: Session | null): string {
+  return isTokenSession(session) ? restoreValues(text) : text;
+}
+
+/** Контекст для модели: в режиме токенов токены раскрываются в значения. */
+function historyForAgent(list: Message[], session?: Session | null): Message[] {
+  if (!isTokenSession(session)) return list;
+  return list.map((m) => ({ ...m, content: restoreValues(m.content) }));
+}
+
+/** Что человек видит в ленте: по умолчанию значения, по кнопке — токены. */
+function displayContent(text: string): string {
+  return viewValues.value && isTokenSession(activeSession.value) ? restoreValues(text) : text;
+}
+
+/** Перевести открытый диалог в режим токенов или вернуть к обычному тексту. */
+async function toggleTokenMode(): Promise<void> {
+  const session = activeSession.value;
+  if (!session || busy.value) return;
+  error.value = "";
+  const next = !isTokenSession(session);
+  if (next && tokenEntries.value.length === 0) {
+    showNotice(t("chat.tokenModeEmpty"));
+    return;
+  }
+  try {
+    const result = await setSessionTokenMode(session.id, next);
+    showNotice(t(next ? "chat.tokenModeOn" : "chat.tokenModeOff"));
+    // История переписана — перечитываем, чтобы лента совпала с базой.
+    if (result.rewritten > 0) await loadMessages(session.id);
+  } catch (e) {
+    error.value = describeError(e, t);
+  }
+}
+
 /** Сколько вызовов сделано сегодня у выбранного агента. */
 const usedToday = ref(0);
 /** Последний отправленный текст — для кнопки «Повторить». */
@@ -130,6 +185,11 @@ const lastText = ref("");
 const abortCtrl = ref<AbortController | null>(null);
 /** Ход остановлен кнопкой «Стоп» — ошибкой это не показываем. */
 const stoppedByUser = ref(false);
+/**
+ * Показывать в ленте значения вместо токенов. Решение на этом устройстве:
+ * в базе диалог в режиме токенов, а читать удобнее значения.
+ */
+const viewValues = ref(true);
 /** Отмена на сервере уже запрошена — второе нажатие не дублируем. */
 const stopping = ref(false);
 /** Накопленный текст стриминга. */
@@ -1193,7 +1253,7 @@ async function listenTurn(
           await appendMessage(
             session.id,
             "assistant",
-            m.content,
+            storedContent(m.content, session),
             m.kind,
             undefined,
             undefined,
@@ -1232,7 +1292,7 @@ async function listenTurn(
     const reply = await appendMessage(
       session.id,
       "assistant",
-      response.reply,
+      storedContent(response.reply, session),
       undefined,
       incoming,
       requestAt ? Date.now() - requestAt : undefined,
@@ -1285,8 +1345,9 @@ async function resumePending(sessionId: string): Promise<void> {
   busy.value = true;
   startTurnClock(pending.at);
   notice.value = t("chat.resumeTurn");
-  const history = list.filter(
-    (m) => m.role !== "system" && (m.kind === undefined || m.kind === "text"),
+  const history = historyForAgent(
+    list.filter((m) => m.role !== "system" && (m.kind === undefined || m.kind === "text")),
+    session,
   );
   let answered = false;
   let alive = false;
@@ -1313,7 +1374,7 @@ async function resumePending(sessionId: string): Promise<void> {
   }
   // Ход жив, но ещё думает — повторно не отправляем, догоним в следующий раз.
   if (alive) return;
-  await exchange(session, agent, pending.text, [], history);
+  await exchange(session, agent, outgoingContent(pending.text, session), [], history);
 }
 
 /** Вернулись на вкладку — проверяем, не остался ли незавершённый ход. */
@@ -1434,9 +1495,12 @@ async function enqueue(
 ): Promise<void> {
   const sessionId =
     targetSessionId ?? activeSessionId.value ?? (await startSession(payload.text));
+  // Очередь лежит в IndexedDB: в режиме токенов текст кладём токенами.
+  const target = sessions.value.find((s) => s.id === sessionId);
+  const text = isTokenSession(target) ? replaceValues(payload.text).text : payload.text;
   queue.value = [
     ...queue.value,
-    { id: newId("q"), persist, sessionId, at: Date.now(), ...payload },
+    { id: newId("q"), persist, sessionId, at: Date.now(), ...payload, text },
   ];
 }
 
@@ -1536,10 +1600,12 @@ async function dispatch(
       bytes: doc.bytes,
     })),
   ];
+  // В режиме токенов агент получает значения, а история — только токены.
+  const sendText = outgoingContent(text, session);
   // Полный текст документов уходит агенту, в истории остаются подпись и бейджи.
-  const outgoing = documentsToMessage(text, payload.docs);
+  const outgoing = documentsToMessage(sendText, payload.docs);
   if (persist) {
-    await appendMessage(session.id, "user", text, undefined, attachments);
+    await appendMessage(session.id, "user", storedContent(text, session), undefined, attachments);
   }
   // Прежняя реплика из поля ввода больше не нужна: в контекст пойдёт новая.
   if (replace) {
@@ -1549,13 +1615,15 @@ async function dispatch(
   const visible = session.id === activeSessionId.value;
   const history = (
     visible ? messages.value : await listMessages(session.id)
-  ).filter(
-    (m) =>
-      m.id !== replace?.id &&
-      m.role !== "system" &&
-      (m.kind === undefined || m.kind === "text"),
-  );
-  await exchange(session, agent, outgoing, payload.images.map((img) => img.dataUrl), history);
+  )
+    .filter(
+      (m) =>
+        m.id !== replace?.id &&
+        m.role !== "system" &&
+        (m.kind === undefined || m.kind === "text"),
+    );
+  const agentHistory = historyForAgent(history, session);
+  await exchange(session, agent, outgoing, payload.images.map((img) => img.dataUrl), agentHistory);
   return true;
 }
 
@@ -1677,8 +1745,10 @@ async function exchange(
   );
   // Часы хода: живой счётчик в облачке ответа и длительность после него.
   startTurnClock(startedAt);
+  // Ход помним в том же виде, что и история: в режиме токенов — токенами.
+  const pendingText = storedContent(text, session);
   // Запоминаем ход: если вкладку закроют до ответа, при следующем открытии догоним.
-  rememberPendingTurn({ sessionId: session.id, text, at: Date.now() });
+  rememberPendingTurn({ sessionId: session.id, text: pendingText, at: Date.now() });
   streamSessionId.value = session.id;
   if (session.id === activeSessionId.value) streamingText.value = "";
   let failed = false;
@@ -1720,7 +1790,7 @@ async function exchange(
             await appendMessage(
               session.id,
               "assistant",
-              m.content,
+              storedContent(m.content, session),
               m.kind,
               undefined,
               Date.now() - startedAt,
@@ -1751,7 +1821,7 @@ async function exchange(
     const reply = await appendMessage(
       session.id,
       "assistant",
-      response.reply,
+      storedContent(response.reply, session),
       undefined,
       incoming,
       Date.now() - startedAt,
@@ -1769,7 +1839,7 @@ async function exchange(
       await recordCall(agent.id);
     }
     await refreshUsage();
-    forgetPendingTurn(session.id, text);
+    forgetPendingTurn(session.id, pendingText);
     if (autoSpeak.value && response.reply.trim()) {
       speak(reply.id, response.reply);
     }
@@ -1783,7 +1853,7 @@ async function exchange(
     const retryable = !controller.signal.aborted &&
       code !== undefined &&
       ["network", "ws_closed", "ws_timeout", "ws_connect", "turn_lost"].includes(code);
-    if (!retryable) forgetPendingTurn(session.id, text);
+    if (!retryable) forgetPendingTurn(session.id, pendingText);
     if (code === "turn_lost" && allowResend && !controller.signal.aborted) {
       // Сервер ход не начинал (сокет умер сразу после отправки) — повторяем.
       resend = true;
@@ -1878,10 +1948,13 @@ async function runRegenerate(m: Message): Promise<void> {
   if (!(await withinLimit(agent))) return;
   await deleteMessagesFrom(session.id, m.createdAt);
   const visible = session.id === activeSessionId.value;
-  const history = (visible ? messages.value : await listMessages(session.id)).filter(
-    (item) => item.role !== "system" && (item.kind === undefined || item.kind === "text"),
+  const history = historyForAgent(
+    (visible ? messages.value : await listMessages(session.id)).filter(
+      (item) => item.role !== "system" && (item.kind === undefined || item.kind === "text"),
+    ),
+    session,
   );
-  await exchange(session, agent, prompt, [], history);
+  await exchange(session, agent, outgoingContent(prompt, session), [], history);
 }
 
 function stop(): void {
@@ -2289,6 +2362,8 @@ function syncViewport(): void {
 
 onMounted(() => {
   syncViewport();
+  // Справочник подстановок нужен уже к первой отправке.
+  void loadTokens();
   // Реплики, ждавшие ответа, поднимаем из IndexedDB — закрытие вкладки их не теряет.
   void restoreQueue();
   // Вернулись на вкладку чата — показываем конец диалога, а не начало.
@@ -2450,6 +2525,35 @@ function onRateChange(event: Event): void {
             <path d="M3 12a9 9 0 1 0 3-6.7" />
             <path d="M3 4v5h5" />
             <path d="M12 8v4l3 2" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="chat-panel__tool"
+          :class="{ 'is-on': activeSession?.tokenMode }"
+          v-tip="t('chat.tokenMode')"
+          :aria-label="t('chat.tokenMode')"
+          :aria-pressed="activeSession?.tokenMode === true"
+          :disabled="!activeSession"
+          @click="toggleTokenMode"
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3l7 3v6c0 4.2-2.9 7.4-7 9-4.1-1.6-7-4.8-7-9V6z" />
+            <path d="M9 12l2 2 4-4" />
+          </svg>
+        </button>
+        <button
+          v-if="activeSession?.tokenMode"
+          type="button"
+          class="chat-panel__tool"
+          v-tip="viewValues ? t('chat.viewTokens') : t('chat.viewData')"
+          :aria-label="viewValues ? t('chat.viewTokens') : t('chat.viewData')"
+          :aria-pressed="!viewValues"
+          @click="viewValues = !viewValues"
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12z" />
+            <circle cx="12" cy="12" r="2.6" />
           </svg>
         </button>
         <button
@@ -2705,7 +2809,7 @@ function onRateChange(event: Event): void {
               v-if="entry.message.content"
               class="chat-panel__content md"
               @click="onMarkdownClick"
-              v-html="mdHtml(entry.message.content)"
+              v-html="mdHtml(displayContent(entry.message.content))"
             ></div>
             <details v-if="entry.message.edits?.length" class="chat-panel__edits">
               <summary>{{ t("chat.edited") }}</summary>
@@ -2714,7 +2818,7 @@ function onRateChange(event: Event): void {
                 :key="i"
                 class="chat-panel__content md"
                 @click="onMarkdownClick"
-                v-html="mdHtml(v)"
+                v-html="mdHtml(displayContent(v))"
               ></div>
             </details>
             <div

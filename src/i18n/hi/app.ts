@@ -11,6 +11,7 @@ export const appMessages = {
   "app.nav.chat": "चैट",
   "app.nav.sessions": "सत्र",
   "app.nav.about": "परिचय",
+  "app.nav.tokens": "शब्दकोश",
   "app.nav.main": "मुख्य नेविगेशन",
   "about.title": "Gena के बारे में",
   "about.lead": "Gena ब्राउज़र में आपकी एजेंट और LLM के लिए चैट है। Gena का खाता नहीं है। संदेश, सेटिंग और एन्क्रिप्टेड कुंजी इसी डिवाइस पर रहती हैं।",

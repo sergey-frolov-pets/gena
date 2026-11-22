@@ -1,24 +1,32 @@
 /**
  * Слой IndexedDB поверх `idb`.
  *
- * База `gena`, версия 3. Сторы:
+ * База `gena`, версия 4. Сторы:
  *   agents   (keyPath id)                       — подключения к агентам
  *   sessions (keyPath id, index by-agent, by-updated) — диалоги
  *   messages (keyPath id, index by-session)     — сообщения
  *   usage    (keyPath agentId)                  — счётчик вызовов агента за сутки
  *   queue    (keyPath id)                       — реплики, ждущие ответа агента
+ *   tokens   (keyPath id, index by-name-key, by-updated) — справочник подстановок
  *
  * Все функции тонкие; бизнес-логика (шифрование, бэкап, очистка) — выше.
  * Миграции идемпотентны: существующие данные не трогаются, добавляются
- * только новые сторы (v2 — `usage`, v3 — `queue`).
+ * только новые сторы (v2 — `usage`, v3 — `queue`, v4 — `tokens`).
  */
 
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
-import { normalizeAgent, type Agent, type Message, type Session, type UsageRecord } from "./types";
+import {
+  normalizeAgent,
+  type Agent,
+  type Message,
+  type Session,
+  type TokenRecord,
+  type UsageRecord,
+} from "./types";
 import type { QueuedRecord } from "./queue";
 
 const DB_NAME = "gena";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 interface GenaDB extends DBSchema {
   agents: {
@@ -49,6 +57,14 @@ interface GenaDB extends DBSchema {
     key: string;
     value: QueuedRecord;
   };
+  tokens: {
+    key: string;
+    value: TokenRecord;
+    indexes: {
+      "by-name-key": string;
+      "by-updated": number;
+    };
+  };
 }
 
 let dbPromise: Promise<IDBPDatabase<GenaDB>> | null = null;
@@ -75,6 +91,11 @@ export function getDb(): Promise<IDBPDatabase<GenaDB>> {
         }
         if (!db.objectStoreNames.contains("queue")) {
           db.createObjectStore("queue", { keyPath: "id" });
+        }
+        if (!db.objectStoreNames.contains("tokens")) {
+          const store = db.createObjectStore("tokens", { keyPath: "id" });
+          store.createIndex("by-name-key", "nameKey", { unique: true });
+          store.createIndex("by-updated", "updatedAt");
         }
       },
     });

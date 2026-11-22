@@ -316,6 +316,7 @@ async function runConfirmedCleanup(): Promise<void> {
           />
           <span>
             <strong>{{ s.title }}</strong>
+            <span v-if="s.tokenMode" class="token-tag">{{ t("sessions.tokenBadge") }}</span>
             <span class="muted small">
               {{
                 t("sessions.item", {
@@ -404,6 +405,17 @@ async function runConfirmedCleanup(): Promise<void> {
 </template>
 
 <style scoped>
+.token-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border: 1px solid var(--accent, #2f8f5b);
+  border-radius: 999px;
+  color: var(--accent, #2f8f5b);
+  font-size: 0.7rem;
+  line-height: 1.5;
+  vertical-align: middle;
+}
 .toolbar {
   display: flex;
   align-items: center;
