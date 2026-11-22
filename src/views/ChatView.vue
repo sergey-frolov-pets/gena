@@ -330,6 +330,24 @@ function onComposerSelect(): void {
   selectionConfirm.value = null;
 }
 
+/**
+ * Выделение с задержкой: на телефоне маркеры выделения двигаются после
+ * pointerup/touchend, а событие select приходит не во всех WebView.
+ */
+let selectionTimer = 0;
+
+function onComposerSelectSoon(): void {
+  window.clearTimeout(selectionTimer);
+  selectionTimer = window.setTimeout(onComposerSelect, 120);
+}
+
+/** Перетаскивание выделения мышью/пальцем внутри поля. */
+function onDocSelectionChange(): void {
+  const el = composerEl.value;
+  if (!el || document.activeElement !== el) return;
+  onComposerSelectSoon();
+}
+
 /** Вставить токен вместо выделенного фрагмента. */
 function applySelectionToken(name: string): void {
   const range = selectionRange.value;
@@ -1366,6 +1384,12 @@ async function autoGrow(): Promise<void> {
   // "normal" в computed style — считаем от размера шрифта (line-height 1.4 в CSS).
   const lineHeight =
     parseFloat(style.lineHeight) || Math.round((parseFloat(style.fontSize) || 14.4) * 1.4);
+  // Ширина поля зависит от раскладки кнопок: в многострочном режиме блок кнопок
+  // уже (~69px против ~156px), и поле шире. Меряем всегда в «узком» режиме —
+  // иначе на границе строки текст то влезает, то нет, и поле мерцает 1↔2.
+  const box = el.closest(".chat-panel__composer-box") as HTMLElement | null;
+  const wasMultiline = box?.classList.contains("is-multiline") ?? false;
+  if (wasMultiline) box?.classList.remove("is-multiline");
   // Высоту и max-height снимаем: во flex-ряду scrollHeight иначе равен одной строке,
   // хотя текст уже перенёсся. Ширину фиксируем, чтобы перенос не поехал.
   const width = el.clientWidth;
@@ -1375,9 +1399,10 @@ async function autoGrow(): Promise<void> {
   const content = Math.max(0, el.scrollHeight - padding);
   el.style.width = "";
   el.style.maxHeight = "";
-  const lines = Math.max(1, Math.ceil(content / lineHeight - 0.15));
+  const lines = Math.max(1, Math.ceil(content / lineHeight - 0.1));
   composerLines.value = lines;
   el.style.height = `${composerFieldHeight(lines, lineHeight, padding)}px`;
+  if (wasMultiline) box?.classList.add("is-multiline");
 }
 watch(draft, () => {
   saveDraftSoon();
@@ -2673,6 +2698,8 @@ onMounted(() => {
   window.addEventListener("pagehide", restoreLiftOnHide);
   window.addEventListener("pagehide", flushQueue);
   document.addEventListener("visibilitychange", onVisibility);
+  // Выделение в поле ввода: плашка «заменить на токен» под полем.
+  document.addEventListener("selectionchange", onDocSelectionChange);
   document.addEventListener("pointerdown", onQuickOutside, true);
   document.addEventListener("pointerdown", onRenameOutside, true);
   document.addEventListener("click", onRenameClickOutside, true);
@@ -2719,6 +2746,7 @@ onUnmounted(() => {
   window.removeEventListener("pagehide", restoreLiftOnHide);
   window.removeEventListener("pagehide", flushQueue);
   document.removeEventListener("visibilitychange", onVisibility);
+  document.removeEventListener("selectionchange", onDocSelectionChange);
   document.removeEventListener("pointerdown", onQuickOutside, true);
   document.removeEventListener("pointerdown", onRenameOutside, true);
   document.removeEventListener("click", onRenameClickOutside, true);
@@ -3696,6 +3724,9 @@ function onRateChange(event: Event): void {
             @keydown="onComposerKey"
             @input="onComposerInput"
             @select="onComposerSelect"
+            @pointerup="onComposerSelectSoon"
+            @touchend="onComposerSelectSoon"
+            @keyup="onComposerSelectSoon"
             @paste="onPaste"
           />
           <div class="chat-panel__composer-stack">
@@ -4666,8 +4697,8 @@ function onRateChange(event: Event): void {
 
 /* Режим токенов: поле ввода заметно отличается от обычного диалога. */
 .chat-panel__composer.is-token-mode .chat-panel__composer-box {
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
-  background: color-mix(in srgb, var(--panel-2) 88%, var(--accent) 12%);
+  border-color: var(--tokens-edge);
+  background: var(--tokens-bg);
 }
 
 .chat-panel__composer.is-token-mode .chat-panel__composer-box:focus-within {
@@ -4843,7 +4874,8 @@ function onRateChange(event: Event): void {
   align-self: center;
   min-width: 0;
   min-height: 32px;
-  max-height: 88px;
+  /* Высоту считает autoGrow() по замеру строк; field-sizing: content
+     конфликтует с ним и даёт мерцание на границе строк. */
   padding: 6px 0;
   border: 0;
   border-radius: 0;
@@ -4853,7 +4885,6 @@ function onRateChange(event: Event): void {
   line-height: 1.4;
   resize: none;
   overflow-y: auto;
-  field-sizing: content;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -5425,25 +5456,25 @@ function onRateChange(event: Event): void {
 }
 
 /* --- Режим токенов: отдельный тип диалога --------------------------------- */
-/* Фон меняется, в нём полупрозрачный замок — видно, что диалог защищённый. */
+/* Фон заметно меняется (не color-mix — он не во всех WebView), в нём
+   полупрозрачный замок — видно, что диалог защищённый. */
 .chat-panel.is-tokens {
   isolation: isolate;
-  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
-  background:
-    radial-gradient(130% 90% at 50% 0%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 70%),
-    color-mix(in srgb, var(--panel) 93%, var(--accent) 7%);
+  border-color: var(--tokens-edge);
+  background-color: var(--tokens-bg);
+  background-image: linear-gradient(180deg, var(--tokens-tint), transparent 62%);
 }
 
 .chat-panel__watermark {
   position: absolute;
   inset: 0;
-  z-index: -1;
+  z-index: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   pointer-events: none;
   color: var(--accent);
-  opacity: 0.08;
+  opacity: 0.1;
 }
 
 .chat-panel__watermark svg {
@@ -5452,7 +5483,7 @@ function onRateChange(event: Event): void {
 }
 
 .chat-panel.is-tokens .chat-panel__dock.is-overlay {
-  background: color-mix(in srgb, var(--panel) 93%, var(--accent) 7%);
+  background: var(--tokens-bg);
 }
 
 .chat-panel__tokenbar {
