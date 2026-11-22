@@ -53,6 +53,20 @@ describe("store: режим токенов", () => {
     expect(sessions.value.find((s) => s.id === session.id)?.tokenMode).toBeUndefined();
   });
 
+  it("флаг режима виден сразу, не после переписывания истории", async () => {
+    const session = await createSession("agent-1", "Сразу");
+    await appendMessage(session.id, "user", "Открыл вклад на сумму 1 234 567 ₽");
+    await saveToken({ name: "вклад ВТБ", value: "1 234 567 ₽" });
+    await loadTokens();
+
+    // Первый клик по кнопке режима: подсветка и фон должны включиться
+    // в том же кадре, а не после записи всех сообщений в IndexedDB.
+    const pending = setSessionTokenMode(session.id, true);
+    expect(sessions.value.find((s) => s.id === session.id)?.tokenMode).toBe(true);
+    await pending;
+    expect(sessions.value.find((s) => s.id === session.id)?.tokenMode).toBe(true);
+  });
+
   it("без изменений в тексте записи не переписываются", async () => {
     const session = await createSession("agent-1", "Пустой");
     await appendMessage(session.id, "user", "обычный текст без значений");

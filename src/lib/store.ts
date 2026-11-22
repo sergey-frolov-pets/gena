@@ -228,6 +228,14 @@ export async function setSessionTokenMode(
   const session = sessions.value.find((s) => s.id === sessionId);
   if (!session) return { rewritten: 0 };
 
+  // Флаг ставим сразу, до переписывания истории: переключение режима —
+  // это в первую очередь подсветка и фон, а переписать сотни сообщений
+  // в IndexedDB можно и секунду. Иначе первый клик выглядел «не сработал».
+  session.tokenMode = enabled ? true : undefined;
+  if (!enabled) delete session.tokenMode;
+  session.updatedAt = Date.now();
+  await putSession(toRaw(session));
+
   const stored = activeSessionId.value === sessionId ? messages.value : await listMessages(sessionId);
   let rewritten = 0;
   for (const message of stored) {
@@ -243,10 +251,6 @@ export async function setSessionTokenMode(
     }
   }
 
-  session.tokenMode = enabled ? true : undefined;
-  session.updatedAt = Date.now();
-  if (!enabled) delete session.tokenMode;
-  await putSession(toRaw(session));
   await loadSessions();
   return { rewritten };
 }

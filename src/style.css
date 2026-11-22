@@ -8,11 +8,12 @@
   --accent: #4f8cff;
   --danger: #e5534b;
   --ok: #3fb950;
-  /* Режим токенов: фон диалога и поле ввода. Обычные rgba, а не color-mix:
-     на старых WebView color-mix не поддерживается и весь background отбрасывается. */
-  --tokens-bg: #1a2231;
-  --tokens-tint: rgba(79, 140, 255, 0.16);
-  --tokens-edge: rgba(79, 140, 255, 0.42);
+  /* Режим токенов: фон диалога и поле ввода — светло-красный (в тёмной теме
+     приглушённый, иначе белый текст на нём не читается). Обычные rgba,
+     а не color-mix: на старых WebView он не поддерживается. */
+  --tokens-bg: #3a2124;
+  --tokens-tint: rgba(229, 83, 75, 0.20);
+  --tokens-edge: rgba(229, 83, 75, 0.55);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color-scheme: dark;
   /* Иконки шапки блоков кода (markdown): копировать и «скопировано». */
@@ -32,9 +33,9 @@
   --accent: #0969da;
   --danger: #cf222e;
   --ok: #1a7f37;
-  --tokens-bg: #eaf1fe;
-  --tokens-tint: rgba(9, 105, 218, 0.10);
-  --tokens-edge: rgba(9, 105, 218, 0.32);
+  --tokens-bg: #fdecec;
+  --tokens-tint: rgba(207, 34, 46, 0.09);
+  --tokens-edge: rgba(207, 34, 46, 0.30);
   color-scheme: light;
 }
 
