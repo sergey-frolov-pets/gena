@@ -1691,6 +1691,9 @@ watch(activeSessionId, (id) => {
   if (lifted.value && lifted.value.message.sessionId !== id) lifted.value = null;
   // Таблица соответствий относится к прежнему диалогу — закрываем.
   tokenSheetOpen.value = false;
+  // Подтверждение отправки и выделение — тоже только для прежнего диалога.
+  pendingTokenSend.value = false;
+  clearSelection();
   void scrollToBottom(true);
 });
 
