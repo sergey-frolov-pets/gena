@@ -75,4 +75,11 @@ export const appMessages = {
   "app.footer.links": "फ़ुटर लिंक",
   "app.updateReady": "नया संस्करण उपलब्ध है",
   "app.updateAction": "अपडेट करें",
+  "app.storageBlocked":
+    "स्थानीय डेटा नहीं खुला: डेटाबेस किसी दूसरी विंडो में व्यस्त है। उसे बंद करें और «फिर कोशिश करें» दबाएँ।",
+  "app.storageFailed":
+    "स्थानीय डेटा नहीं खुला: डिवाइस स्टोरेज उपलब्ध नहीं है। «फिर कोशिश करें» दबाएँ।",
+  "app.storageRetry": "फिर कोशिश करें",
+  "app.storageRestored": "कनेक्शन और बातचीत {date} की स्थानीय प्रति से बहाल हुए।",
+  "app.storageDismiss": "छिपाएँ",
 } as const satisfies LocaleMessages;

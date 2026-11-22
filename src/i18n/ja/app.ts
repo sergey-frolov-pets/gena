@@ -75,4 +75,11 @@ export const appMessages = {
   "app.footer.links": "フッターリンク",
   "app.updateReady": "新しいバージョンがあります",
   "app.updateAction": "更新",
+  "app.storageBlocked":
+    "ローカルデータを開けませんでした：データベースが別のウィンドウで使用中です。閉じて「再試行」を押してください。",
+  "app.storageFailed":
+    "ローカルデータを開けませんでした：端末のストレージを利用できません。「再試行」を押してください。",
+  "app.storageRetry": "再試行",
+  "app.storageRestored": "接続と会話を {date} のローカルコピーから復元しました。",
+  "app.storageDismiss": "閉じる",
 } as const satisfies LocaleMessages;

@@ -75,4 +75,11 @@ export const appMessages = {
   "app.footer.links": "Enlaces del pie de página",
   "app.updateReady": "Hay una nueva versión disponible",
   "app.updateAction": "Actualizar",
+  "app.storageBlocked":
+    "Los datos locales no se abrieron: la base está ocupada en otra ventana. Ciérrela y pulse «Reintentar».",
+  "app.storageFailed":
+    "Los datos locales no se abrieron: el almacenamiento del dispositivo no está disponible. Pulse «Reintentar».",
+  "app.storageRetry": "Reintentar",
+  "app.storageRestored": "Conexiones y sesiones restauradas desde la copia local del {date}.",
+  "app.storageDismiss": "Ocultar",
 } as const satisfies LocaleMessages;

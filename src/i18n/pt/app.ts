@@ -75,4 +75,11 @@ export const appMessages = {
   "app.footer.links": "Links do rodapé",
   "app.updateReady": "Há uma nova versão disponível",
   "app.updateAction": "Atualizar",
+  "app.storageBlocked":
+    "Os dados locais não abriram: o banco está ocupado em outra janela. Feche-a e toque em «Tentar de novo».",
+  "app.storageFailed":
+    "Os dados locais não abriram: o armazenamento do dispositivo não está disponível. Toque em «Tentar de novo».",
+  "app.storageRetry": "Tentar de novo",
+  "app.storageRestored": "Conexões e sessões restauradas da cópia local de {date}.",
+  "app.storageDismiss": "Ocultar",
 } as const satisfies LocaleMessages;

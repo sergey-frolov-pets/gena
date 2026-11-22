@@ -75,4 +75,11 @@ export const appMessages = {
   "app.footer.links": "روابط التذييل",
   "app.updateReady": "يتوفر إصدار جديد",
   "app.updateAction": "تحديث",
+  "app.storageBlocked":
+    "لم تُفتح البيانات المحلية: قاعدة البيانات مشغولة في نافذة أخرى. أغلقها ثم اضغط «إعادة المحاولة».",
+  "app.storageFailed":
+    "لم تُفتح البيانات المحلية: تخزين الجهاز غير متاح. اضغط «إعادة المحاولة».",
+  "app.storageRetry": "إعادة المحاولة",
+  "app.storageRestored": "تمت استعادة الاتصالات والمحادثات من النسخة المحلية بتاريخ {date}.",
+  "app.storageDismiss": "إخفاء",
 } as const satisfies LocaleMessages;

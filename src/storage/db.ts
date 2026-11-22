@@ -69,9 +69,47 @@ interface GenaDB extends DBSchema {
 
 let dbPromise: Promise<IDBPDatabase<GenaDB>> | null = null;
 
+/**
+ * Базу не отдали: другая вкладка держит старую версию и не даёт обновиться.
+ * Молча ждать в таком случае нельзя — интерфейс показывал бы пустые списки,
+ * как будто данные пропали.
+ */
+export class StorageBlockedError extends Error {
+  readonly code = "storage_blocked";
+
+  constructor() {
+    super("storage is blocked by another tab");
+    this.name = "StorageBlockedError";
+  }
+}
+
+/** Сколько ждём открытия, прежде чем сказать «не получилось» и дать повтор. */
+const OPEN_TIMEOUT_MS = 4_000;
+
 export function getDb(): Promise<IDBPDatabase<GenaDB>> {
   if (!dbPromise) {
-    dbPromise = openDB<GenaDB>(DB_NAME, DB_VERSION, {
+    dbPromise = openDatabase();
+    // Неудачу не запоминаем: следующая попытка (или кнопка «Повторить»)
+    // должна открыть базу заново, а не получить тот же отказ.
+    void dbPromise.catch(() => {
+      dbPromise = null;
+    });
+  }
+  return dbPromise;
+}
+
+function openDatabase(): Promise<IDBPDatabase<GenaDB>> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(error);
+    };
+    const timer = setTimeout(() => fail(new StorageBlockedError()), OPEN_TIMEOUT_MS);
+
+    openDB<GenaDB>(DB_NAME, DB_VERSION, {
       upgrade(db) {
         if (!db.objectStoreNames.contains("agents")) {
           db.createObjectStore("agents", { keyPath: "id" });
@@ -98,9 +136,34 @@ export function getDb(): Promise<IDBPDatabase<GenaDB>> {
           store.createIndex("by-updated", "updatedAt");
         }
       },
-    });
-  }
-  return dbPromise;
+      /** Наша вкладка мешает обновлению в другой — отпускаем базу сами. */
+      blocking() {
+        void closeDb();
+      },
+      /** Другая вкладка держит старую версию — не висим, а честно сообщаем. */
+      blocked() {
+        fail(new StorageBlockedError());
+      },
+      terminated() {
+        dbPromise = null;
+      },
+    })
+      .then((db) => {
+        // Обновление в другой вкладке: закрываемся, чтобы ей не мешать.
+        db.onversionchange = () => {
+          db.close();
+          dbPromise = null;
+        };
+        if (settled) {
+          db.close();
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        resolve(db);
+      })
+      .catch(fail);
+  });
 }
 
 /** Закрыть соединение и сбросить кэш — для тестов и «полной очистки». */

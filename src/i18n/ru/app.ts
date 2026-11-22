@@ -75,4 +75,10 @@ export const appMessages = {
   "app.footer.links": "Ссылки в подвале",
   "app.updateReady": "Доступна новая версия",
   "app.updateAction": "Обновить",
+  "app.storageBlocked":
+    "Данные не открылись: база занята в другом окне. Закройте его и нажмите «Повторить».",
+  "app.storageFailed": "Данные не открылись: хранилище устройства недоступно. Нажмите «Повторить».",
+  "app.storageRetry": "Повторить",
+  "app.storageRestored": "Подключения и диалоги восстановлены из локальной копии от {date}.",
+  "app.storageDismiss": "Скрыть",
 } as const satisfies LocaleMessages;

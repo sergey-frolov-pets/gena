@@ -75,4 +75,9 @@ export const appMessages = {
   "app.footer.links": "页脚链接",
   "app.updateReady": "有新版本可用",
   "app.updateAction": "更新",
+  "app.storageBlocked": "本地数据未能打开：数据库被另一个窗口占用。请关闭该窗口后点「重试」。",
+  "app.storageFailed": "本地数据未能打开：设备存储不可用。请点「重试」。",
+  "app.storageRetry": "重试",
+  "app.storageRestored": "已从 {date} 的本地副本恢复连接和会话。",
+  "app.storageDismiss": "隐藏",
 } as const satisfies LocaleMessages;

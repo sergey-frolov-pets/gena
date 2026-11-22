@@ -26,6 +26,7 @@ import {
   putSession,
 } from "@/storage/db";
 import { openAgentKey, sealAgentKey } from "@/crypto/agent-key-cipher";
+import { clearSnapshot } from "@/storage/snapshot";
 import { replaceValues, restoreValues } from "@/lib/tokens/registry";
 import { newId } from "@/lib/id";
 
@@ -142,6 +143,9 @@ export async function updateAgent(
 export async function removeAgent(agentId: string): Promise<void> {
   await deleteAgent(agentId);
   await loadAgents();
+  // Подключений не осталось — значит, их убрали осознанно: страховочную
+  // копию тоже чистим, иначе при следующем запуске они вернутся сами.
+  if (agents.value.length === 0) clearSnapshot();
 }
 
 /** Получить расшифрованный ключ агента для запроса. */

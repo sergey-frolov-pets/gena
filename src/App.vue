@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import ConnectionsView from "./views/ConnectionsView.vue";
 import ChatView from "./views/ChatView.vue";
 import SessionsView from "./views/SessionsView.vue";
@@ -27,7 +27,10 @@ import {
   voiceMatchesLanguage,
   voiceProvider,
 } from "./lib/speech";
-import { loadAgents, loadSessions } from "./lib/store";
+import { agents, loadAgents, loadSessions, sessions } from "./lib/store";
+import { putAgent, putSession } from "./storage/db";
+import { readSnapshot, writeSnapshot } from "./storage/snapshot";
+import { describeStorageFailure, storageError, storageNotice } from "./lib/storage-state";
 import { useTheme } from "./lib/theme";
 import { watchForUpdate } from "./lib/version-update";
 import { useLocale } from "./i18n";
@@ -103,14 +106,86 @@ function onRange(apply: (value: number) => void, event: Event): void {
   const value = Number((event.target as HTMLInputElement).value);
   if (Number.isFinite(value)) apply(value);
 }
+/**
+ * Загрузить агентов и диалоги; при пустой базе вернуть локальную копию.
+ * Ошибку открытия базы показываем в шапке: пустые списки без объяснений
+ * выглядят как «данные пропали».
+ */
+async function loadStorage(): Promise<void> {
+  storageError.value = "";
+  storageNotice.value = null;
+  try {
+    await loadAgents();
+    await loadSessions();
+  } catch (error) {
+    storageError.value = describeStorageFailure(error);
+    return;
+  }
+
+  if (agents.value.length === 0 && sessions.value.length === 0) {
+    const snapshot = readSnapshot();
+    if (snapshot && snapshot.agents.length + snapshot.sessions.length > 0) {
+      try {
+        for (const agent of snapshot.agents) await putAgent(agent);
+        for (const session of snapshot.sessions) await putSession(session);
+        await loadAgents();
+        await loadSessions();
+        storageNotice.value = { at: snapshot.at };
+      } catch {
+        // Копия осталась на месте, база работает — второй раз не мешаем.
+      }
+    }
+  }
+
+  // Свежая копия: её хватит, если следующее обновление откроет пустую базу.
+  writeSnapshot([...agents.value], [...sessions.value]);
+}
+
+/** Кнопка «Повторить»: базой могла заниматься другая вкладка — пробуем снова. */
+async function retryStorage(): Promise<void> {
+  await loadStorage();
+}
+
+/** Дата копии для строки «данные восстановлены». */
+function formatSnapshotDate(at: number): string {
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    }).format(new Date(at));
+  } catch {
+    return new Date(at).toLocaleDateString();
+  }
+}
+
+let snapshotTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleSnapshot(): void {
+  if (snapshotTimer) clearTimeout(snapshotTimer);
+  snapshotTimer = setTimeout(() => {
+    snapshotTimer = null;
+    writeSnapshot([...agents.value], [...sessions.value]);
+  }, 1_500);
+}
+
 onMounted(async () => {
   document.addEventListener("pointerdown", onPointerDown);
-  await loadAgents();
-  await loadSessions();
+  await loadStorage();
 });
+
+// Любое изменение подключений и диалогов обновляет копию (с задержкой).
+watch(
+  [agents, sessions],
+  () => {
+    if (!storageError.value) scheduleSnapshot();
+  },
+  { deep: true },
+);
 
 onBeforeUnmount(() => {
   document.removeEventListener("pointerdown", onPointerDown);
+  if (snapshotTimer) clearTimeout(snapshotTimer);
+  snapshotTimer = null;
 });
 </script>
 
@@ -208,6 +283,23 @@ onBeforeUnmount(() => {
         <span class="update-bar__text">{{ t("app.updateReady") }}</span>
         <button type="button" class="update-bar__action" @click="applyUpdate">
           {{ t("app.updateAction") }}
+        </button>
+      </div>
+      <!-- База не открылась: объясняем причину и даём повтор, а не пустые списки. -->
+      <div v-if="storageError" class="update-bar update-bar--error" role="alert">
+        <span class="update-bar__text">
+          {{ t(storageError === "blocked" ? "app.storageBlocked" : "app.storageFailed") }}
+        </span>
+        <button type="button" class="update-bar__action" @click="retryStorage">
+          {{ t("app.storageRetry") }}
+        </button>
+      </div>
+      <div v-else-if="storageNotice" class="update-bar" role="status">
+        <span class="update-bar__text">
+          {{ t("app.storageRestored", { date: formatSnapshotDate(storageNotice.at) }) }}
+        </span>
+        <button type="button" class="update-bar__action" @click="storageNotice = null">
+          {{ t("app.storageDismiss") }}
         </button>
       </div>
       <ConnectionsView v-if="tab === 'connections'" />
@@ -537,6 +629,20 @@ onBeforeUnmount(() => {
 .update-bar__action:hover {
   background: var(--accent);
   color: #fff;
+}
+
+/* Плашка ошибки хранилища: красная рамка, чтобы не путалась с плашкой обновления. */
+.update-bar--error {
+  background: color-mix(in srgb, #e5484d 14%, var(--panel));
+  border-bottom-color: color-mix(in srgb, #e5484d 45%, var(--border));
+}
+
+.update-bar--error .update-bar__action {
+  border-color: #e5484d;
+}
+
+.update-bar--error .update-bar__action:hover {
+  background: #e5484d;
 }
 
 /* Телефон: хедер остаётся одной строкой — уменьшаем отступы и иконки. */

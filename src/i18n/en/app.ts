@@ -75,4 +75,10 @@ export const appMessages = {
   "app.footer.links": "Footer links",
   "app.updateReady": "A new version is available",
   "app.updateAction": "Update",
+  "app.storageBlocked":
+    "Local data did not open: the database is busy in another window. Close it and press Retry.",
+  "app.storageFailed": "Local data did not open: device storage is unavailable. Press Retry.",
+  "app.storageRetry": "Retry",
+  "app.storageRestored": "Agents and sessions restored from the local copy of {date}.",
+  "app.storageDismiss": "Hide",
 } as const satisfies LocaleMessages;
