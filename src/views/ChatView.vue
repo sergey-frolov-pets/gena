@@ -26,6 +26,8 @@ import {
   sessions,
   sessionsLoaded,
   setSessionTokenMode,
+  setSessionTokenView,
+  ackTokenSend,
 } from "@/lib/store";
 import { newId } from "@/lib/id";
 import { shouldOpenLastSession } from "@/lib/session-open";
@@ -106,10 +108,14 @@ import {
   loadTokens,
   replaceValues,
   restoreValues,
+  saveToken,
   tokenEntries,
   tokenLookup,
+  TokenError,
+  type TokenEntry,
 } from "@/lib/tokens/registry";
-import { parseTokens } from "@/lib/tokens/format";
+import { formatToken, parseTokens } from "@/lib/tokens/format";
+import { findSelectionEntry, replaceRange } from "@/lib/tokens/selection";
 import { loadMorph } from "@/lib/tokens/morph/service";
 import { forAgent, historyForAgent, tokensReady } from "@/lib/tokens/outgoing";
 import { insertTokenAt } from "@/lib/tokens/insert";
@@ -240,6 +246,8 @@ function insertTokenName(name: string): void {
 
 /** Ввод в поле: обновляем подсказку токенов; вне защищённого диалога её нет. */
 function onComposerInput(event: Event): void {
+  // Выделение сдвинулось — плашка под полем больше не про этот фрагмент.
+  if (selectionRange.value) clearSelection();
   if (!isTokenSession(activeSession.value)) {
     tokenTrigger.value = null;
     return;
@@ -260,6 +268,122 @@ function openTokensTab(): void {
   emit("open-tokens");
 }
 
+/* ── Подтверждение отправки и действия с выделением ───────────────────── */
+
+/** Коды ошибок справочника → ключи текстов. */
+const TOKEN_ERROR_KEYS: Record<string, string> = {
+  name_required: "tokens.error.name_required",
+  name_invalid: "tokens.error.name_invalid",
+  name_duplicate: "tokens.error.name_duplicate",
+  value_required: "tokens.error.value_required",
+  save_failed: "tokens.error.save_failed",
+};
+
+function describeTokenError(code: string): string {
+  const key = TOKEN_ERROR_KEYS[code];
+  return key ? t(key as Parameters<typeof t>[0]) : t("tokens.error.save_failed");
+}
+
+/** Первая отправка в токеновом диалоге ждёт подтверждения. */
+const pendingTokenSend = ref(false);
+/** Выделенный фрагмент поля ввода — плашка живёт под полем, не у выделения. */
+const selectionRange = ref<{ start: number; end: number; text: string } | null>(null);
+/** Имя нового токена, когда выделенного фрагмента ещё нет в справочнике. */
+const selectionName = ref("");
+/** Подтверждение замены известного значения: карточку имени не показываем. */
+const selectionConfirm = ref<TokenEntry | null>(null);
+
+/** Запись справочника, совпадающая с текущим выделением. */
+const selectionMatch = computed(() => {
+  const range = selectionRange.value;
+  if (!range) return null;
+  return findSelectionEntry(range.text, tokenEntries.value);
+});
+
+function clearSelection(): void {
+  selectionRange.value = null;
+  selectionName.value = "";
+  selectionConfirm.value = null;
+}
+
+/** Выделение изменилось: показать плашку под полем. */
+function onComposerSelect(): void {
+  const el = composerEl.value;
+  if (!el || !isTokenSession(activeSession.value)) {
+    clearSelection();
+    return;
+  }
+  const start = el.selectionStart ?? 0;
+  const end = el.selectionEnd ?? 0;
+  if (end <= start) {
+    clearSelection();
+    return;
+  }
+  const text = draft.value.slice(start, end).trim();
+  if (text.length < 2) {
+    clearSelection();
+    return;
+  }
+  const known = findSelectionEntry(text, tokenEntries.value);
+  selectionRange.value = { start, end, text };
+  selectionName.value = known ? known.name : selectionName.value || text.slice(0, 40);
+  selectionConfirm.value = null;
+}
+
+/** Вставить токен вместо выделенного фрагмента. */
+function applySelectionToken(name: string): void {
+  const range = selectionRange.value;
+  if (!range) return;
+  const result = replaceRange(draft.value, range.start, range.end, formatToken(name));
+  draft.value = result.text;
+  clearSelection();
+  void nextTick(() => {
+    const area = composerEl.value;
+    if (!area) return;
+    area.focus();
+    area.setSelectionRange(result.caret, result.caret);
+  });
+}
+
+/** Известное значение: подтверждение есть, карточки с именем нет. */
+function askSelectionReplace(): void {
+  const match = selectionMatch.value;
+  if (match) selectionConfirm.value = match;
+}
+
+function confirmSelectionReplace(): void {
+  const entry = selectionConfirm.value;
+  clearSelection();
+  if (entry) applySelectionToken(entry.name);
+}
+
+/** Неизвестный фрагмент: имя вводится прямо в плашке под полем. */
+async function createTokenFromSelection(): Promise<void> {
+  const range = selectionRange.value;
+  const name = selectionName.value.trim();
+  if (!range || !name) return;
+  error.value = "";
+  try {
+    await saveToken({ name, value: range.text });
+    applySelectionToken(name);
+    notice.value = t("chat.tokens.created");
+  } catch (e) {
+    error.value = e instanceof TokenError ? describeTokenError(e.code) : t("tokens.error.save_failed");
+  }
+}
+
+/** Подтверждение первой отправки: дальше диалог помнит решение. */
+async function confirmTokenSend(): Promise<void> {
+  const id = activeSessionId.value;
+  pendingTokenSend.value = false;
+  if (id) await ackTokenSend(id);
+  await sendNow();
+}
+
+function cancelTokenSend(): void {
+  pendingTokenSend.value = false;
+}
+
 async function leaveTokenMode(): Promise<void> {
   tokenPickOpen.value = false;
   await toggleTokenMode();
@@ -274,10 +398,21 @@ const abortCtrl = ref<AbortController | null>(null);
 /** Ход остановлен кнопкой «Стоп» — ошибкой это не показываем. */
 const stoppedByUser = ref(false);
 /**
- * Показывать в ленте значения вместо токенов. Решение на этом устройстве:
- * в базе диалог в режиме токенов, а читать удобнее значения.
+ * Показывать в ленте значения вместо токенов. Решение хранится на диалог:
+ * в одном удобно читать значения, в другом — видеть ровно то, что у агента.
  */
-const viewValues = ref(true);
+const viewValues = computed<boolean>({
+  get: () => {
+    const session = sessions.value.find((item) => item.id === activeSessionId.value);
+    return session?.tokenView !== "tokens";
+  },
+  set: (value) => {
+    const id = activeSessionId.value;
+    const session = sessions.value.find((item) => item.id === id);
+    if (!id || !isTokenSession(session)) return;
+    void setSessionTokenView(id, value ? "values" : "tokens");
+  },
+});
 /** Отмена на сервере уже запрошена — второе нажатие не дублируем. */
 const stopping = ref(false);
 /** Накопленный текст стриминга. */
@@ -1650,6 +1785,17 @@ async function send(): Promise<void> {
     error.value = t("chat.error.chooseAgent");
     return;
   }
+  const session = activeSession.value;
+  // Первая отправка в токеновом диалоге — обязательное подтверждение.
+  // Дальше диалог помнит, что агенту уходят только токены.
+  if (session && isTokenSession(session) && !session.tokenSendAck) {
+    pendingTokenSend.value = true;
+    return;
+  }
+  await sendNow();
+}
+
+async function sendNow(): Promise<void> {
   const payload = takeComposer();
   if (!payload) return;
   // Реплика, забранная в поле ввода: её заменит новое сообщение.
@@ -3546,6 +3692,7 @@ function onRateChange(event: Event): void {
             :disabled="composerDisabled"
             @keydown="onComposerKey"
             @input="onComposerInput"
+            @select="onComposerSelect"
             @paste="onPaste"
           />
           <div class="chat-panel__composer-stack">
@@ -3622,6 +3769,66 @@ function onRateChange(event: Event): void {
             </button>
           </div>
         </div>
+        <div v-if="pendingTokenSend" class="chat-panel__token-confirm" role="alert">
+          <p class="chat-panel__token-confirm-text">
+            {{ t("chat.tokens.confirmSend", { count: outgoingDraft.hits }) }}
+          </p>
+          <div class="chat-panel__token-confirm-actions">
+            <button type="button" class="chat-panel__token-btn" @click="cancelTokenSend">
+              {{ t("chat.cancel") }}
+            </button>
+            <button
+              type="button"
+              class="chat-panel__token-btn is-primary"
+              @click="confirmTokenSend"
+            >
+              {{ t("chat.tokens.confirmSendAction") }}
+            </button>
+          </div>
+        </div>
+
+        <div
+          v-if="selectionRange && !pendingTokenSend"
+          class="chat-panel__selection"
+          role="group"
+          :aria-label="t('chat.tokens.selection')"
+        >
+          <span class="chat-panel__selection-text" :title="selectionRange.text">
+            «{{ selectionRange.text }}»
+          </span>
+          <template v-if="selectionMatch">
+            <span class="chat-panel__selection-target">⟦{{ selectionMatch.name }}⟧</span>
+            <button type="button" class="chat-panel__token-btn" @click="askSelectionReplace">
+              {{ t("chat.tokens.replaceSelection") }}
+            </button>
+          </template>
+          <template v-else>
+            <input
+              v-model="selectionName"
+              class="chat-panel__selection-input"
+              type="text"
+              :placeholder="t('tokens.name')"
+              :aria-label="t('tokens.name')"
+            />
+            <button
+              type="button"
+              class="chat-panel__token-btn"
+              :disabled="!selectionName.trim()"
+              @click="createTokenFromSelection"
+            >
+              {{ t("chat.tokens.makeToken") }}
+            </button>
+          </template>
+          <button
+            type="button"
+            class="chat-panel__selection-close"
+            :aria-label="t('chat.cancel')"
+            :title="t('chat.cancel')"
+            @click="clearSelection"
+          >
+            ×
+          </button>
+        </div>
       </form>
       <div v-if="stickBottom" class="chat-panel__footer">
         <AppFooter />
@@ -3644,6 +3851,16 @@ function onRateChange(event: Event): void {
       :text="titleShown"
       :close-label="t('chat.close')"
       @close="titleShown = ''"
+    />
+
+    <ConfirmModal
+      :open="selectionConfirm !== null"
+      :title="t('chat.tokens.replaceTitle')"
+      :message="t('chat.tokens.replaceQuestion', { name: selectionConfirm?.name ?? '' })"
+      :confirm-label="t('chat.tokens.replaceSelection')"
+      :cancel-label="t('chat.cancel')"
+      @confirm="confirmSelectionReplace"
+      @cancel="selectionConfirm = null"
     />
 
     <ConfirmModal
@@ -5282,6 +5499,97 @@ function onRateChange(event: Event): void {
 .chat-panel__token-btn.is-exit {
   margin-inline-start: auto;
   color: var(--muted);
+}
+
+.chat-panel__token-btn.is-primary {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Подтверждение первой отправки в токеновом диалоге. */
+.chat-panel__token-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel-2) 86%, var(--accent) 14%);
+}
+
+.chat-panel__token-confirm-text {
+  flex: 1 1 220px;
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.3;
+  color: var(--text);
+}
+
+.chat-panel__token-confirm-actions {
+  display: flex;
+  gap: 4px;
+}
+
+/* Плашка действий с выделением — снизу поля, не всплывает у текста. */
+.chat-panel__selection {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel-2);
+}
+
+.chat-panel__selection-text {
+  max-width: 45%;
+  overflow: hidden;
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-panel__selection-target {
+  color: var(--accent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+}
+
+.chat-panel__selection-input {
+  flex: 1 1 120px;
+  min-width: 80px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.76rem;
+}
+
+.chat-panel__selection-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.chat-panel__selection-close {
+  margin-inline-start: auto;
+  padding: 0 5px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.chat-panel__selection-close:hover {
+  border-color: var(--border);
+  color: var(--text);
 }
 
 .chat-panel__token-pick {

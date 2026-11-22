@@ -251,6 +251,29 @@ export async function setSessionTokenMode(
   return { rewritten };
 }
 
+/** Запомнить вид ленты для диалога: значения (по умолчанию) или токены. */
+export async function setSessionTokenView(
+  sessionId: string,
+  view: "values" | "tokens",
+): Promise<void> {
+  const session = sessions.value.find((s) => s.id === sessionId);
+  if (!session) return;
+  if (view === "tokens") session.tokenView = "tokens";
+  else delete session.tokenView;
+  // Порядок диалогов не меняем: updatedAt здесь не трогаем.
+  await putSession(toRaw(session));
+  await loadSessions();
+}
+
+/** Человек подтвердил в диалоге, что агенту уходят только токены. */
+export async function ackTokenSend(sessionId: string): Promise<void> {
+  const session = sessions.value.find((s) => s.id === sessionId);
+  if (!session || session.tokenSendAck) return;
+  session.tokenSendAck = true;
+  await putSession(toRaw(session));
+  await loadSessions();
+}
+
 /** Дублировать диалог вместе с сообщениями. */
 export async function duplicateSession(sessionId: string): Promise<Session | null> {
   const source = sessions.value.find((s) => s.id === sessionId);
