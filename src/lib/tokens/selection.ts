@@ -40,13 +40,32 @@ export function findSelectionEntry<T extends SelectionEntry>(
 const STOP_WORDS = new Set([
   "в", "во", "на", "для", "из", "с", "со", "и", "по", "к", "ко", "у", "о", "об",
   "от", "до", "за", "под", "над", "при", "без", "про", "через", "что", "это",
+  "ооо", "оао", "зао", "пао", "ао", "ип",
   "the", "a", "an", "of", "for", "to", "in", "on", "at", "and", "or", "with",
 ]);
 
+/**
+ * Справочник базовых имён: из него берётся основа, когда из выделенного текста
+ * осмысленного слова не выходит (только цифры, знаки) или когда по виду
+ * значения понятно, что это сумма, телефон, компания и т. п.
+ * Имя всегда нумеруется: `сумма1`, `телефон2`, `компания1`, `имя1`.
+ */
+export const NAME_BASES = {
+  fallback: "имя",
+  amount: "сумма",
+  phone: "телефон",
+  company: "компания",
+  account: "счёт",
+  date: "дата",
+  email: "почта",
+} as const;
+
+export type NameBase = (typeof NAME_BASES)[keyof typeof NAME_BASES];
+
 /** Имя токена: только буквы и цифры, нижний регистр, не длиннее 24 символов. */
 const NAME_MAX_LEN = 24;
-/** Если осмысленного слова нет — базовое имя, к нему добавится номер. */
-const FALLBACK_NAME = "имя";
+/** Сколько номеров перебираем, прежде чем добавить время. */
+const NAME_NUMBER_MAX = 99;
 
 function cleanName(raw: string): string {
   const word = String(raw ?? "")
@@ -58,22 +77,52 @@ function cleanName(raw: string): string {
   return word.slice(0, NAME_MAX_LEN);
 }
 
-/** Свободное имя: занятое дополняется номером — «цена», «цена2», «цена3». */
-function uniqueName(base: string, used: Set<string>): string {
-  if (!used.has(base)) return base;
-  for (let i = 2; i < 100; i += 1) {
+/**
+ * Имя с номером: `имя1`, `сумма1`. Нумерация всегда начинается с единицы,
+ * поэтому «имя1 уже занято» даёт «имя2», а не «имя3».
+ */
+function numberedName(base: string, used: Set<string>): string {
+  for (let i = 1; i <= NAME_NUMBER_MAX; i += 1) {
     const candidate = `${base}${i}`;
     if (!used.has(candidate)) return candidate;
   }
   return `${base}${Date.now() % 1000}`;
 }
 
+const PHONE_RE = /^\+?[\d\s()\-.]{10,}$/u;
+const MONEY_RE = /(₽|руб|\$|€|¥)/iu;
+const EMAIL_RE = /@[^\s@]+\.[^\s@]+/u;
+const DATE_RE = /^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/u;
+const LEGAL_RE = /(^|\s)(ооо|оао|зао|пао|ао|ип)(\s|$)/iu;
+
+/** Сколько цифр в тексте — по ним отличаем телефон и сумму от слова. */
+function digitCount(text: string): number {
+  return (text.match(/\d/gu) ?? []).length;
+}
+
+/**
+ * Категория значения по его виду: сумма, телефон, компания, дата, почта.
+ * Пустая строка — вид не распознан, имя берём из слов текста.
+ */
+export function categoryBase(text: string, words: readonly string[] = []): string {
+  const clean = String(text ?? "").trim();
+  if (!clean) return "";
+  if (EMAIL_RE.test(clean)) return NAME_BASES.email;
+  if (DATE_RE.test(clean)) return NAME_BASES.date;
+  if (digitCount(clean) >= 10 && PHONE_RE.test(clean)) return NAME_BASES.phone;
+  if (MONEY_RE.test(clean)) return NAME_BASES.amount;
+  if (LEGAL_RE.test(clean)) return NAME_BASES.company;
+  if (words.length === 0 && digitCount(clean) > 0) return NAME_BASES.amount;
+  return "";
+}
+
 /**
  * Предложить имена для нового токена из выделенного текста.
  *
- * Порядок: первое значимое слово («цена 1 200 ₽» → «цена»), второе слово,
- * затем базовое «имя». Занятые имена получают номер, поэтому в пустом
- * справочнике это «имя», а при повторе — «имя2», «имя3».
+ * Порядок: первое значимое слово («цена 1 200 ₽» → «цена1»), второе слово,
+ * затем категория по виду значения («1 200 ₽» → «сумма1», «+7 916 …» →
+ * «телефон1», «ООО Ромашка» → «компания1»), в конце — «имя1».
+ * Каждое имя нумеруется, поэтому занятое «цена1» даёт «цена2».
  */
 export function suggestTokenNames(
   text: string,
@@ -93,12 +142,14 @@ export function suggestTokenNames(
     if (name && !bases.includes(name)) bases.push(name);
     if (bases.length >= 2) break;
   }
-  bases.push(FALLBACK_NAME);
+  const category = categoryBase(text, meaningful);
+  if (category && !bases.includes(category)) bases.push(category);
+  if (!bases.includes(NAME_BASES.fallback)) bases.push(NAME_BASES.fallback);
 
   const result: string[] = [];
   for (const base of bases) {
     if (result.length >= limit) break;
-    const name = uniqueName(base, used);
+    const name = numberedName(base, used);
     used.add(name);
     if (!result.includes(name)) result.push(name);
   }

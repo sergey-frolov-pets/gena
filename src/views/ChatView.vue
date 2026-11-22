@@ -15,6 +15,7 @@ import {
   createSession,
   deleteMessagesFrom,
   duplicateSession,
+  editMessage,
   getAgentKey,
   loadMessages,
   messages,
@@ -120,6 +121,12 @@ import {
 } from "@/lib/tokens/registry";
 import { formatToken, parseTokens } from "@/lib/tokens/format";
 import { findSelectionEntry, replaceRange, suggestTokenNames } from "@/lib/tokens/selection";
+import {
+  findOccurrences,
+  replaceAllInText,
+  replaceSpan,
+  stepIndex,
+} from "@/lib/tokens/occurrences";
 import { tokenModeActive } from "@/lib/tokens/mode-intent";
 import { loadMorph } from "@/lib/tokens/morph/service";
 import { forAgent, historyForAgent, tokensReady } from "@/lib/tokens/outgoing";
@@ -312,6 +319,7 @@ function insertTokenName(name: string): void {
 function onComposerInput(event: Event): void {
   // Выделение сдвинулось — плашка под полем больше не про этот фрагмент.
   if (selectionRange.value) clearSelection();
+  if (occurrenceTotal.value > 0) finishOccurrences();
   const el = event.target as HTMLTextAreaElement | null;
   const caret = el && el.selectionStart !== null ? el.selectionStart : draft.value.length;
   tokenTrigger.value = findTokenTrigger(draft.value, caret);
@@ -388,15 +396,19 @@ const selectionSuggestions = computed(() => {
  * а не диалога. Иначе в обычном диалоге выделение «ничего не делает».
  */
 function onComposerSelect(): void {
+  // Вхождение выбрано программно стрелкой плашки — серию не сбрасываем.
+  if (occurrencePicking) return;
   const el = composerEl.value;
   if (!el) {
     clearSelection();
+    finishOccurrences();
     return;
   }
   const start = el.selectionStart ?? 0;
   const end = el.selectionEnd ?? 0;
   if (end <= start) {
-    clearSelection();
+    // Выделения нет — закрываем серию только если плашка и была про серию.
+    if (occurrenceTotal.value === 0) clearSelection();
     return;
   }
   const text = draft.value.slice(start, end).trim();
@@ -416,6 +428,18 @@ function onComposerSelect(): void {
   }
   selectionSource.value = text;
   selectionConfirm.value = null;
+
+  // Вхождения того же фрагмента: поле ввода и сообщения открытого диалога.
+  // Только счёт — текущее вхождение не подсвечиваем, выделение сделал человек.
+  if (occurrenceNeedle.value && occurrenceNeedle.value !== text) finishOccurrences();
+  occurrenceNeedle.value = text;
+  occurrenceToken.value = known?.name ?? "";
+  refreshOccurrences(0, false);
+  // Плашка заменяет выделенное вхождение, а не первое в тексте.
+  const at = occurrenceList.value.findIndex(
+    (item) => item.scope === "draft" && item.start >= start && item.end <= end,
+  );
+  if (at >= 0) occurrenceIndex.value = at;
 }
 
 /**
@@ -436,19 +460,249 @@ function onDocSelectionChange(): void {
   onComposerSelectSoon();
 }
 
+/* ── Вхождения значения: стрелки и «Заменить все» ─────────────────────── */
+
+/** Куда указывает текущее вхождение: поле ввода или сообщение ленты. */
+interface OccurrenceTarget {
+  scope: "draft" | "message";
+  messageId?: string;
+  role?: Message["role"];
+  start: number;
+  end: number;
+}
+
+const occurrenceList = ref<OccurrenceTarget[]>([]);
+const occurrenceIndex = ref(0);
+/** Значение, по которому идёт серия замен, и токен, которым заменяем. */
+const occurrenceNeedle = ref("");
+const occurrenceToken = ref("");
+/** Сколько вхождений заменить нельзя: внутри токена, внутри слова, вне режима. */
+const occurrenceBlocked = ref({ token: 0, word: 0, mode: 0 });
+/** Подсвеченное сообщение ленты — чтобы было видно, какое вхождение меняем. */
+const occurrenceMessageId = ref("");
+/** Выбор вхождения сделан программно: событие `select` не должно сбрасывать серию. */
+let occurrencePicking = false;
+
+const occurrenceTotal = computed(() => occurrenceList.value.length);
+const occurrenceCurrent = computed(() => occurrenceList.value[occurrenceIndex.value] ?? null);
+
+/** Плашка под полем: выделение в поле или идущая серия замен. */
+const selectionBanner = computed(() => {
+  if (pendingTokenSend.value) return false;
+  return Boolean(selectionRange.value) || occurrenceTotal.value > 0;
+});
+
+const bannerFragment = computed(() => selectionRange.value?.text ?? occurrenceNeedle.value);
+const bannerToken = computed(() => selectionMatch.value?.name ?? occurrenceToken.value);
+
+/** Где находится текущее вхождение — подпись в плашке. */
+const bannerScope = computed(() => {
+  const target = occurrenceCurrent.value;
+  if (!target || target.scope !== "message") return "";
+  return target.role === "user" ? t("chat.tokens.inMyMessage") : t("chat.tokens.inAgentMessage");
+});
+
+/** Что именно не заменяется и почему. */
+const occurrenceBlockedHint = computed(() => {
+  const blocked = occurrenceBlocked.value;
+  const parts: string[] = [];
+  if (blocked.mode > 0) parts.push(t("chat.tokens.agentNeedsMode"));
+  if (blocked.token > 0) parts.push(t("chat.tokens.blockedToken", { count: blocked.token }));
+  if (blocked.word > 0) parts.push(t("chat.tokens.blockedWord", { count: blocked.word }));
+  return parts.join(" · ");
+});
+
+/** Все вхождения значения: поле ввода и текстовые сообщения открытого диалога. */
+function collectOccurrences(needle: string): {
+  items: OccurrenceTarget[];
+  blocked: { token: number; word: number; mode: number };
+} {
+  const items: OccurrenceTarget[] = [];
+  const blocked = { token: 0, word: 0, mode: 0 };
+  for (const hit of findOccurrences(draft.value, needle, { includeBlocked: true })) {
+    if (hit.blocked) blocked[hit.blocked] += 1;
+    else items.push({ scope: "draft", start: hit.start, end: hit.end });
+  }
+  // В ответах агента заменяем только в режиме токенов: иначе в ленте
+  // появился бы ⟦токен⟧, который диалог не расшифровывает.
+  const tokenSession = isTokenSession(activeSession.value);
+  for (const message of messages.value) {
+    if ((message.kind && message.kind !== "text") || !message.content) continue;
+    for (const hit of findOccurrences(message.content, needle, { includeBlocked: true })) {
+      if (hit.blocked) blocked[hit.blocked] += 1;
+      else if (!tokenSession) blocked.mode += 1;
+      else
+        items.push({
+          scope: "message",
+          messageId: message.id,
+          role: message.role,
+          start: hit.start,
+          end: hit.end,
+        });
+    }
+  }
+  return { items, blocked };
+}
+
+/** Показать текущее вхождение в поле ввода или прокрутить к сообщению. */
+async function highlightOccurrence(): Promise<void> {
+  const target = occurrenceCurrent.value;
+  if (!target) return;
+  if (target.scope === "draft") {
+    occurrenceMessageId.value = "";
+    const area = composerEl.value;
+    if (!area) return;
+    occurrencePicking = true;
+    area.focus();
+    area.setSelectionRange(target.start, target.end);
+    window.setTimeout(() => {
+      occurrencePicking = false;
+    }, 260);
+    return;
+  }
+  occurrenceMessageId.value = target.messageId ?? "";
+  await nextTick();
+  const host = document.querySelector(
+    `.chat-panel__message[data-message-id="${target.messageId}"]`,
+  );
+  host?.scrollIntoView({ block: "center", behavior: "smooth" });
+}
+
+/** Пересчитать вхождения. `highlight` — показать текущее (после замены). */
+function refreshOccurrences(index = 0, highlight = true): number {
+  const needle = occurrenceNeedle.value;
+  if (!needle) return 0;
+  const { items, blocked } = collectOccurrences(needle);
+  occurrenceList.value = items;
+  occurrenceBlocked.value = blocked;
+  occurrenceIndex.value = items.length === 0 ? 0 : Math.min(Math.max(index, 0), items.length - 1);
+  if (items.length === 0) {
+    occurrenceMessageId.value = "";
+    return 0;
+  }
+  if (highlight) void highlightOccurrence();
+  return items.length;
+}
+
+/** Серия началась: первое вхождение уже заменено токеном. */
+function startOccurrences(needle: string, name: string): void {
+  occurrenceNeedle.value = needle;
+  occurrenceToken.value = name;
+  refreshOccurrences(0);
+}
+
+/** Закрыть серию: плашка остаётся только у выделения. */
+function finishOccurrences(): void {
+  occurrenceList.value = [];
+  occurrenceIndex.value = 0;
+  occurrenceNeedle.value = "";
+  occurrenceToken.value = "";
+  occurrenceBlocked.value = { token: 0, word: 0, mode: 0 };
+  occurrenceMessageId.value = "";
+}
+
+function dismissSelection(): void {
+  clearSelection();
+  finishOccurrences();
+}
+
+// Сменили диалог — серия замен относилась к прежнему.
+watch(activeSessionId, () => finishOccurrences());
+
+/** Стрелки: по кругу от второго вхождения до последнего. */
+function stepOccurrence(delta: number): void {
+  if (occurrenceTotal.value === 0) return;
+  occurrenceIndex.value = stepIndex(occurrenceIndex.value, occurrenceTotal.value, delta);
+  void highlightOccurrence();
+}
+
+/** Серия начата кнопкой «Заменить все» — берём значение из выделения. */
+function ensureOccurrenceState(): boolean {
+  if (occurrenceNeedle.value && occurrenceToken.value) return true;
+  const range = selectionRange.value;
+  // Только существующая запись: подставлять ⟦имя⟧, которого нет в справочнике,
+  // нельзя — агент получил бы токен без значения.
+  const name = selectionMatch.value?.name ?? "";
+  if (!range || !name) return false;
+  occurrenceNeedle.value = range.text;
+  occurrenceToken.value = name;
+  if (occurrenceList.value.length === 0) refreshOccurrences(0, false);
+  return true;
+}
+
+/** Заменить текущее вхождение и перейти к следующему. */
+async function replaceCurrentOccurrence(): Promise<void> {
+  if (!ensureOccurrenceState()) return;
+  const target = occurrenceCurrent.value;
+  const name = occurrenceToken.value;
+  if (!target || !name) return;
+  const insert = formatToken(name);
+  if (target.scope === "draft") {
+    draft.value = replaceSpan(draft.value, target.start, target.end, insert);
+    clearSelection();
+    await nextTick();
+    if (refreshOccurrences(occurrenceIndex.value) === 0) finishOccurrences();
+    return;
+  }
+  const message = messages.value.find((item) => item.id === target.messageId);
+  if (!message) return;
+  const updated = await editMessage(
+    message.id,
+    replaceSpan(message.content, target.start, target.end, insert),
+  );
+  if (!updated) return;
+  if (refreshOccurrences(occurrenceIndex.value) === 0) finishOccurrences();
+}
+
+/** «Заменить все N»: поле ввода и ответы агента разом. */
+async function replaceAllOccurrences(): Promise<void> {
+  if (!ensureOccurrenceState()) return;
+  const name = occurrenceToken.value;
+  const needle = occurrenceNeedle.value;
+  if (!name || !needle) return;
+  const insert = formatToken(name);
+  let replaced = 0;
+  if (isTokenSession(activeSession.value)) {
+    for (const message of messages.value) {
+      if ((message.kind && message.kind !== "text") || !message.content) continue;
+      const result = replaceAllInText(message.content, needle, insert);
+      if (result.replaced === 0) continue;
+      if (await editMessage(message.id, result.text)) replaced += result.replaced;
+    }
+  }
+  const inDraft = replaceAllInText(draft.value, needle, insert);
+  if (inDraft.replaced > 0) {
+    draft.value = inDraft.text;
+    replaced += inDraft.replaced;
+  }
+  clearSelection();
+  finishOccurrences();
+  if (replaced > 0) notice.value = t("chat.tokens.replaced", { count: replaced });
+}
+
+/** Клик по «галочке»: одно вхождение — как раньше, несколько — сразу меняем. */
+function onReplaceClick(): void {
+  if (occurrenceTotal.value > 1) void replaceCurrentOccurrence();
+  else if (selectionMatch.value) askSelectionReplace();
+  else void replaceCurrentOccurrence();
+}
+
 /** Вставить токен вместо выделенного фрагмента. */
-function applySelectionToken(name: string): void {
+async function applySelectionToken(name: string): Promise<void> {
   const range = selectionRange.value;
   if (!range) return;
+  const needle = range.text;
   const result = replaceRange(draft.value, range.start, range.end, formatToken(name));
   draft.value = result.text;
   clearSelection();
-  void nextTick(() => {
-    const area = composerEl.value;
-    if (!area) return;
+  await nextTick();
+  const area = composerEl.value;
+  if (area) {
     area.focus();
     area.setSelectionRange(result.caret, result.caret);
-  });
+  }
+  // Остальные вхождения того же значения — сразу под рукой.
+  startOccurrences(needle, name);
 }
 
 /** Известное значение: подтверждение есть, карточки с именем нет. */
@@ -460,7 +714,7 @@ function askSelectionReplace(): void {
 function confirmSelectionReplace(): void {
   const entry = selectionConfirm.value;
   clearSelection();
-  if (entry) applySelectionToken(entry.name);
+  if (entry) void applySelectionToken(entry.name);
 }
 
 /** Неизвестный фрагмент: имя вводится прямо в плашке под полем. */
@@ -471,7 +725,7 @@ async function createTokenFromSelection(): Promise<void> {
   error.value = "";
   try {
     await saveToken({ name, value: range.text });
-    applySelectionToken(name);
+    await applySelectionToken(name);
     notice.value = t("chat.tokens.created");
   } catch (e) {
     error.value = e instanceof TokenError ? describeTokenError(e.code) : t("tokens.error.save_failed");
@@ -3372,7 +3626,11 @@ function onRateChange(event: Event): void {
           <article
             v-if="entry.message.kind !== 'thought'"
             class="chat-panel__message"
-            :class="`chat-panel__message--${entry.message.role}`"
+            :class="[
+              `chat-panel__message--${entry.message.role}`,
+              { 'is-token-target': occurrenceMessageId === entry.message.id },
+            ]"
+            :data-message-id="entry.message.id"
             @click="onMessageClick($event, entry.message)"
           >
             <span class="chat-panel__role">
@@ -4114,26 +4372,62 @@ function onRateChange(event: Event): void {
         </div>
 
         <div
-          v-if="selectionRange && !pendingTokenSend"
+          v-if="selectionBanner"
           class="chat-panel__selection"
           role="group"
           :aria-label="t('chat.tokens.selection')"
         >
-          <span class="chat-panel__selection-text" :title="selectionRange.text">
-            «{{ selectionRange.text }}»
+          <span class="chat-panel__selection-text" :title="bannerFragment">
+            «{{ bannerFragment }}»
           </span>
-          <template v-if="selectionMatch">
-            <span class="chat-panel__selection-target">⟦{{ selectionMatch.name }}⟧</span>
+          <template v-if="selectionMatch || occurrenceToken">
+            <span class="chat-panel__selection-target">⟦{{ bannerToken }}⟧</span>
+            <span v-if="occurrenceTotal > 1" class="chat-panel__selection-nav">
+              <button
+                type="button"
+                class="chat-panel__selection-arrow"
+                v-tip="t('chat.tokens.prevOccurrence')"
+                :aria-label="t('chat.tokens.prevOccurrence')"
+                @click="stepOccurrence(-1)"
+              >
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="m14 6-6 6 6 6" />
+                </svg>
+              </button>
+              <span class="chat-panel__selection-count">
+                {{ t("chat.tokens.occurrence", { index: occurrenceIndex + 1, total: occurrenceTotal }) }}
+              </span>
+              <button
+                type="button"
+                class="chat-panel__selection-arrow"
+                v-tip="t('chat.tokens.nextOccurrence')"
+                :aria-label="t('chat.tokens.nextOccurrence')"
+                @click="stepOccurrence(1)"
+              >
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="m10 6 6 6-6 6" />
+                </svg>
+              </button>
+            </span>
+            <span v-if="bannerScope" class="chat-panel__selection-scope">{{ bannerScope }}</span>
             <button
               type="button"
               class="chat-panel__token-btn is-icon"
               v-tip="t('chat.tokens.replaceSelection')"
               :aria-label="t('chat.tokens.replaceSelection')"
-              @click="askSelectionReplace"
+              @click="onReplaceClick"
             >
               <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="m5 13 4 4L19 7" />
               </svg>
+            </button>
+            <button
+              v-if="occurrenceTotal > 1"
+              type="button"
+              class="chat-panel__token-btn chat-panel__selection-all"
+              @click="replaceAllOccurrences"
+            >
+              {{ t("chat.tokens.replaceAll", { count: occurrenceTotal }) }}
             </button>
           </template>
           <template v-else>
@@ -4168,12 +4462,15 @@ function onRateChange(event: Event): void {
               </button>
             </span>
           </template>
+          <span v-if="occurrenceBlockedHint" class="chat-panel__selection-hint">
+            {{ occurrenceBlockedHint }}
+          </span>
           <button
             type="button"
             class="chat-panel__selection-close"
             v-tip="t('chat.cancel')"
             :aria-label="t('chat.cancel')"
-            @click="clearSelection"
+            @click="dismissSelection"
           >
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
               <path d="M6 6l12 12M18 6L6 18" />
@@ -6050,6 +6347,81 @@ function onRateChange(event: Event): void {
   color: var(--accent);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.75rem;
+}
+
+/* Стрелки по вхождениям: «2 из 5», назад и вперёд. */
+.chat-panel__selection-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding: 0 2px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.chat-panel__selection-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.chat-panel__selection-arrow:hover,
+.chat-panel__selection-arrow:focus-visible {
+  background: var(--panel);
+  color: var(--text);
+}
+
+.chat-panel__selection-count {
+  min-width: 34px;
+  font-size: 0.68rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.chat-panel__selection-scope {
+  font-size: 0.66rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* «Заменить все N» — заметная кнопка рядом с галочкой. */
+.chat-panel__selection-all {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.72rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.chat-panel__selection-all:hover,
+.chat-panel__selection-all:focus-visible {
+  border-color: var(--accent);
+}
+
+/* Почему часть вхождений не меняется: токен, часть слова, не тот режим. */
+.chat-panel__selection-hint {
+  flex: 1 1 100%;
+  font-size: 0.66rem;
+  color: var(--muted);
+}
+
+/* Текущее вхождение в ленте — рамка, чтобы было видно, что меняем. */
+.chat-panel__message.is-token-target {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .chat-panel__selection-input {
