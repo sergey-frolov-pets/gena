@@ -28,6 +28,7 @@ import {
 import { openAgentKey, sealAgentKey } from "@/crypto/agent-key-cipher";
 import { clearSnapshot } from "@/storage/snapshot";
 import { replaceValues, restoreValues } from "@/lib/tokens/registry";
+import { normalizeTags } from "@/lib/session-tags";
 import { newId } from "@/lib/id";
 
 /** Настройки из формы: лимиты — целые ≥ 0, модель — без пробелов по краям. */
@@ -214,6 +215,20 @@ export async function pinSession(sessionId: string, pinned: boolean): Promise<vo
 }
 
 /**
+ * Теги диалога. Пустой список снимает поле совсем — диалог без тегов
+ * не отличается от созданного до появления тегов.
+ */
+export async function setSessionTags(sessionId: string, tags: readonly string[]): Promise<void> {
+  const session = sessions.value.find((s) => s.id === sessionId);
+  if (!session) return;
+  const next = normalizeTags(tags);
+  if (next.length > 0) session.tags = next;
+  else delete session.tags;
+  await putSession(toRaw(session));
+  await loadSessions();
+}
+
+/**
  * Перевести диалог в режим токенов или вернуть к обычному хранению.
  *
  * Переключение не только ставит флаг, но и переписывает уже сохранённые
@@ -292,6 +307,7 @@ export async function duplicateSession(sessionId: string): Promise<Session | nul
     messageCount: source.messageCount,
     pinned: false,
     ...(source.tokenMode ? { tokenMode: true } : {}),
+    ...(source.tags ? { tags: [...source.tags] } : {}),
   };
   await putSession(copy);
   const sourceMessages = await listMessages(sessionId);

@@ -10,9 +10,10 @@
  * сбрасывались бы при каждом закрытии.
  */
 
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { useAgentFilter } from "@/composables/useAgentFilter";
 import { visibleSessions } from "@/lib/session-list";
+import { collectTags } from "@/lib/session-tags";
 import { useLocale } from "@/i18n";
 import type { Session } from "@/storage/types";
 
@@ -38,6 +39,8 @@ const emit = defineEmits<{
   /** Запрошено удаление — подтверждение спрашивает вызывающий. */
   delete: [id: string];
   title: [title: string];
+  /** Запрошено редактирование тегов — диалог спрашивает вызывающий. */
+  tags: [session: Session];
 }>();
 
 const { t } = useLocale();
@@ -54,10 +57,20 @@ const {
   computed(() => props.agents),
 );
 
+/** Фильтр по тегу: живёт здесь же, пропавший тег снимает фильтр. */
+const tagFilter = ref("");
+
 /** Фильтр по агенту + поиск, закреплённые сверху, дальше — свежие первыми. */
 const filteredSessions = computed<Session[]>(() =>
-  visibleSessions(sessionsOfAgent.value, query.value),
+  visibleSessions(sessionsOfAgent.value, query.value, tagFilter.value),
 );
+
+/** Теги, которые есть у диалогов, — для чипов фильтра. */
+const tagsInUse = computed(() => collectTags(props.sessions));
+
+watch(tagsInUse, (list) => {
+  if (tagFilter.value && !list.includes(tagFilter.value)) tagFilter.value = "";
+});
 
 
 /** Имя агента для строки истории (у каждой сессии своё). */
@@ -117,6 +130,33 @@ function agentNameOf(id: string): string {
         {{ agent.name }}
       </button>
     </div>
+    <div
+      v-if="tagsInUse.length > 0"
+      class="chat-panel__filter-chips chat-panel__filter-chips--tags"
+      role="group"
+      :aria-label="t('chat.tags')"
+    >
+      <button
+        type="button"
+        class="chat-panel__filter-chip"
+        :class="{ 'is-on': !tagFilter }"
+        :aria-pressed="!tagFilter"
+        @click="tagFilter = ''"
+      >
+        {{ t("chat.allTags") }}
+      </button>
+      <button
+        v-for="tag in tagsInUse"
+        :key="tag"
+        type="button"
+        class="chat-panel__filter-chip"
+        :class="{ 'is-on': tagFilter === tag }"
+        :aria-pressed="tagFilter === tag"
+        @click="tagFilter = tag"
+      >
+        {{ tag }}
+      </button>
+    </div>
     <p v-if="filteredSessions.length === 0" class="chat-panel__muted">
       {{ t("chat.selectOrCreate") }}
     </p>
@@ -148,11 +188,27 @@ function agentNameOf(id: string): string {
             <span v-if="!agentFilter" class="chat-panel__session-agent">
               {{ agentNameOf(s.agentId) }}
             </span>
+            <span v-if="s.tags && s.tags.length > 0" class="chat-panel__session-tags">
+              <span v-for="tag in s.tags" :key="tag" class="chat-panel__session-tag">{{ tag }}</span>
+            </span>
           </span>
           <span class="chat-panel__session-count">{{ s.messageCount }}</span>
         </button>
 
         <div class="chat-panel__session-actions">
+          <button
+            type="button"
+            class="chat-panel__action"
+            :class="{ 'is-on': s.tags && s.tags.length > 0 }"
+            v-tip="t('chat.tagsEditTitle')"
+            :aria-label="t('chat.tagsEditTitle')"
+            @click="emit('tags', s)"
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+              <circle cx="7" cy="7" r="1" />
+            </svg>
+          </button>
           <button
             type="button"
             class="chat-panel__action"
@@ -311,6 +367,29 @@ function agentNameOf(id: string): string {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Теги диалога: мелкие метки под названием, чтобы не спорили с агентом. */
+.chat-panel__session-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: 2px;
+}
+
+.chat-panel__session-tag {
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.64rem;
+  line-height: 1.7;
+  white-space: nowrap;
+}
+
+/* Второй ряд чипов — теги: отделяем от ряда агентов. */
+.chat-panel__filter-chips--tags {
+  margin-top: 0;
 }
 
 .chat-panel__session-list {

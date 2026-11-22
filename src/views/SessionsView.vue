@@ -7,6 +7,7 @@ import {
   toggleSessionSelected,
   clearSessionSelection,
   loadSessions,
+  setSessionTags,
 } from "@/lib/store";
 import {
   buildBackup,
@@ -29,10 +30,13 @@ import { measureStorage, type StorageSizes } from "@/storage/sizes";
 import { formatSize } from "@/lib/sizes";
 import { useLocale } from "@/i18n";
 import { useAgentFilter } from "@/composables/useAgentFilter";
+import { sortSessions } from "@/lib/session-list";
+import { collectTags, filterByTag } from "@/lib/session-tags";
 import { readModelPrices } from "@/lib/provider-account";
 import { sessionCostLabel } from "@/lib/session-cost";
 import type { Message, Session } from "@/storage/types";
 import ConfirmModal from "@/components/ConfirmModal.vue";
+import SessionTagsDialog from "@/components/SessionTagsDialog.vue";
 
 const { t, locale } = useLocale();
 
@@ -127,8 +131,32 @@ const confirmMessage = computed(() =>
 const {
   filter: agentFilter,
   agentsInUse: filterAgents,
-  filtered: visibleSessions,
+  filtered: sessionsOfAgent,
 } = useAgentFilter(sessions, agents);
+
+/** Фильтр по тегу — второй ряд чипов; теги берём из самих диалогов. */
+const tagFilter = ref("");
+const tagsInUse = computed(() => collectTags(sessions.value));
+
+/** Видимый список: агент → тег → порядок (закреплённые сверху, свежие первыми). */
+const visibleSessions = computed(() =>
+  sortSessions(filterByTag(sessionsOfAgent.value, tagFilter.value)),
+);
+
+// Тег пропал вместе с последним диалогом — снимаем фильтр.
+watch(tagsInUse, (list) => {
+  if (tagFilter.value && !list.includes(tagFilter.value)) tagFilter.value = "";
+});
+
+/** Редактор тегов: диалог и его обработчики. */
+const tagsTarget = ref<Session | null>(null);
+
+async function saveTags(tags: string[]): Promise<void> {
+  const target = tagsTarget.value;
+  tagsTarget.value = null;
+  if (!target) return;
+  await setSessionTags(target.id, tags);
+}
 
 /** Сколько отмечено среди видимых: счётчик не путается с записями под фильтром. */
 const selectedVisible = computed(
@@ -347,6 +375,34 @@ async function runConfirmedCleanup(): Promise<void> {
       </button>
     </div>
 
+    <div
+      v-if="tagsInUse.length > 0"
+      class="agent-chips"
+      role="group"
+      :aria-label="t('chat.tags')"
+    >
+      <button
+        type="button"
+        class="agent-chip"
+        :class="{ 'is-on': !tagFilter }"
+        :aria-pressed="!tagFilter"
+        @click="tagFilter = ''"
+      >
+        {{ t("chat.allTags") }}
+      </button>
+      <button
+        v-for="tag in tagsInUse"
+        :key="tag"
+        type="button"
+        class="agent-chip"
+        :class="{ 'is-on': tagFilter === tag }"
+        :aria-pressed="tagFilter === tag"
+        @click="tagFilter = tag"
+      >
+        {{ tag }}
+      </button>
+    </div>
+
     <p v-if="visibleSessions.length === 0" class="muted">{{ t("sessions.empty") }}</p>
     <ul class="list">
       <li v-for="s in visibleSessions" :key="s.id">
@@ -357,7 +413,25 @@ async function runConfirmedCleanup(): Promise<void> {
             @change="toggleSessionSelected(s.id)"
           />
           <span>
-            <strong>{{ s.title }}</strong>
+            <strong>
+              <svg
+                v-if="s.pinned"
+                class="pin-mark"
+                viewBox="0 0 24 24"
+                width="13"
+                height="13"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                role="img"
+                :aria-label="t('chat.pin')"
+              >
+                <path d="M12 17v5" />
+                <path d="M9 3h6l-1 6 3 3H7l3-3z" />
+              </svg>{{ s.title }}
+            </strong>
             <span v-if="s.tokenMode" class="token-tag">{{ t("sessions.tokenBadge") }}</span>
             <span class="muted small">
               {{
@@ -374,17 +448,34 @@ async function runConfirmedCleanup(): Promise<void> {
             <span v-if="costs[s.id]" class="muted small">
               {{ t("sessions.cost", { cost: costs[s.id] }) }}
             </span>
+            <span v-if="s.tags && s.tags.length > 0" class="tag-row">
+              <span v-for="tag in s.tags" :key="tag" class="tag-chip">{{ tag }}</span>
+            </span>
           </span>
         </label>
-        <button
-          type="button"
-          class="link"
-          :aria-label="t('sessions.backup.export')"
-          :title="t('sessions.backup.export')"
-          @click="exportSession(s)"
-        >
+        <div class="row-actions">
+          <button
+            type="button"
+            class="link"
+            :aria-label="t('chat.tagsEditTitle')"
+            :title="t('chat.tagsEditTitle')"
+            @click="tagsTarget = s"
+          >
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+              <circle cx="7" cy="7" r="1" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="link"
+            :aria-label="t('sessions.backup.export')"
+            :title="t('sessions.backup.export')"
+            @click="exportSession(s)"
+          >
           {{ t("sessions.backup.export") }}
         </button>
+        </div>
       </li>
     </ul>
 
@@ -442,6 +533,15 @@ async function runConfirmedCleanup(): Promise<void> {
       :cancel-label="t('sessions.cancel')"
       @confirm="runConfirmedCleanup"
       @cancel="confirmMode = ''"
+    />
+
+    <SessionTagsDialog
+      :open="tagsTarget !== null"
+      :session-title="tagsTarget?.title ?? ''"
+      :tags="tagsTarget?.tags ?? []"
+      :suggestions="tagsInUse"
+      @close="tagsTarget = null"
+      @save="saveTags"
     />
   </section>
 </template>
@@ -516,6 +616,38 @@ async function runConfirmedCleanup(): Promise<void> {
   padding: 4px 6px;
   color: var(--accent);
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+/* Кнопки строки: теги и экспорт — рядом, справа. */
+.row-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+}
+/* Закреплённый диалог: метка перед названием. */
+.pin-mark {
+  vertical-align: -2px;
+  margin-inline-end: 4px;
+  color: var(--accent, #2f8f5b);
+}
+/* Теги диалога: второй строкой под данными. */
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 3px;
+}
+.tag-chip {
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.7;
+  white-space: nowrap;
 }
 .check {
   display: flex;

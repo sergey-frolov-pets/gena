@@ -20,6 +20,7 @@ import {
   loadMessages,
   messages,
   pinSession,
+  setSessionTags,
   removeMessage,
   removeMessageByServerId,
   removeSession,
@@ -32,11 +33,13 @@ import {
 } from "@/lib/store";
 import { newId } from "@/lib/id";
 import { shouldOpenLastSession } from "@/lib/session-open";
+import { collectTags } from "@/lib/session-tags";
 import { composerFieldHeight, isSendKey } from "@/lib/composer";
 import AppFooter from "@/components/AppFooter.vue";
 import TokenSheet from "@/components/TokenSheet.vue";
 import SessionTabs from "@/components/SessionTabs.vue";
 import HistorySheet from "@/components/HistorySheet.vue";
+import SessionTagsDialog from "@/components/SessionTagsDialog.vue";
 import SessionQueue from "@/components/SessionQueue.vue";
 import MessageBubble from "@/components/MessageBubble.vue";
 import AttachmentTray from "@/components/AttachmentTray.vue";
@@ -2868,6 +2871,19 @@ async function togglePin(session: Session): Promise<void> {
   await pinSession(session.id, !session.pinned);
 }
 
+/** Диалог, у которого сейчас правят теги; null — окно закрыто. */
+const tagsTarget = ref<Session | null>(null);
+
+/** Все теги приложения — подсказки в редакторе. */
+const allTags = computed(() => collectTags(sessions.value));
+
+async function saveTags(tags: string[]): Promise<void> {
+  const target = tagsTarget.value;
+  tagsTarget.value = null;
+  if (!target) return;
+  await setSessionTags(target.id, tags);
+}
+
 async function duplicate(session: Session): Promise<void> {
   const copy = await duplicateSession(session.id);
   if (copy) await openSession(copy.id);
@@ -3276,6 +3292,7 @@ function onRateChange(event: Event): void {
         @duplicate="duplicate"
         @delete="confirmDeleteId = $event"
         @title="showTitle"
+        @tags="tagsTarget = $event"
       />
 
       <div
@@ -4059,6 +4076,15 @@ function onRateChange(event: Event): void {
         confirmRegenerateId = ''
       "
       @cancel="confirmRegenerateId = ''"
+    />
+
+    <SessionTagsDialog
+      :open="tagsTarget !== null"
+      :session-title="tagsTarget?.title ?? ''"
+      :tags="tagsTarget?.tags ?? []"
+      :suggestions="allTags"
+      @close="tagsTarget = null"
+      @save="saveTags"
     />
   </section>
 </template>

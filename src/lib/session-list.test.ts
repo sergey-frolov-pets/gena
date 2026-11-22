@@ -11,6 +11,7 @@ function session(partial: Partial<Session> & { id: string }): Session {
     updatedAt: partial.updatedAt ?? 1,
     messageCount: partial.messageCount ?? 0,
     pinned: partial.pinned,
+    tags: partial.tags,
   };
 }
 
@@ -47,5 +48,16 @@ describe("session-list", () => {
     ];
     expect(visibleSessions(list, "отпуск").map((s) => s.id)).toEqual(["2", "1"]);
     expect(visibleSessions(list, "").map((s) => s.id)).toEqual(["3", "2", "1"]);
+  });
+
+  it("visibleSessions: фильтр по тегу вместе с поиском и порядком", () => {
+    const list = [
+      session({ id: "1", title: "Вклады", updatedAt: 10, tags: ["работа"] }),
+      session({ id: "2", title: "Вклады ВТБ", updatedAt: 20, tags: ["работа", "дом"] }),
+      session({ id: "3", title: "Отпуск", updatedAt: 30, tags: ["дом"] }),
+    ];
+    expect(visibleSessions(list, "", "дом").map((s) => s.id)).toEqual(["3", "2"]);
+    expect(visibleSessions(list, "вклады", "дом").map((s) => s.id)).toEqual(["2"]);
+    expect(visibleSessions(list, "", "нет-такого")).toEqual([]);
   });
 });

@@ -17,6 +17,7 @@ import {
   removeMessageByServerId,
   renameSession,
   sessions,
+  setSessionTags,
 } from "./store";
 import { closeDb, listMessages } from "@/storage/db";
 
@@ -51,6 +52,18 @@ describe("store: сессия и сообщения", () => {
     const stored = sessions.value.find((s) => s.id === session.id);
     expect(stored?.title).toBe("Новое имя");
     expect(stored?.pinned).toBe(true);
+  });
+
+  it("теги диалога сохраняются и снимаются пустым списком", async () => {
+    const session = await createSession("agent-store-tags", "С тегами");
+
+    await setSessionTags(session.id, [" Работа ", "работа", "дом"]);
+    let stored = sessions.value.find((s) => s.id === session.id);
+    expect(stored?.tags).toEqual(["Работа", "дом"]);
+
+    await setSessionTags(session.id, []);
+    stored = sessions.value.find((s) => s.id === session.id);
+    expect(stored?.tags).toBeUndefined();
   });
 
   it("история закрытого диалога не подставляется в открытый", async () => {

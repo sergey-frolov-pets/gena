@@ -6,6 +6,7 @@
  */
 
 import type { Session } from "@/storage/types";
+import { hasTag } from "./session-tags";
 
 /** Поиск по названию без учёта регистра и лишних пробелов; пусто — весь список. */
 export function matchesQuery(session: Session, query: string): boolean {
@@ -24,7 +25,13 @@ export function sortSessions(list: readonly Session[]): Session[] {
   });
 }
 
-/** Поиск + порядок одной функцией: то, что видно в листе истории. */
-export function visibleSessions(list: readonly Session[], query: string): Session[] {
-  return sortSessions(list.filter((session) => matchesQuery(session, query)));
+/** Поиск + тег + порядок одной функцией: то, что видно в списке диалогов. */
+export function visibleSessions(
+  list: readonly Session[],
+  query: string,
+  tag = "",
+): Session[] {
+  return sortSessions(
+    list.filter((session) => matchesQuery(session, query) && hasTag(session, tag)),
+  );
 }
