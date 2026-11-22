@@ -164,3 +164,32 @@ label {
     padding: 4px 8px;
   }
 }
+
+/* Индикатор «агент работает»: точка в вкладке диалога и в списке истории. */
+.chat-panel__busy-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: gena-busy-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes gena-busy-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-panel__busy-dot {
+    animation: none;
+    opacity: 1;
+  }
+}

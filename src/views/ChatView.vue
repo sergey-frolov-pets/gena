@@ -35,6 +35,7 @@ import { shouldOpenLastSession } from "@/lib/session-open";
 import { composerFieldHeight, isSendKey } from "@/lib/composer";
 import AppFooter from "@/components/AppFooter.vue";
 import TokenSheet from "@/components/TokenSheet.vue";
+import SessionTabs from "@/components/SessionTabs.vue";
 import { listenToAgent, sendToAgent, type TransportAttachment } from "@/lib/agent-client";
 import { cancelAgentTurn } from "@/lib/agent-client";
 import { describeError } from "@/lib/errors";
@@ -90,6 +91,7 @@ import { listQueued, replaceQueued } from "@/storage/queue";
 import { answerElapsed, formatClock, formatDuration } from "@/lib/time";
 import { capabilitiesOf } from "@/lib/transports";
 import { isBusySession as isSessionBusy, liveSessionCount, pickRunnable } from "@/lib/turn-queue";
+import { useSessionTabs } from "@/composables/useSessionTabs";
 import { useLiveTurns } from "@/composables/useLiveTurns";
 import { useAgentFilter } from "@/composables/useAgentFilter";
 import {
@@ -97,8 +99,6 @@ import {
   FEED_WINDOW,
   MAX_PENDING,
   PENDING_KEY,
-  TABS_HIDDEN_KEY,
-  TABS_STORAGE_KEY,
   draftKey,
   forgetPending,
   parsePending,
@@ -1431,122 +1431,12 @@ const filteredSessions = computed<Session[]>(() => {
   });
 });
 
-/** Полоска недавних диалогов над чатом — как вкладки редактора в Cursor. */
-const MAX_TABS = 6;
-const tabIds = ref<string[]>(savedTabIds());
-
-function savedTabIds(): string[] {
-  try {
-    const raw = localStorage.getItem(TABS_STORAGE_KEY);
-    const list: unknown = raw ? JSON.parse(raw) : [];
-    return Array.isArray(list) ? list.filter((id): id is string => typeof id === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveTabIds(): void {
-  try {
-    localStorage.setItem(TABS_STORAGE_KEY, JSON.stringify(tabIds.value));
-  } catch {
-    // Приватный режим или отключённое хранилище — полоска живёт до перезагрузки.
-  }
-}
-
-/** Открыть диалог в полоске: свежие первыми, лишние вытесняются. */
-function rememberTab(id: string): void {
-  // Открыли закрытую вкладку — она снова видна.
-  if (hiddenTabIds.value.includes(id)) {
-    hiddenTabIds.value = hiddenTabIds.value.filter((item) => item !== id);
-    try {
-      localStorage.setItem(TABS_HIDDEN_KEY, JSON.stringify(hiddenTabIds.value));
-    } catch {
-      // Приватный режим — не критично.
-    }
-  }
-  const next = [id, ...tabIds.value.filter((item) => item !== id)].slice(0, MAX_TABS);
-  if (next.join("|") === tabIds.value.join("|")) return;
-  tabIds.value = next;
-  saveTabIds();
-}
-
-/** Закрытые вкладки: диалог живёт в списке, но в полоске его не показываем. */
-const hiddenTabIds = ref<string[]>(savedHiddenTabIds());
-
-function savedHiddenTabIds(): string[] {
-  try {
-    const raw = localStorage.getItem(TABS_HIDDEN_KEY);
-    const list: unknown = raw ? JSON.parse(raw) : [];
-    return Array.isArray(list) ? list.filter((id): id is string => typeof id === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-/** Убрать вкладку из полоски (диалог остаётся в списке и вернётся при открытии). */
-function forgetTab(id: string): void {
-  tabIds.value = tabIds.value.filter((item) => item !== id);
-  if (!hiddenTabIds.value.includes(id)) {
-    hiddenTabIds.value = [...hiddenTabIds.value, id];
-  }
-  saveTabIds();
-  try {
-    localStorage.setItem(TABS_HIDDEN_KEY, JSON.stringify(hiddenTabIds.value));
-  } catch {
-    // Приватный режим — скрытие живёт до перезагрузки.
-  }
-}
-
-/**
- * Полоска вкладок: сверху названия диалогов текущего агента.
- * Порядок — открытые вкладки, активный диалог, дальше свежие по времени.
- * Закрытая вкладка не возвращается сама, пока диалог не откроют снова.
- */
-const recentTabs = computed<Session[]>(() => {
-  const out: Session[] = [];
-  const seen = new Set<string>();
-  const hidden = new Set(hiddenTabIds.value);
-  const push = (session: Session | undefined): void => {
-    if (!session || seen.has(session.id) || hidden.has(session.id)) return;
-    seen.add(session.id);
-    out.push(session);
-  };
-  for (const id of tabIds.value) {
-    push(allSessions.value.find((s) => s.id === id));
-  }
-  push(allSessions.value.find((s) => s.id === activeSessionId.value));
-  const fresh = [...allSessions.value].sort((a, b) => b.updatedAt - a.updatedAt);
-  for (const session of fresh) {
-    if (out.length >= MAX_TABS) break;
-    push(session);
-  }
-  return out.slice(0, MAX_TABS);
-});
-
-/** Полоска вкладок: нужна ссылка, чтобы прокрутить активную вкладку в видимую зону. */
-const tabsEl = ref<HTMLElement | null>(null);
-
-/**
- * Выбранная вкладка должна быть видна целиком: если она ушла за край полоски
- * (часто на телефоне после открытия диалога из истории), прокручиваем её
- * к центру. Вертикальную прокрутку страницы не трогаем.
- */
-function revealActiveTab(): void {
-  const strip = tabsEl.value;
-  if (!strip) return;
-  const active = strip.querySelector<HTMLElement>(".chat-panel__tab.is-active");
-  if (!active) return;
-  const stripRect = strip.getBoundingClientRect();
-  const tabRect = active.getBoundingClientRect();
-  // Вкладка уже целиком в видимой части полоски — ничего не делаем.
-  if (tabRect.left >= stripRect.left && tabRect.right <= stripRect.right) return;
-  const centered =
-    tabRect.left - stripRect.left + strip.scrollLeft - (strip.clientWidth - tabRect.width) / 2;
-  strip.scrollLeft = Math.max(0, centered);
-}
-
-// Смена диалога или набора вкладок — активная вкладка снова на виду.
-watch([activeSessionId, recentTabs], () => void nextTick(revealActiveTab), { flush: "post" });
+/** Полоска недавних диалогов: порядок вкладок и закрытые живут в useSessionTabs. */
+const {
+  tabs: recentTabs,
+  remember: rememberTab,
+  forget: forgetTab,
+} = useSessionTabs(allSessions, activeSessionId);
 
 /** Сессии, где агент сейчас отвечает или ждёт своей очереди. */
 const busySessionIds = computed<Set<string>>(() => {
@@ -3391,43 +3281,14 @@ function onRateChange(event: Event): void {
       <span class="chat-panel__usage">{{ limitLabel }}</span>
     </div>
 
-    <nav ref="tabsEl" v-if="recentTabs.length" class="chat-panel__tabs" :aria-label="t('chat.dialogs')">
-      <div
-        v-for="s in recentTabs"
-        :key="s.id"
-        class="chat-panel__tab"
-        :class="{ 'is-active': s.id === activeSessionId, 'is-busy': busySessionIds.has(s.id) }"
-      >
-        <button
-          type="button"
-          class="chat-panel__tab-open"
-          :aria-current="s.id === activeSessionId ? 'true' : undefined"
-          :title="s.title"
-          v-longpress="() => showTitle(s.title)"
-          @click="onTabClick(s.id)"
-        >
-          <span v-if="busySessionIds.has(s.id)" class="chat-panel__busy-dot" aria-hidden="true" />
-          <span v-if="s.tokenMode" class="chat-panel__tab-lock" :title="t('chat.tokenMode')" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="4" y="10" width="16" height="10" rx="2" />
-              <path d="M8 10V7a4 4 0 0 1 8 0v3" />
-            </svg>
-          </span>
-          <span class="chat-panel__tab-title">{{ s.title }}</span>
-        </button>
-        <button
-          type="button"
-          class="chat-panel__tab-close"
-          v-tip="t('chat.close')"
-          :aria-label="t('chat.close')"
-          @click.stop="forgetTab(s.id)"
-        >
-          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-            <path d="M6 6l12 12M18 6L6 18" />
-          </svg>
-        </button>
-      </div>
-    </nav>
+    <SessionTabs
+      :tabs="recentTabs"
+      :active-id="activeSessionId"
+      :busy-ids="busySessionIds"
+      @open="onTabClick"
+      @close="forgetTab"
+      @title="showTitle"
+    />
 
     <div class="chat-panel__stage">
       <TokenSheet
@@ -4723,180 +4584,16 @@ function onRateChange(event: Event): void {
   gap: 4px;
 }
 
-/* --- Полоска недавних диалогов: вкладки как в редакторе (Cursor/VS Code) -- */
-.chat-panel__tabs {
-  /* Полоса вкладок не сжимается по высоте: `overflow-x: auto` делает её ещё и
-     скролл-контейнером (overflow-y становится auto), а значит min-height = 0,
-     и при нехватке места вкладки сплющивались, а их верх обрезался краем панели. */
-  flex: 0 0 auto;
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  padding: 6px 8px 0;
-  margin-bottom: -6px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-  background: var(--panel-2);
-  position: relative;
-}
-
-/* Сплошная линия-разделитель под всей полосой; активная вкладка её перекрывает. */
-.chat-panel__tabs::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 1px;
-  background: var(--border);
-}
-
-.chat-panel__tabs::-webkit-scrollbar {
-  display: none;
-}
-
-.chat-panel__tab {
-  display: flex;
-  flex: 0 0 auto;
-  position: relative;
-  z-index: 1;
-  align-items: center;
-  min-height: 2.2rem;
-  max-width: 11.5rem;
-  border: 1px solid transparent;
-  border-bottom-color: var(--border);
-  border-radius: 8px 8px 0 0;
-  background: transparent;
-  color: var(--muted);
-}
-
-.chat-panel__tab:hover {
-  background: color-mix(in srgb, var(--panel) 55%, transparent);
-}
-
-/* Активная вкладка сливается с полотном чата: её нижняя линия — цвета полотна. */
-.chat-panel__tab.is-active {
-  border-color: var(--border);
-  border-bottom-color: var(--panel);
-  background: var(--panel);
-  color: var(--text);
-}
-
-.chat-panel__tab-open {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  align-self: stretch;
-  min-height: 2.2rem;
-  max-width: 9.2rem;
-  padding: 0 4px 0 8px;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font-size: 0.78rem;
-  line-height: 1.15;
-  cursor: pointer;
-}
-
-.chat-panel__tab-title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.chat-panel__tab-close {
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  margin-inline-end: 4px;
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.12s ease;
-}
-
-/* Крестик появляется у активной вкладки и при наведении — как в редакторе. */
-.chat-panel__tab.is-active .chat-panel__tab-close,
-.chat-panel__tab:hover .chat-panel__tab-close,
-.chat-panel__tab-close:focus-visible {
-  opacity: 1;
-}
-
-@media (hover: none) {
-  .chat-panel__tab-close {
-    opacity: 0.7;
-  }
-}
-
-.chat-panel__tab-close:hover {
-  background: color-mix(in srgb, var(--danger) 14%, transparent);
-  color: var(--danger);
-}
-
-/* Телефон: вкладки ещё уже — больше диалогов влезает в полоску. */
-@media (max-width: 720px) {
-  .chat-panel__tab {
-    min-height: 2.05rem;
-    max-width: 8rem;
-  }
-  .chat-panel__tab-open {
-    min-height: 2.05rem;
-    max-width: 6.3rem;
-    padding: 0 2px 0 7px;
-    font-size: 0.74rem;
-  }
-  .chat-panel__tab-close {
-    width: 18px;
-    height: 18px;
-    margin-inline-end: 2px;
-  }
-}
-
-/* Агент отвечает (или реплика ждёт очереди) — диалог выделяем жирным. */
-.chat-panel__tab.is-busy .chat-panel__tab-title,
+/* Агент отвечает (или реплика ждёт очереди) — диалог в списке выделяем жирным. */
 .chat-panel__session.is-busy .chat-panel__session-title {
   font-weight: 650;
   color: var(--text);
-}
-
-.chat-panel__busy-dot {
-  flex: 0 0 auto;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-  animation: gena-busy-pulse 1.1s ease-in-out infinite;
 }
 
 .chat-panel__session-title .chat-panel__busy-dot {
   display: inline-block;
   margin-inline-end: 6px;
   vertical-align: middle;
-}
-
-@keyframes gena-busy-pulse {
-  0%,
-  100% {
-    opacity: 0.35;
-    transform: scale(0.8);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .chat-panel__busy-dot {
-    animation: none;
-    opacity: 1;
-  }
 }
 
 .chat-panel__search {
@@ -6478,13 +6175,6 @@ function onRateChange(event: Event): void {
   border: 1px solid var(--border);
   border-radius: 14px;
   box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.22);
-}
-
-.chat-panel__tab-lock {
-  display: inline-flex;
-  align-items: center;
-  margin-inline-end: 2px;
-  color: var(--accent);
 }
 
 .chat-panel__quick {
