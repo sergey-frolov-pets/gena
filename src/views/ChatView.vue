@@ -1000,17 +1000,21 @@ function markDispatching(sessionId: string, on: boolean): void {
 function startQueued(item: QueuedMessage): void {
   const key = item.sessionId ?? activeSessionId.value ?? "";
   if (key) markDispatching(key, true);
+  let sent = false;
   void dispatch(item, item.persist, item.sessionId)
-    .then((sent) => {
+    .then((ok) => {
+      sent = ok;
       // Не ушло (нет ключа, лимит) — возвращаем в начало, чтобы не потерять.
-      if (!sent) queue.value = [item, ...queue.value];
+      if (!ok) queue.value = [item, ...queue.value];
     })
     .catch((e) => {
       error.value = describeError(e, t);
     })
     .finally(() => {
       if (key) markDispatching(key, false);
-      void pumpQueue();
+      // Упавшую реплику сразу не переспрашиваем: иначе бесконечный круг
+      // «взяли из очереди → не ушло → положили обратно».
+      void pumpQueue(sent ? undefined : key);
     });
 }
 
@@ -1293,6 +1297,7 @@ watch([activeSessionId, recentTabs], () => void nextTick(revealActiveTab), { flu
 /** Сессии, где агент сейчас отвечает или ждёт своей очереди. */
 const busySessionIds = computed<Set<string>>(() => {
   const ids = new Set<string>(Object.keys(turns.value));
+  for (const id of dispatching.value) ids.add(id);
   for (const item of queue.value) {
     if (item.sessionId) ids.add(item.sessionId);
   }

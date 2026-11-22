@@ -130,6 +130,11 @@ const {
   filtered: visibleSessions,
 } = useAgentFilter(sessions, agents);
 
+/** Сколько отмечено среди видимых: счётчик не путается с записями под фильтром. */
+const selectedVisible = computed(
+  () => visibleSessions.value.filter((s) => selectedSessionIds.value.has(s.id)).length,
+);
+
 const allSelected = computed(
   () =>
     visibleSessions.value.length > 0 &&
@@ -315,7 +320,7 @@ async function runConfirmedCleanup(): Promise<void> {
         {{ allSelected ? t("sessions.deselectAll") : t("sessions.selectAll") }}
       </button>
       <span class="muted">
-        {{ t("sessions.selected", { count: selectedSessionIds.size, total: visibleSessions.length }) }}
+        {{ t("sessions.selected", { count: selectedVisible, total: visibleSessions.length }) }}
       </span>
     </div>
 
