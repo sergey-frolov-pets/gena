@@ -108,6 +108,12 @@ import {
 } from "@/lib/tokens/registry";
 import { forAgent, historyForAgent, tokensReady } from "@/lib/tokens/outgoing";
 import { insertTokenAt } from "@/lib/tokens/insert";
+import {
+  applyTokenPick,
+  filterTokenNames,
+  findTokenTrigger,
+  type TokenTrigger,
+} from "@/lib/tokens/trigger";
 import ConfirmModal from "@/components/ConfirmModal.vue";
 import TextModal from "@/components/TextModal.vue";
 import { agentId } from "@/lib/active-agent";
@@ -179,6 +185,22 @@ const tokenNames = computed(() =>
   tokenEntries.value.map((item) => item.name).sort((a, b) => a.localeCompare(b, "ru")),
 );
 
+/** Открытый фрагмент `⟦…` перед кареткой: подсказка по мере набора. */
+const tokenTrigger = ref<TokenTrigger | null>(null);
+
+/** Имена в панели подсказки: от триггера — отфильтрованные, от кнопки — все. */
+const tokenPickNames = computed(() => {
+  const trigger = tokenTrigger.value;
+  if (trigger) {
+    return isTokenSession(activeSession.value) ? filterTokenNames(tokenNames.value, trigger.query) : [];
+  }
+  return tokenPickOpen.value ? tokenNames.value : [];
+});
+
+const tokenPickVisible = computed(
+  () => tokenPickNames.value.length > 0 && (tokenTrigger.value !== null || tokenPickOpen.value),
+);
+
 function toggleTokenPick(): void {
   if (tokenEntries.value.length === 0) {
     showNotice(t("chat.tokenModeEmpty"));
@@ -191,8 +213,12 @@ function toggleTokenPick(): void {
 function insertTokenName(name: string): void {
   const el = composerEl.value;
   const caret = el && el.selectionStart !== null ? el.selectionStart : draft.value.length;
-  const result = insertTokenAt(draft.value, caret, name);
+  const trigger = tokenTrigger.value;
+  const result = trigger
+    ? applyTokenPick(draft.value, caret, name, trigger)
+    : insertTokenAt(draft.value, caret, name);
   draft.value = result.text;
+  tokenTrigger.value = null;
   tokenPickOpen.value = false;
   if (compact.value && !composerOpen.value) composerOpen.value = true;
   void nextTick(() => {
@@ -201,6 +227,17 @@ function insertTokenName(name: string): void {
     area.focus();
     area.setSelectionRange(result.caret, result.caret);
   });
+}
+
+/** Ввод в поле: обновляем подсказку токенов; вне защищённого диалога её нет. */
+function onComposerInput(event: Event): void {
+  if (!isTokenSession(activeSession.value)) {
+    tokenTrigger.value = null;
+    return;
+  }
+  const el = event.target as HTMLTextAreaElement | null;
+  const caret = el && el.selectionStart !== null ? el.selectionStart : draft.value.length;
+  tokenTrigger.value = findTokenTrigger(draft.value, caret);
 }
 
 function openDictionary(): void {
@@ -1499,6 +1536,7 @@ function takeComposer(): ComposerPayload | null {
   const docs = pendingDocs.value;
   if (!text && images.length === 0 && docs.length === 0) return null;
   draft.value = "";
+  tokenTrigger.value = null;
   pendingImages.value = [];
   pendingDocs.value = [];
   attachError.value = "";
@@ -1551,6 +1589,11 @@ async function enqueue(
  * простой Enter — перенос строки (решение Сергея, 20.11.2026).
  */
 function onComposerKey(event: KeyboardEvent): void {
+  if (event.key === "Escape" && tokenTrigger.value) {
+    event.preventDefault();
+    tokenTrigger.value = null;
+    return;
+  }
   if (!isSendKey(event)) return;
   event.preventDefault();
   void send();
@@ -3288,13 +3331,13 @@ function onRateChange(event: Event): void {
       </div>
 
       <div
-        v-if="tokenPickOpen"
+        v-if="tokenPickVisible"
         class="chat-panel__token-pick"
         role="group"
         :aria-label="t('chat.tokens.insert')"
       >
         <button
-          v-for="name in tokenNames"
+          v-for="name in tokenPickNames"
           :key="name"
           type="button"
           class="chat-panel__quick-item"
@@ -3415,6 +3458,7 @@ function onRateChange(event: Event): void {
             :aria-label="composerPlaceholder"
             :disabled="composerDisabled"
             @keydown="onComposerKey"
+            @input="onComposerInput"
             @paste="onPaste"
           />
           <div class="chat-panel__composer-stack">
