@@ -21,6 +21,14 @@ import {
 } from "@/lib/tokens/registry";
 import { findConflicts, type MergeConflict, type MergePolicy } from "@/lib/tokens/merge";
 import {
+  downloadMorph,
+  loadMorph,
+  morphProgress,
+  morphStats,
+  morphStatus,
+  removeMorphDictionary,
+} from "@/lib/tokens/morph/service";
+import {
   checkTransferPassword,
   exportTokenFile,
   importTokenFile,
@@ -29,7 +37,7 @@ import {
 } from "@/lib/tokens/transfer";
 import ConfirmModal from "@/components/ConfirmModal.vue";
 
-const { t } = useLocale();
+const { t, locale } = useLocale();
 
 const error = ref("");
 const notice = ref("");
@@ -53,7 +61,32 @@ const exporting = ref(false);
 
 const confirmDeleteId = ref("");
 
+/** Скачать или обновить морфологический словарь. */
+async function runDownloadMorph(): Promise<void> {
+  await downloadMorph();
+}
+
+/** Убрать словарь с устройства: падежи снова только из ручных вариантов. */
+async function runRemoveMorph(): Promise<void> {
+  await removeMorphDictionary();
+}
+
+function formatMorphSize(bytes: number): string {
+  if (!bytes || bytes <= 0) return "—";
+  if (bytes < 1024 * 1024) return t("tokens.dict.kb", { value: Math.round(bytes / 1024) });
+  return t("tokens.dict.mb", { value: (bytes / 1024 / 1024).toFixed(1) });
+}
+
+function formatLemmas(count: number): string {
+  try {
+    return new Intl.NumberFormat(locale.value).format(count);
+  } catch {
+    return String(count);
+  }
+}
+
 onMounted(async () => {
+  void loadMorph();
   try {
     await loadTokens();
   } catch (e) {
@@ -289,6 +322,52 @@ function setDecision(key: string, policy: MergePolicy): void {
       {{ t("tokens.error.broken", { count: tokensBroken }) }}
     </p>
 
+    <section class="tokens-dict">
+      <h3 class="tokens-subtitle">{{ t("tokens.dict.title") }}</h3>
+      <p class="muted small">{{ t("tokens.dict.intro") }}</p>
+      <p v-if="morphStatus === 'ready'" class="small">
+        {{
+          t("tokens.dict.ready", {
+            lemmas: formatLemmas(morphStats?.lemmas ?? 0),
+            size: formatMorphSize(morphStats?.bytes ?? 0),
+          })
+        }}
+      </p>
+      <p v-else-if="morphStatus === 'loading'" class="small">
+        {{ t("tokens.dict.loading", { percent: Math.round(morphProgress * 100) }) }}
+      </p>
+      <p v-else-if="morphStatus === 'error'" class="tokens-banner is-error" role="alert">
+        {{ t("tokens.dict.error") }}
+      </p>
+      <p v-else class="small muted">{{ t("tokens.dict.missing") }}</p>
+      <progress
+        v-if="morphStatus === 'loading'"
+        class="tokens-dict__progress"
+        :value="morphProgress"
+        max="1"
+      />
+      <div class="tokens-actions">
+        <button
+          v-if="morphStatus !== 'ready'"
+          type="button"
+          class="is-primary"
+          :disabled="morphStatus === 'loading'"
+          @click="runDownloadMorph"
+        >
+          {{ t("tokens.dict.download") }}
+        </button>
+        <template v-else>
+          <button type="button" @click="runDownloadMorph">
+            {{ t("tokens.dict.update") }}
+          </button>
+          <button type="button" class="is-danger" @click="runRemoveMorph">
+            {{ t("tokens.dict.remove") }}
+          </button>
+        </template>
+      </div>
+      <p class="muted small">{{ t("tokens.dict.priority") }}</p>
+    </section>
+
     <form class="tokens-form" @submit.prevent="submit">
       <label class="tokens-field">
         <span>{{ t("tokens.name") }}</span>
@@ -428,6 +507,17 @@ function setDecision(key: string, policy: MergePolicy): void {
 </template>
 
 <style scoped>
+.tokens-dict {
+  margin: 14px 0 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.tokens-dict__progress {
+  width: 100%;
+  height: 6px;
+  margin: 6px 0 10px;
+}
 .tokens-banner {
   margin: 10px 0;
   padding: 8px 10px;

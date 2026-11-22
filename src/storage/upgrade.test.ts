@@ -4,7 +4,7 @@
  * Регрессия: после выпуска с версией базы 4 пользователи сообщали, что
  * «после обновления пропали агенты и диалоги». Тест поднимает базу в том
  * виде, в каком её оставила версия 3, и проверяет, что после открытия
- * версией 4 записи на месте и добавился только новый стор.
+ * свежей версией записи на месте и добавились только новые сторы.
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { closeDb, getDb, listAgents, listSessions, listMessages } from "./db";
@@ -52,7 +52,7 @@ afterEach(async () => {
   });
 });
 
-describe("обновление базы 3 → 4", () => {
+describe("обновление базы 3 → 5", () => {
   it("сохраняет агентов, диалоги и сообщения", async () => {
     const old = await openV3();
     await put(old, "agents", {
@@ -85,8 +85,9 @@ describe("обновление базы 3 → 4", () => {
     old.close();
 
     const db = await getDb();
-    expect(db.version).toBe(4);
+    expect(db.version).toBe(5);
     expect(db.objectStoreNames.contains("tokens")).toBe(true);
+    expect(db.objectStoreNames.contains("morph")).toBe(true);
 
     const agents = await listAgents();
     const sessions = await listSessions();

@@ -6,6 +6,8 @@
  * Session — диалог с агентом. Message — сообщение в сессии.
  */
 
+import type { MorphLemmaEntry } from "@/lib/tokens/morph/format";
+
 export interface AgentSettings {
   /** Сколько последних сообщений отправлять агенту как контекст. */
   contextSize: number;
@@ -255,4 +257,30 @@ export function normalizeAgent(raw: Agent): Agent {
     config: raw.config ?? {},
     schemaVersion: raw.schemaVersion ?? (raw.protocol ? SCHEMA_VERSION : 1),
   };
+}
+
+/**
+ * Скачанный морфологический словарь (стор `morph`).
+ *
+ * Хранится целиком одним объектом: парадигмы падежей по леммам. Файл
+ * скачивается один раз и дальше читается с устройства — сеть нужна только
+ * для обновления.
+ */
+export interface MorphRecord {
+  /** Постоянный ключ записи: сейчас всегда `ru`. */
+  id: string;
+  /** Версия формата файла (совпадает с `MORPH_VERSION`). */
+  version: number;
+  /** Когда файл был собран генератором. */
+  createdAt?: string;
+  source?: string;
+  license?: string;
+  /** Порядок падежей — часть формата. */
+  cases: string[];
+  /** Парадигмы: лемма → формы падежей. */
+  lemmas: Record<string, MorphLemmaEntry>;
+  /** Размер файла в байтах (для отчёта в интерфейсе). */
+  bytes: number;
+  /** Когда словарь попал на устройство. */
+  downloadedAt: number;
 }

@@ -16,6 +16,7 @@ import {
 import { openTokenValue, sealTokenValue } from "@/crypto/token-cipher";
 import { isValidTokenName, normalizeTokenName, tokenNameKey, tokensToValues } from "./format";
 import { valuesToTokens, type SubstitutionResult } from "./substitute";
+import { withDeclensions } from "./morph/service";
 import type { TransferEntry } from "./transfer";
 import { planMerge, type MergeConflict, type MergePolicy } from "./merge";
 import { newId } from "@/lib/id";
@@ -168,9 +169,15 @@ export function restoreValues(text: string): string {
   return tokensToValues(text, tokenLookup);
 }
 
-/** Текст для хранения и отправки: значения → токены. */
+/**
+ * Текст для хранения и отправки: значения → токены.
+ *
+ * Если скачан морфологический словарь, к записям дописываются падежные
+ * написания — иначе «вклада ВТБ» ушло бы агенту открытым текстом только
+ * потому, что человек написал значение в другом падеже.
+ */
 export function replaceValues(text: string): SubstitutionResult {
-  return valuesToTokens(text, tokenEntries.value);
+  return valuesToTokens(text, withDeclensions(tokenEntries.value));
 }
 
 export interface ImportSummary {

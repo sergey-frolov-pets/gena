@@ -106,6 +106,7 @@ import {
   restoreValues,
   tokenEntries,
 } from "@/lib/tokens/registry";
+import { loadMorph } from "@/lib/tokens/morph/service";
 import { forAgent, historyForAgent, tokensReady } from "@/lib/tokens/outgoing";
 import { insertTokenAt } from "@/lib/tokens/insert";
 import {
@@ -2459,6 +2460,8 @@ onMounted(() => {
   syncViewport();
   // Справочник подстановок нужен уже к первой отправке.
   void loadTokens();
+  // Скачанный морфологический словарь даёт падежные написания значений.
+  void loadMorph();
   // Реплики, ждавшие ответа, поднимаем из IndexedDB — закрытие вкладки их не теряет.
   void restoreQueue();
   // Вернулись на вкладку чата — показываем конец диалога, а не начало.

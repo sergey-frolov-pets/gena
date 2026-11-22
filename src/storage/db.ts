@@ -8,10 +8,11 @@
  *   usage    (keyPath agentId)                  — счётчик вызовов агента за сутки
  *   queue    (keyPath id)                       — реплики, ждущие ответа агента
  *   tokens   (keyPath id, index by-name-key, by-updated) — справочник подстановок
+ *   morph    (keyPath id)                       — скачанный морфологический словарь
  *
  * Все функции тонкие; бизнес-логика (шифрование, бэкап, очистка) — выше.
  * Миграции идемпотентны: существующие данные не трогаются, добавляются
- * только новые сторы (v2 — `usage`, v3 — `queue`, v4 — `tokens`).
+ * только новые сторы (v2 — `usage`, v3 — `queue`, v4 — `tokens`, v5 — `morph`).
  */
 
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
@@ -19,6 +20,7 @@ import {
   normalizeAgent,
   type Agent,
   type Message,
+  type MorphRecord,
   type Session,
   type TokenRecord,
   type UsageRecord,
@@ -26,7 +28,7 @@ import {
 import type { QueuedRecord } from "./queue";
 
 const DB_NAME = "gena";
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 interface GenaDB extends DBSchema {
   agents: {
@@ -64,6 +66,10 @@ interface GenaDB extends DBSchema {
       "by-name-key": string;
       "by-updated": number;
     };
+  };
+  morph: {
+    key: string;
+    value: MorphRecord;
   };
 }
 
@@ -134,6 +140,9 @@ function openDatabase(): Promise<IDBPDatabase<GenaDB>> {
           const store = db.createObjectStore("tokens", { keyPath: "id" });
           store.createIndex("by-name-key", "nameKey", { unique: true });
           store.createIndex("by-updated", "updatedAt");
+        }
+        if (!db.objectStoreNames.contains("morph")) {
+          db.createObjectStore("morph", { keyPath: "id" });
         }
       },
       /** Наша вкладка мешает обновлению в другой — отпускаем базу сами. */

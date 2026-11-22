@@ -73,6 +73,19 @@ const en = {
   "chat.tokens.insert": "Insert token",
   "chat.tokens.exit": "Leave token mode",
   "chat.tokens.protected": "Protected chat — the agent sees only tokens",
+  "tokens.dict.title": "Morphology dictionary",
+  "tokens.dict.intro":
+    "Case forms of values come from a dictionary: it is downloaded once and then works offline. The agent still receives tokens only.",
+  "tokens.dict.missing": "Dictionary is not downloaded — only the spellings you typed yourself are used.",
+  "tokens.dict.ready": "Downloaded: {lemmas} words, {size}.",
+  "tokens.dict.loading": "Downloading… {percent}%",
+  "tokens.dict.error": "Could not download the dictionary. Check the connection and try again.",
+  "tokens.dict.download": "Download dictionary",
+  "tokens.dict.update": "Update",
+  "tokens.dict.remove": "Delete",
+  "tokens.dict.priority": "Spellings you entered by hand take precedence over the dictionary.",
+  "tokens.dict.kb": "{value} KB",
+  "tokens.dict.mb": "{value} MB",
 } as const satisfies LocaleMessages;
 
 const ru = {
@@ -139,6 +152,19 @@ const ru = {
   "chat.tokens.insert": "Вставить токен",
   "chat.tokens.exit": "Выйти из режима",
   "chat.tokens.protected": "Защищённый диалог — агент видит только токены",
+  "tokens.dict.title": "Морфологический словарь",
+  "tokens.dict.intro":
+    "Падежные формы значений строятся по словарю: он скачивается один раз и дальше работает без сети. Агент по-прежнему видит только токены.",
+  "tokens.dict.missing": "Словарь не скачан — работают только варианты, вписанные вручную.",
+  "tokens.dict.ready": "Скачан: {lemmas} слов, {size}.",
+  "tokens.dict.loading": "Скачивание… {percent}%",
+  "tokens.dict.error": "Не удалось скачать словарь. Проверьте связь и повторите.",
+  "tokens.dict.download": "Скачать словарь",
+  "tokens.dict.update": "Обновить",
+  "tokens.dict.remove": "Удалить",
+  "tokens.dict.priority": "Вписанные вручную варианты важнее словаря.",
+  "tokens.dict.kb": "{value} КБ",
+  "tokens.dict.mb": "{value} МБ",
 } as const satisfies LocaleMessages;
 
 const de = {
@@ -183,6 +209,19 @@ const de = {
   "chat.tokens.insert": "Token einfügen",
   "chat.tokens.exit": "Token-Modus verlassen",
   "chat.tokens.protected": "Geschützter Chat — der Agent sieht nur Token",
+  "tokens.dict.title": "Morphologisches Wörterbuch",
+  "tokens.dict.intro":
+    "Fallformen der Werte entstehen aus einem Wörterbuch: einmal laden, danach offline. Der Agent sieht weiterhin nur Token.",
+  "tokens.dict.missing": "Wörterbuch nicht geladen — genutzt werden nur selbst eingetragene Schreibweisen.",
+  "tokens.dict.ready": "Geladen: {lemmas} Wörter, {size}.",
+  "tokens.dict.loading": "Wird geladen… {percent} %",
+  "tokens.dict.error": "Wörterbuch konnte nicht geladen werden. Verbindung prüfen und erneut versuchen.",
+  "tokens.dict.download": "Wörterbuch laden",
+  "tokens.dict.update": "Aktualisieren",
+  "tokens.dict.remove": "Löschen",
+  "tokens.dict.priority": "Selbst eingetragene Schreibweisen haben Vorrang vor dem Wörterbuch.",
+  "tokens.dict.kb": "{value} KB",
+  "tokens.dict.mb": "{value} MB",
 } as const satisfies LocaleMessages;
 
 const es = {
@@ -227,6 +266,19 @@ const es = {
   "chat.tokens.insert": "Insertar token",
   "chat.tokens.exit": "Salir del modo token",
   "chat.tokens.protected": "Chat protegido: el agente solo ve tokens",
+  "tokens.dict.title": "Diccionario morfológico",
+  "tokens.dict.intro":
+    "Las formas de caso de los valores se construyen con un diccionario: se descarga una vez y luego funciona sin conexión. El agente sigue viendo solo tokens.",
+  "tokens.dict.missing": "Diccionario no descargado: solo se usan las variantes escritas a mano.",
+  "tokens.dict.ready": "Descargado: {lemmas} palabras, {size}.",
+  "tokens.dict.loading": "Descargando… {percent} %",
+  "tokens.dict.error": "No se pudo descargar el diccionario. Comprueba la conexión e inténtalo de nuevo.",
+  "tokens.dict.download": "Descargar diccionario",
+  "tokens.dict.update": "Actualizar",
+  "tokens.dict.remove": "Eliminar",
+  "tokens.dict.priority": "Las variantes escritas a mano tienen prioridad sobre el diccionario.",
+  "tokens.dict.kb": "{value} KB",
+  "tokens.dict.mb": "{value} MB",
 } as const satisfies LocaleMessages;
 
 const pt = {
@@ -271,6 +323,19 @@ const pt = {
   "chat.tokens.insert": "Inserir token",
   "chat.tokens.exit": "Sair do modo token",
   "chat.tokens.protected": "Conversa protegida: o agente só vê tokens",
+  "tokens.dict.title": "Dicionário morfológico",
+  "tokens.dict.intro":
+    "As formas de caso dos valores vêm de um dicionário: descarrega-se uma vez e depois funciona offline. O agente continua a ver apenas tokens.",
+  "tokens.dict.missing": "Dicionário não descarregado — só são usadas as variantes escritas à mão.",
+  "tokens.dict.ready": "Descarregado: {lemmas} palavras, {size}.",
+  "tokens.dict.loading": "A descarregar… {percent}%",
+  "tokens.dict.error": "Não foi possível descarregar o dicionário. Verifique a ligação e tente novamente.",
+  "tokens.dict.download": "Descarregar dicionário",
+  "tokens.dict.update": "Atualizar",
+  "tokens.dict.remove": "Eliminar",
+  "tokens.dict.priority": "As variantes escritas à mão têm prioridade sobre o dicionário.",
+  "tokens.dict.kb": "{value} KB",
+  "tokens.dict.mb": "{value} MB",
 } as const satisfies LocaleMessages;
 
 const zh = {
@@ -313,6 +378,18 @@ const zh = {
   "chat.tokens.insert": "插入令牌",
   "chat.tokens.exit": "退出令牌模式",
   "chat.tokens.protected": "受保护会话——代理只看到令牌",
+  "tokens.dict.title": "形态词典",
+  "tokens.dict.intro": "值的格形式由词典生成：下载一次，之后离线可用。代理仍然只会看到令牌。",
+  "tokens.dict.missing": "词典尚未下载——只使用手动填写的写法。",
+  "tokens.dict.ready": "已下载：{lemmas} 个词，{size}。",
+  "tokens.dict.loading": "下载中… {percent}%",
+  "tokens.dict.error": "无法下载词典。请检查网络后重试。",
+  "tokens.dict.download": "下载词典",
+  "tokens.dict.update": "更新",
+  "tokens.dict.remove": "删除",
+  "tokens.dict.priority": "手动填写的写法优先于词典。",
+  "tokens.dict.kb": "{value} KB",
+  "tokens.dict.mb": "{value} MB",
 } as const satisfies LocaleMessages;
 
 const ja = {
@@ -355,6 +432,19 @@ const ja = {
   "chat.tokens.insert": "トークンを挿入",
   "chat.tokens.exit": "トークンモードを終了",
   "chat.tokens.protected": "保護されたチャット — エージェントはトークンのみ参照します",
+  "tokens.dict.title": "形態辞書",
+  "tokens.dict.intro":
+    "値の格変化は辞書から作られます。一度ダウンロードすればオフラインで使えます。エージェントが見るのは引き続きトークンだけです。",
+  "tokens.dict.missing": "辞書は未ダウンロードです。手入力した表記だけが使われます。",
+  "tokens.dict.ready": "ダウンロード済み：{lemmas} 語、{size}。",
+  "tokens.dict.loading": "ダウンロード中… {percent}%",
+  "tokens.dict.error": "辞書をダウンロードできませんでした。接続を確認して再試行してください。",
+  "tokens.dict.download": "辞書をダウンロード",
+  "tokens.dict.update": "更新",
+  "tokens.dict.remove": "削除",
+  "tokens.dict.priority": "手入力した表記は辞書より優先されます。",
+  "tokens.dict.kb": "{value} KB",
+  "tokens.dict.mb": "{value} MB",
 } as const satisfies LocaleMessages;
 
 const hi = {
@@ -398,6 +488,19 @@ const hi = {
   "chat.tokens.insert": "टोकन डालें",
   "chat.tokens.exit": "टोकन मोड छोड़ें",
   "chat.tokens.protected": "सुरक्षित चैट — एजेंट केवल टोकन देखता है",
+  "tokens.dict.title": "रूपात्मक शब्दकोश",
+  "tokens.dict.intro":
+    "मानों के कारक रूप शब्दकोश से बनते हैं: एक बार डाउनलोड करें, फिर ऑफ़लाइन काम करता है। एजेंट को अब भी केवल टोकन दिखते हैं।",
+  "tokens.dict.missing": "शब्दकोश डाउनलोड नहीं है — केवल हाथ से लिखे रूप काम करते हैं।",
+  "tokens.dict.ready": "डाउनलोड हो गया: {lemmas} शब्द, {size}।",
+  "tokens.dict.loading": "डाउनलोड हो रहा है… {percent}%",
+  "tokens.dict.error": "शब्दकोश डाउनलोड नहीं हो सका। कनेक्शन जाँचें और फिर कोशिश करें।",
+  "tokens.dict.download": "शब्दकोश डाउनलोड करें",
+  "tokens.dict.update": "अद्यतन करें",
+  "tokens.dict.remove": "हटाएँ",
+  "tokens.dict.priority": "हाथ से लिखे रूप शब्दकोश से अधिक महत्वपूर्ण हैं।",
+  "tokens.dict.kb": "{value} KB",
+  "tokens.dict.mb": "{value} MB",
 } as const satisfies LocaleMessages;
 
 const ar = {
@@ -441,6 +544,19 @@ const ar = {
   "chat.tokens.insert": "إدراج رمز",
   "chat.tokens.exit": "الخروج من وضع الرموز",
   "chat.tokens.protected": "محادثة محمية — يرى الوكيل الرموز فقط",
+  "tokens.dict.title": "القاموس الصرفي",
+  "tokens.dict.intro":
+    "تُبنى صيغ الحالات للمقادير من قاموس: يُنزَّل مرة واحدة ثم يعمل دون اتصال. الوكيل لا يرى إلا الرموز.",
+  "tokens.dict.missing": "القاموس غير منزَّل — تُستخدم فقط الصيغ المكتوبة يدويًا.",
+  "tokens.dict.ready": "تم التنزيل: {lemmas} كلمة، {size}.",
+  "tokens.dict.loading": "جارٍ التنزيل… {percent}%",
+  "tokens.dict.error": "تعذّر تنزيل القاموس. تحقق من الاتصال وأعد المحاولة.",
+  "tokens.dict.download": "تنزيل القاموس",
+  "tokens.dict.update": "تحديث",
+  "tokens.dict.remove": "حذف",
+  "tokens.dict.priority": "الصيغ المكتوبة يدويًا تسبق القاموس.",
+  "tokens.dict.kb": "{value} كيلوبايت",
+  "tokens.dict.mb": "{value} ميغابايت",
 } as const satisfies LocaleMessages;
 
 export const tokensByLocale = {
