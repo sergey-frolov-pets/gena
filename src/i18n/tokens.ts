@@ -12,7 +12,7 @@ import type { LocaleMessages } from "./types";
 const en = {
   "tokens.title": "Token dictionary",
   "tokens.intro":
-    "A token hides a value behind a short name: ⟦name⟧. Sessions in token mode keep only tokens, while the agent still receives the real values.",
+    "A token hides a value behind a short name: ⟦name⟧. The agent only ever sees tokens — real values stay on this device and are substituted back in the chat.",
   "tokens.empty": "Nothing saved yet.",
   "tokens.name": "Name",
   "tokens.namePlaceholder": "e.g. VTB deposit",
@@ -63,6 +63,8 @@ const en = {
   "chat.tokenModeOn": "Session stores tokens; values are substituted by the dictionary.",
   "chat.tokenModeOff": "Session stores plain text again.",
   "chat.tokenModeEmpty": "The dictionary is empty — add entries first.",
+  "chat.tokenGuard":
+    "Not sent: the token dictionary is unavailable, so the message could reach the agent with real values. Open the dictionary and check the entries.",
   "chat.viewTokens": "Show tokens",
   "chat.viewData": "Show values",
   "sessions.tokenBadge": "tokens",
@@ -71,7 +73,7 @@ const en = {
 const ru = {
   "tokens.title": "Справочник подстановок",
   "tokens.intro":
-    "Токен прячет значение за коротким именем: ⟦имя⟧. Диалог в режиме токенов хранит только токены, а агент по-прежнему получает настоящие значения.",
+    "Токен прячет значение за коротким именем: ⟦имя⟧. Агент видит только токены — настоящие значения остаются на устройстве и подставляются в чате.",
   "tokens.empty": "Пока ничего не сохранено.",
   "tokens.name": "Имя",
   "tokens.namePlaceholder": "например, вклад ВТБ",
@@ -122,6 +124,8 @@ const ru = {
   "chat.tokenModeOn": "Диалог хранит токены; значения подставляет справочник.",
   "chat.tokenModeOff": "Диалог снова хранит обычный текст.",
   "chat.tokenModeEmpty": "Справочник пуст — сначала добавьте записи.",
+  "chat.tokenGuard":
+    "Не отправлено: справочник подстановок не прочитан, и сообщение могло уйти агенту с настоящими значениями. Откройте «Справочник» и проверьте записи.",
   "chat.viewTokens": "Показать токены",
   "chat.viewData": "Показать значения",
   "sessions.tokenBadge": "токены",
@@ -131,7 +135,7 @@ const de = {
   ...en,
   "tokens.title": "Token-Wörterbuch",
   "tokens.intro":
-    "Ein Token verbirgt einen Wert hinter einem kurzen Namen: ⟦Name⟧. Sitzungen im Token-Modus speichern nur Tokens, der Agent erhält weiterhin die echten Werte.",
+    "Ein Token verbirgt einen Wert hinter einem kurzen Namen: ⟦Name⟧. Der Agent sieht nur Tokens — die echten Werte bleiben auf diesem Gerät und werden im Chat eingesetzt.",
   "tokens.empty": "Noch nichts gespeichert.",
   "tokens.name": "Name",
   "tokens.value": "Wert",
@@ -170,7 +174,7 @@ const es = {
   ...en,
   "tokens.title": "Diccionario de tokens",
   "tokens.intro":
-    "Un token oculta un valor tras un nombre corto: ⟦nombre⟧. Las sesiones en modo token guardan solo tokens; el agente sigue recibiendo los valores reales.",
+    "Un token oculta un valor tras un nombre corto: ⟦nombre⟧. El agente solo ve tokens: los valores reales se quedan en este dispositivo y se sustituyen en el chat.",
   "tokens.empty": "Todavía no hay nada guardado.",
   "tokens.name": "Nombre",
   "tokens.value": "Valor",
@@ -209,7 +213,7 @@ const pt = {
   ...en,
   "tokens.title": "Dicionário de tokens",
   "tokens.intro":
-    "Um token esconde um valor atrás de um nome curto: ⟦nome⟧. Sessões em modo token guardam apenas tokens; o agente continua recebendo os valores reais.",
+    "Um token esconde um valor atrás de um nome curto: ⟦nome⟧. O agente vê apenas tokens — os valores reais ficam neste dispositivo e são substituídos no chat.",
   "tokens.empty": "Nada guardado ainda.",
   "tokens.name": "Nome",
   "tokens.value": "Valor",
@@ -247,7 +251,7 @@ const pt = {
 const zh = {
   ...en,
   "tokens.title": "令牌词典",
-  "tokens.intro": "令牌用短名称隐藏真实值：⟦名称⟧。令牌模式的会话只保存令牌，代理仍收到真实值。",
+  "tokens.intro": "令牌用短名称隐藏真实值：⟦名称⟧。代理只能看到令牌——真实值保留在本设备，并在聊天中替换显示。",
   "tokens.empty": "还没有保存任何内容。",
   "tokens.name": "名称",
   "tokens.value": "值",
@@ -284,7 +288,7 @@ const zh = {
 const ja = {
   ...en,
   "tokens.title": "トークン辞書",
-  "tokens.intro": "トークンは短い名前で値を隠します：⟦名前⟧。トークンモードの会話はトークンのみを保存し、エージェントには実際の値が渡ります。",
+  "tokens.intro": "トークンは短い名前で値を隠します：⟦名前⟧。エージェントが見るのはトークンだけで、実際の値はこの端末に残り、チャット内で置換されます。",
   "tokens.empty": "まだ保存されていません。",
   "tokens.name": "名前",
   "tokens.value": "値",
@@ -322,7 +326,7 @@ const hi = {
   ...en,
   "tokens.title": "टोकन शब्दकोश",
   "tokens.intro":
-    "टोकन एक छोटे नाम के पीछे मान छिपाता है: ⟦नाम⟧। टोकन मोड वाली बातचीत केवल टोकन रखती है, एजेंट को असली मान ही मिलते हैं।",
+    "टोकन एक छोटे नाम के पीछे मान छिपाता है: ⟦नाम⟧। एजेंट को केवल टोकन दिखते हैं — असली मान इसी डिवाइस पर रहते हैं और चैट में बदले जाते हैं।",
   "tokens.empty": "अभी कुछ सहेजा नहीं गया।",
   "tokens.name": "नाम",
   "tokens.value": "मान",
@@ -360,7 +364,7 @@ const ar = {
   ...en,
   "tokens.title": "قاموس الرموز",
   "tokens.intro":
-    "الرمز يخفي القيمة خلف اسم قصير: ⟦الاسم⟧. الجلسات في وضع الرموز تحفظ الرموز فقط، ويبقى الوكيل يتلقى القيم الحقيقية.",
+    "الرمز يخفي القيمة خلف اسم قصير: ⟦الاسم⟧. الوكيل يرى الرموز فقط، وتبقى القيم الحقيقية على هذا الجهاز وتُستبدل داخل المحادثة.",
   "tokens.empty": "لم يُحفظ شيء بعد.",
   "tokens.name": "الاسم",
   "tokens.value": "القيمة",

@@ -103,10 +103,10 @@ import {
 import { canTakeNext, idleTurn, stepTurn, type TurnState } from "@/turn/machine";
 import {
   loadTokens,
-  replaceValues,
   restoreValues,
   tokenEntries,
 } from "@/lib/tokens/registry";
+import { forAgent, historyForAgent, tokensReady } from "@/lib/tokens/outgoing";
 import ConfirmModal from "@/components/ConfirmModal.vue";
 import TextModal from "@/components/TextModal.vue";
 import { agentId } from "@/lib/active-agent";
@@ -129,32 +129,27 @@ function showNotice(text: string, ttl = 12_000): void {
     if (notice.value === text) notice.value = "";
   }, ttl);
 }
-/* ── Режим токенов: что хранится, что отправляется, что видно ─────────── */
+/**
+ * Режим токенов: справочник подстановок работает всегда, а флаг диалога
+ * решает только одно — в каком виде история лежит на диске.
+ *
+ * Настоящие значения не уходят агенту ни при каком флаге: отправляемый
+ * текст и контекст проходят через `lib/tokens/outgoing.ts`.
+ */
 
-/** Диалог явно переведён в режим токенов (решение человека, не автоматика). */
+/** Диалог явно переведён в режим токенов: история хранится токенами. */
 function isTokenSession(session?: Session | null): boolean {
   return session?.tokenMode === true;
 }
 
-/** Текст для истории: значения справочника заменяются токенами. */
+/** Текст для истории: в режиме токенов значения записываются токенами. */
 function storedContent(text: string, session?: Session | null): string {
-  return isTokenSession(session) ? replaceValues(text).text : text;
+  return isTokenSession(session) ? forAgent(text) : text;
 }
 
-/** Текст для агента: токены раскрываются в настоящие значения. */
-function outgoingContent(text: string, session?: Session | null): string {
-  return isTokenSession(session) ? restoreValues(text) : text;
-}
-
-/** Контекст для модели: в режиме токенов токены раскрываются в значения. */
-function historyForAgent(list: Message[], session?: Session | null): Message[] {
-  if (!isTokenSession(session)) return list;
-  return list.map((m) => ({ ...m, content: restoreValues(m.content) }));
-}
-
-/** Что человек видит в ленте: по умолчанию значения, по кнопке — токены. */
+/** Что человек видит в ленте: значения (по умолчанию) или токены. */
 function displayContent(text: string): string {
-  return viewValues.value && isTokenSession(activeSession.value) ? restoreValues(text) : text;
+  return viewValues.value ? restoreValues(text) : text;
 }
 
 /** Перевести открытый диалог в режим токенов или вернуть к обычному тексту. */
@@ -1347,7 +1342,6 @@ async function resumePending(sessionId: string): Promise<void> {
   notice.value = t("chat.resumeTurn");
   const history = historyForAgent(
     list.filter((m) => m.role !== "system" && (m.kind === undefined || m.kind === "text")),
-    session,
   );
   let answered = false;
   let alive = false;
@@ -1374,7 +1368,7 @@ async function resumePending(sessionId: string): Promise<void> {
   }
   // Ход жив, но ещё думает — повторно не отправляем, догоним в следующий раз.
   if (alive) return;
-  await exchange(session, agent, outgoingContent(pending.text, session), [], history);
+  await exchange(session, agent, forAgent(pending.text), [], history);
 }
 
 /** Вернулись на вкладку — проверяем, не остался ли незавершённый ход. */
@@ -1497,7 +1491,7 @@ async function enqueue(
     targetSessionId ?? activeSessionId.value ?? (await startSession(payload.text));
   // Очередь лежит в IndexedDB: в режиме токенов текст кладём токенами.
   const target = sessions.value.find((s) => s.id === sessionId);
-  const text = isTokenSession(target) ? replaceValues(payload.text).text : payload.text;
+  const text = storedContent(payload.text, target);
   queue.value = [
     ...queue.value,
     { id: newId("q"), persist, sessionId, at: Date.now(), ...payload, text },
@@ -1573,6 +1567,15 @@ async function dispatch(
     error.value = t("chat.error.noKey");
     return false;
   }
+  // Справочник подстановок должен быть прочитан: иначе нельзя гарантировать,
+  // что настоящие значения не уйдут агенту. Не прочитан — не отправляем.
+  if (!tokensReady()) {
+    await loadTokens().catch(() => undefined);
+    if (!tokensReady()) {
+      error.value = t("chat.tokenGuard");
+      return false;
+    }
+  }
   if (!(await withinLimit(agent))) return false;
 
   if (!session) {
@@ -1600,10 +1603,12 @@ async function dispatch(
       bytes: doc.bytes,
     })),
   ];
-  // В режиме токенов агент получает значения, а история — только токены.
-  const sendText = outgoingContent(text, session);
-  // Полный текст документов уходит агенту, в истории остаются подпись и бейджи.
-  const outgoing = documentsToMessage(sendText, payload.docs);
+  // Агент получает только токены, настоящие значения остаются на устройстве.
+  // Полный текст документов тоже уходит агенту — через ту же подстановку.
+  const outgoing = documentsToMessage(
+    forAgent(text),
+    payload.docs.map((doc) => ({ ...doc, text: forAgent(doc.text) })),
+  );
   if (persist) {
     await appendMessage(session.id, "user", storedContent(text, session), undefined, attachments);
   }
@@ -1622,7 +1627,7 @@ async function dispatch(
         m.role !== "system" &&
         (m.kind === undefined || m.kind === "text"),
     );
-  const agentHistory = historyForAgent(history, session);
+  const agentHistory = historyForAgent(history);
   await exchange(session, agent, outgoing, payload.images.map((img) => img.dataUrl), agentHistory);
   return true;
 }
@@ -1952,9 +1957,8 @@ async function runRegenerate(m: Message): Promise<void> {
     (visible ? messages.value : await listMessages(session.id)).filter(
       (item) => item.role !== "system" && (item.kind === undefined || item.kind === "text"),
     ),
-    session,
   );
-  await exchange(session, agent, outgoingContent(prompt, session), [], history);
+  await exchange(session, agent, forAgent(prompt), [], history);
 }
 
 function stop(): void {
