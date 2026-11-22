@@ -28,6 +28,7 @@ import { clearAll, clearExcept } from "@/storage/cleanup";
 import { measureStorage, type StorageSizes } from "@/storage/sizes";
 import { formatSize } from "@/lib/sizes";
 import { useLocale } from "@/i18n";
+import { useAgentFilter } from "@/composables/useAgentFilter";
 import { readModelPrices } from "@/lib/provider-account";
 import { sessionCostLabel } from "@/lib/session-cost";
 import type { Message, Session } from "@/storage/types";
@@ -122,15 +123,28 @@ const confirmMessage = computed(() =>
     : t("sessions.cleanup.confirmExceptText", { keep: selectedSessionIds.value.size }),
 );
 
+/** Фильтр по агенту (чипы): список, «выбрать все» и счётчики идут по нему. */
+const {
+  filter: agentFilter,
+  agentsInUse: filterAgents,
+  filtered: visibleSessions,
+} = useAgentFilter(sessions, agents);
+
 const allSelected = computed(
-  () => sessions.value.length > 0 && selectedSessionIds.value.size === sessions.value.length,
+  () =>
+    visibleSessions.value.length > 0 &&
+    visibleSessions.value.every((s) => selectedSessionIds.value.has(s.id)),
 );
 
 function toggleAll(): void {
   if (allSelected.value) {
-    clearSessionSelection();
+    for (const s of visibleSessions.value) {
+      if (selectedSessionIds.value.has(s.id)) toggleSessionSelected(s.id);
+    }
   } else {
-    selectedSessionIds.value = new Set(sessions.value.map((s) => s.id));
+    for (const s of visibleSessions.value) {
+      if (!selectedSessionIds.value.has(s.id)) toggleSessionSelected(s.id);
+    }
   }
 }
 
@@ -301,13 +315,36 @@ async function runConfirmedCleanup(): Promise<void> {
         {{ allSelected ? t("sessions.deselectAll") : t("sessions.selectAll") }}
       </button>
       <span class="muted">
-        {{ t("sessions.selected", { count: selectedSessionIds.size, total: sessions.length }) }}
+        {{ t("sessions.selected", { count: selectedSessionIds.size, total: visibleSessions.length }) }}
       </span>
     </div>
 
-    <p v-if="sessions.length === 0" class="muted">{{ t("sessions.empty") }}</p>
+    <div class="agent-chips" role="group" :aria-label="t('chat.filterAgent')">
+      <button
+        type="button"
+        class="agent-chip"
+        :class="{ 'is-on': !agentFilter }"
+        :aria-pressed="!agentFilter"
+        @click="agentFilter = ''"
+      >
+        {{ t("chat.allAgents") }}
+      </button>
+      <button
+        v-for="agent in filterAgents"
+        :key="agent.id"
+        type="button"
+        class="agent-chip"
+        :class="{ 'is-on': agentFilter === agent.id }"
+        :aria-pressed="agentFilter === agent.id"
+        @click="agentFilter = agent.id"
+      >
+        {{ agent.name }}
+      </button>
+    </div>
+
+    <p v-if="visibleSessions.length === 0" class="muted">{{ t("sessions.empty") }}</p>
     <ul class="list">
-      <li v-for="s in sessions" :key="s.id">
+      <li v-for="s in visibleSessions" :key="s.id">
         <label class="check">
           <input
             type="checkbox"
@@ -421,6 +458,38 @@ async function runConfirmedCleanup(): Promise<void> {
   align-items: center;
   gap: 12px;
   margin-bottom: 12px;
+}
+/* Фильтр по агенту: чипы над списком сессий. */
+.agent-chips {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.agent-chips::-webkit-scrollbar {
+  display: none;
+}
+.agent-chip {
+  flex: 0 0 auto;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.agent-chip.is-on {
+  border-color: var(--accent);
+  background: var(--panel-2);
+  color: var(--text);
+  font-weight: 600;
 }
 .list {
   list-style: none;

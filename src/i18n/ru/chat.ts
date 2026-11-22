@@ -84,6 +84,8 @@ export const chatMessages = {
   "chat.attachError.count": "Не больше 5 изображений за раз",
   "chat.close": "Закрыть",
   "chat.searchDialogs": "Поиск по диалогам",
+  "chat.allAgents": "Все агенты",
+  "chat.filterAgent": "Агент",
   "chat.pin": "Закрепить",
   "chat.unpin": "Открепить",
   "chat.duplicate": "Дублировать",

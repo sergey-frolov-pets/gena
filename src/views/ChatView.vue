@@ -88,6 +88,9 @@ import { readQueued, toPersisted, type RestoredQueue } from "@/lib/queue";
 import { listQueued, replaceQueued } from "@/storage/queue";
 import { answerElapsed, formatClock, formatDuration } from "@/lib/time";
 import { capabilitiesOf } from "@/lib/transports";
+import { isBusySession as isSessionBusy, liveSessionCount, pickRunnable } from "@/lib/turn-queue";
+import { useLiveTurns } from "@/composables/useLiveTurns";
+import { useAgentFilter } from "@/composables/useAgentFilter";
 import {
   AGENT_STORAGE_KEY,
   FEED_WINDOW,
@@ -103,7 +106,7 @@ import {
   rememberPending,
   writeStoredText,
 } from "@/turn/draft";
-import { canTakeNext, idleTurn, stepTurn, type TurnState } from "@/turn/machine";
+import { idleTurn, stepTurn } from "@/turn/machine";
 import {
   loadTokens,
   replaceValues,
@@ -133,10 +136,29 @@ import { agentId } from "@/lib/active-agent";
 
 const { t } = useLocale();
 const draft = ref("");
-const busy = ref(false);
-const typing = ref(false);
 const error = ref("");
 const notice = ref("");
+/**
+ * Ошибки фоновых диалогов: показываем, только когда человек откроет этот диалог,
+ * иначе чужой сбой всплывал бы поверх открытого чата.
+ */
+const sessionErrors = ref<Record<string, string>>({});
+
+function setSessionError(sessionId: string, text: string): void {
+  if (!text) {
+    if (!sessionErrors.value[sessionId]) return;
+    const rest = { ...sessionErrors.value };
+    delete rest[sessionId];
+    sessionErrors.value = rest;
+    return;
+  }
+  sessionErrors.value = { ...sessionErrors.value, [sessionId]: text };
+}
+
+/** Ошибка открытого диалога: общая (действие пользователя) или своя у сессии. */
+const errorText = computed(
+  () => error.value || sessionErrors.value[activeSessionId.value ?? ""] || "",
+);
 /** Таймер автоскрытия строки статуса — плашка не должна висеть как ошибка. */
 let noticeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -477,10 +499,6 @@ async function leaveTokenMode(): Promise<void> {
 const usedToday = ref(0);
 /** Последний отправленный текст — для кнопки «Повторить». */
 const lastText = ref("");
-/** Контроллер отмены текущего хода. */
-const abortCtrl = ref<AbortController | null>(null);
-/** Ход остановлен кнопкой «Стоп» — ошибкой это не показываем. */
-const stoppedByUser = ref(false);
 /**
  * Показывать в ленте значения вместо токенов. Решение хранится на диалог:
  * в одном удобно читать значения, в другом — видеть ровно то, что у агента.
@@ -497,37 +515,18 @@ const viewValues = computed<boolean>({
     void setSessionTokenView(id, value ? "values" : "tokens");
   },
 });
-/** Отмена на сервере уже запрошена — второе нажатие не дублируем. */
-const stopping = ref(false);
-/** Накопленный текст стриминга. */
-const streamingText = ref("");
-/** Сессия, к которой относится текущий стрим (чтобы не показывать его в другом диалоге). */
-const streamSessionId = ref<string | null>(null);
+/* ── Ходы по диалогам: у каждой сессии свой ход и своя очередь ─────────── */
 
-/* ── Часы хода: сколько идёт текущий ответ ─────────────────────────────── */
-
-/** Когда отправлен запрос; null — хода нет. */
-const turnStartedAt = ref<number | null>(null);
-/** Тикающая метка времени для живого счётчика. */
-const clockNow = ref(Date.now());
-let clockTimer: ReturnType<typeof setInterval> | null = null;
-
-/** Запустить счётчик текущего хода. */
-function startTurnClock(at = Date.now()): void {
-  turnStartedAt.value = at;
-  clockNow.value = at;
-  if (clockTimer) clearInterval(clockTimer);
-  clockTimer = setInterval(() => {
-    clockNow.value = Date.now();
-  }, 500);
-}
-
-/** Погасить счётчик: ход завершён. */
-function stopTurnClock(): void {
-  if (clockTimer) clearInterval(clockTimer);
-  clockTimer = null;
-  turnStartedAt.value = null;
-}
+const {
+  turns,
+  now: clockNow,
+  turnOf,
+  open: openTurn,
+  patch: patchTurn,
+  close: closeTurn,
+  appendStream,
+  dispose: disposeTurns,
+} = useLiveTurns();
 
 /** Подписи единиц длительности из словаря. */
 const durationUnits = computed(() => ({
@@ -536,16 +535,19 @@ const durationUnits = computed(() => ({
   s: t("chat.time.s"),
 }));
 
-/** Сколько идёт текущий ответ — «7 с». Пусто, когда хода нет. */
+/** Ход открытого диалога — по нему строится строка статуса и стоп-кнопка. */
+const activeTurn = computed(() => turnOf(activeSessionId.value));
+const busy = computed(() => activeTurn.value !== undefined);
+
+/** Сколько идёт ответ открытого диалога — «7 с». */
 const liveElapsed = computed(() => {
-  if (turnStartedAt.value === null) return "";
-  return formatDuration(Math.max(0, clockNow.value - turnStartedAt.value), durationUnits.value);
+  const started = activeTurn.value?.startedAt;
+  if (started === undefined) return "";
+  return formatDuration(Math.max(0, clockNow.value - started), durationUnits.value);
 });
 
 /** Время работы агента в этом диалоге: плашка над полем ввода. */
-const turnElapsed = computed(() =>
-  busy.value && streamSessionId.value === activeSessionId.value ? liveElapsed.value : "",
-);
+const turnElapsed = computed(() => (busy.value ? liveElapsed.value : ""));
 
 /** Время сообщения: часы появления в чате. */
 function messageClock(message: Message): string {
@@ -602,8 +604,6 @@ const MAX_IMAGES = 5;
 const MAX_DOCUMENTS = 5;
 
 /* ── Черновик и незавершённый ход ─────────────────────────────────────── */
-
-const turnState = ref<TurnState>(idleTurn());
 
 function readText(key: string): string {
   return readStoredText(window.localStorage, key);
@@ -704,9 +704,7 @@ const agentMenuOpen = ref(false);
 /** Стандартные сообщения выбранного агента — нормализованы при чтении/сохранении. */
 const quickReplies = computed(() => activeAgent.value?.settings.quickReplies ?? []);
 /** «Стоп» в доке виден, только когда работает открытый диалог. */
-const canStopHere = computed(
-  () => busy.value && streamSessionId.value === activeSessionId.value,
-);
+const canStopHere = computed(() => busy.value);
 
 function toggleQuick(): void {
   if (quickReplies.value.length === 0) return;
@@ -779,8 +777,16 @@ function guardBlur(): void {
 
 function syncCompact(matches: boolean): void {
   compact.value = matches;
-  if (!matches) composerOpen.value = true;
+  // На телефоне поле прячется, но пустой диалог без него бесполезен.
+  if (!matches || (sessionsLoaded.value && !activeSessionId.value)) composerOpen.value = true;
 }
+
+// Новый диалог (в том числе после закрытия последнего) — поле ввода сразу.
+// Ждём загрузки диалогов: до неё «нет открытого» ничего не значит.
+watch([activeSessionId, sessionsLoaded], ([id, loaded]) => {
+  if (!compact.value || !loaded) return;
+  if (!id) composerOpen.value = true;
+});
 
 function openComposer(): void {
   if (!compact.value) return;
@@ -840,7 +846,7 @@ function onOffline(): void {
 }
 
 function onBeforeUnload(event: BeforeUnloadEvent): void {
-  if (!busy.value) return;
+  if (liveTurnCount() === 0) return;
   event.preventDefault();
   event.returnValue = "";
 }
@@ -920,8 +926,8 @@ function toQueuedMessage(item: RestoredQueue): QueuedMessage {
  * известно, что её диалог ещё существует.
  */
 function drainRestored(): void {
-  if (!queueLoaded || !sessionsReady || busy.value) return;
-  if (queue.value.length > 0) void drainQueue();
+  if (!queueLoaded || !sessionsReady) return;
+  if (queue.value.length > 0) void pumpQueue();
 }
 
 /** Поднять очередь из IndexedDB: текст, документы и порядок реплик. */
@@ -963,8 +969,74 @@ watch(
   },
   { immediate: true },
 );
-/** «Отправить сейчас»: прерываем текущий ход и шлём эту реплику. */
-const immediate = ref<QueuedMessage | null>(null);
+/**
+ * «Отправить сейчас» по диалогам: прерываем ход этого диалога и шлём реплику.
+ * Ключ — id диалога, чтобы заявки из разных диалогов не перепутались.
+ */
+const immediate = ref<Record<string, QueuedMessage>>({});
+
+/** Сколько ходов одновременно: больше — очередь ждёт, чтобы не забить сеть. */
+const MAX_LIVE_TURNS = 3;
+/** Диалоги, где отправка уже началась, но ход ещё не открыт. */
+const dispatching = ref<string[]>([]);
+
+/** Ход в диалоге идёт или вот-вот начнётся. */
+function isBusySession(sessionId: string | null | undefined): boolean {
+  return isSessionBusy(turns.value, dispatching.value, sessionId);
+}
+
+/** Сколько диалогов работает прямо сейчас. */
+function liveTurnCount(): number {
+  return liveSessionCount(turns.value, dispatching.value);
+}
+
+function markDispatching(sessionId: string, on: boolean): void {
+  const has = dispatching.value.includes(sessionId);
+  if (on && !has) dispatching.value = [...dispatching.value, sessionId];
+  if (!on && has) dispatching.value = dispatching.value.filter((id) => id !== sessionId);
+}
+
+/** Отправить реплику из очереди в её диалог, не дожидаясь чужих ходов. */
+function startQueued(item: QueuedMessage): void {
+  const key = item.sessionId ?? activeSessionId.value ?? "";
+  if (key) markDispatching(key, true);
+  void dispatch(item, item.persist, item.sessionId)
+    .then((sent) => {
+      // Не ушло (нет ключа, лимит) — возвращаем в начало, чтобы не потерять.
+      if (!sent) queue.value = [item, ...queue.value];
+    })
+    .catch((e) => {
+      error.value = describeError(e, t);
+    })
+    .finally(() => {
+      if (key) markDispatching(key, false);
+      void pumpQueue();
+    });
+}
+
+/**
+ * Раздать очередь по диалогам: каждая сессия берёт свою первую реплику,
+ * но не больше `MAX_LIVE_TURNS` одновременных ходов.
+ */
+async function pumpQueue(skipSessionId?: string): Promise<void> {
+  for (;;) {
+    const item = pickRunnable(queue.value, {
+      isBusy: isBusySession,
+      live: liveTurnCount(),
+      limit: MAX_LIVE_TURNS,
+      skipSessionId,
+    });
+    if (!item) return;
+    // Диалог удалили, пока реплика ждала: в другой её не переносим.
+    if (item.sessionId && !sessions.value.some((s) => s.id === item.sessionId)) {
+      queue.value = queue.value.filter((q) => q.id !== item.id);
+      error.value = t("chat.error.noSession");
+      continue;
+    }
+    queue.value = queue.value.filter((q) => q.id !== item.id);
+    startQueued(item);
+  }
+}
 /**
  * Реплика, забранная в поле ввода. Из ленты она убрана, отправка создаст
  * новое сообщение, а отмена вернёт её на прежнее место.
@@ -1064,23 +1136,34 @@ function agentRoleLabel(): string {
   return roleLabel({ role: "assistant" } as Message);
 }
 
-const agentSessions = computed<Session[]>(() =>
-  sessions.value.filter((s) => !agentId.value || s.agentId === agentId.value),
-);
+/**
+ * История — все диалоги, без деления по агенту (решение Сергея, 22.11.2026):
+ * по умолчанию видно всё, а нужный агент выбирается фильтром в списке.
+ */
+const allSessions = computed<Session[]>(() => sessions.value);
+
+/** История — все диалоги; агент выбирается чипами над списком. */
+const {
+  filter: historyAgent,
+  agentsInUse: historyAgents,
+  filtered: sessionsOfAgent,
+} = useAgentFilter(allSessions, agents);
+
+/** Имя агента для строки истории (свой у каждой сессии). */
+function agentNameOf(id: string): string {
+  return agents.value.find((agent) => agent.id === id)?.name?.trim() || t("chat.agent");
+}
 
 /** Индикаторы хода показываем только в том диалоге, где идёт ответ. */
-const liveStreaming = computed(() =>
-  streamSessionId.value === activeSessionId.value ? streamingText.value : "",
-);
-const liveTyping = computed(
-  () => typing.value && streamSessionId.value === activeSessionId.value,
-);
+const liveStreaming = computed(() => activeTurn.value?.streaming ?? "");
+const liveTyping = computed(() => activeTurn.value?.typing === true);
 
 const filteredSessions = computed<Session[]>(() => {
   const query = historyQuery.value.trim().toLowerCase();
+  const byAgent = sessionsOfAgent.value;
   const list = query
-    ? agentSessions.value.filter((s) => s.title.toLowerCase().includes(query))
-    : [...agentSessions.value];
+    ? byAgent.filter((s) => s.title.toLowerCase().includes(query))
+    : [...byAgent];
   // Закреплённые сверху, дальше — по времени обновления.
   return list.sort((a, b) => {
     const pinA = a.pinned ? 1 : 0;
@@ -1171,10 +1254,10 @@ const recentTabs = computed<Session[]>(() => {
     out.push(session);
   };
   for (const id of tabIds.value) {
-    push(agentSessions.value.find((s) => s.id === id));
+    push(allSessions.value.find((s) => s.id === id));
   }
-  push(agentSessions.value.find((s) => s.id === activeSessionId.value));
-  const fresh = [...agentSessions.value].sort((a, b) => b.updatedAt - a.updatedAt);
+  push(allSessions.value.find((s) => s.id === activeSessionId.value));
+  const fresh = [...allSessions.value].sort((a, b) => b.updatedAt - a.updatedAt);
   for (const session of fresh) {
     if (out.length >= MAX_TABS) break;
     push(session);
@@ -1207,14 +1290,19 @@ function revealActiveTab(): void {
 // Смена диалога или набора вкладок — активная вкладка снова на виду.
 watch([activeSessionId, recentTabs], () => void nextTick(revealActiveTab), { flush: "post" });
 
-/** Сессии, где агент сейчас отвечает или ждёт своей очереди. */const busySessionIds = computed<Set<string>>(() => {
-  const ids = new Set<string>();
-  if (busy.value && streamSessionId.value) ids.add(streamSessionId.value);
+/** Сессии, где агент сейчас отвечает или ждёт своей очереди. */
+const busySessionIds = computed<Set<string>>(() => {
+  const ids = new Set<string>(Object.keys(turns.value));
   for (const item of queue.value) {
     if (item.sessionId) ids.add(item.sessionId);
   }
   return ids;
 });
+
+/** Очередь открытого диалога: у каждой сессии своя, чужие ждут у себя. */
+const sessionQueue = computed(() =>
+  queue.value.filter((q) => !q.sessionId || q.sessionId === activeSessionId.value),
+);
 
 /** Пользователь у нижней границы диалога — новые сообщения можно подтягивать. */
 const stickBottom = ref(true);
@@ -1442,7 +1530,7 @@ function settleToBottom(): void {
 }
 
 // Появление сообщений и стрим подтягиваем только если читатель у нижней границы.
-watch([messages, streamingText, typing], () => settleToBottom(), { flush: "post" });
+watch([messages, liveStreaming, liveTyping], () => settleToBottom(), { flush: "post" });
 
 /** Растущее поле ввода, как в AiChatPanel (от 1 до 4 строк). */
 async function autoGrow(): Promise<void> {
@@ -1541,6 +1629,8 @@ function newSession(): void {
   clearMessages();
   restoreDraft(null);
   historyOpen.value = false;
+  // Новый диалог — сразу к вводу: не заставляем искать поле на телефоне.
+  if (compact.value) composerOpen.value = true;
   void nextTick(() => composerEl.value?.focus());
 }
 
@@ -1549,6 +1639,10 @@ async function openSession(id: string): Promise<void> {
   // Диалог всегда открываем с конца: прошлые «листания вверх» не переносим.
   stickBottom.value = true;
   await loadMessages(id);
+  // Диалог может принадлежать другому агенту: шапка, подписи и стандартные
+  // сообщения должны показывать его агента, а не выбранного ранее.
+  const target = sessions.value.find((s) => s.id === id);
+  if (target && target.agentId !== agentId.value) agentId.value = target.agentId;
   restoreDraft(id);
   rememberTab(id);
   historyOpen.value = false;
@@ -1635,11 +1729,11 @@ async function listenTurn(
       events: {
         onTyping: (on) => {
           heard = true;
-          if (shown()) typing.value = on;
+          patchTurn(session.id, { typing: on });
         },
         onDelta: (_id, chunk) => {
           heard = true;
-          if (shown()) streamingText.value += chunk;
+          appendStream(session.id, chunk);
         },
         onMessage: async (m) => {
           heard = true;
@@ -1697,7 +1791,7 @@ async function listenTurn(
     // Ход на сервере всё-таки состоялся — засчитываем вызов.
     await recordCall(agent.id);
     await refreshUsage();
-    if (autoSpeak.value && response.reply.trim()) {
+    if (autoSpeak.value && response.reply.trim() && shown()) {
       speak(reply.id, response.reply);
     }
     return "answered";
@@ -1709,8 +1803,7 @@ async function listenTurn(
     return heard ? "alive" : "silent";
   } finally {
     clearTimeout(timer);
-    if (shown()) typing.value = false;
-    streamingText.value = "";
+    patchTurn(session.id, { typing: false, streaming: "" });
   }
 }
 
@@ -1723,7 +1816,7 @@ async function listenTurn(
  *    но только если ответа после этой реплики в истории ещё нет.
  */
 async function resumePending(sessionId: string): Promise<void> {
-  if (busy.value || resuming.has(sessionId)) return;
+  if (isBusySession(sessionId) || resuming.has(sessionId)) return;
   const pending = pendingTurnFor(sessionId);
   if (!pending || !isPendingFresh(pending, Date.now())) return;
   const session = sessions.value.find((s) => s.id === sessionId);
@@ -1735,9 +1828,9 @@ async function resumePending(sessionId: string): Promise<void> {
     return;
   }
   resuming.add(sessionId);
-  busy.value = true;
-  startTurnClock(pending.at);
-  notice.value = t("chat.resumeTurn");
+  openTurn(sessionId);
+  patchTurn(sessionId, { startedAt: pending.at });
+  if (sessionId === activeSessionId.value) notice.value = t("chat.resumeTurn");
   const history = historyForAgent(
     list.filter((m) => m.role !== "system" && (m.kind === undefined || m.kind === "text")),
   );
@@ -1755,10 +1848,9 @@ async function resumePending(sessionId: string): Promise<void> {
       alive = true;
     }
   } finally {
-    busy.value = false;
-    notice.value = "";
+    closeTurn(sessionId);
+    if (sessionId === activeSessionId.value) notice.value = "";
     resuming.delete(sessionId);
-    stopTurnClock();
   }
   if (answered) {
     forgetPendingTurn(sessionId, pending.text);
@@ -1957,8 +2049,10 @@ async function sendNow(): Promise<void> {
     lifted.value && lifted.value.message.sessionId === activeSessionId.value
       ? lifted.value.message
       : undefined;
-  // Агент занят — реплика встаёт в очередь, ответа не ждём.
-  if (busy.value) {
+  // В этом диалоге уже идёт ход или одновременно работают все слоты —
+  // реплика ждёт в очереди своего диалога. Чужой ход ей не помеха.
+  const targetId = activeSessionId.value;
+  if ((targetId && isBusySession(targetId)) || liveTurnCount() >= MAX_LIVE_TURNS) {
     await dropLifted();
     await enqueue(payload);
     return;
@@ -2073,23 +2167,20 @@ function sendQueuedNow(id: string): void {
   const item = queue.value.find((q) => q.id === id);
   if (!item) return;
   queue.value = queue.value.filter((q) => q.id !== id);
-  if (!busy.value) {
-    void dispatch(item, item.persist, item.sessionId);
+  const key = item.sessionId ?? activeSessionId.value;
+  // Диалог свободен — реплика уходит сразу, чужие ходы её не ждут.
+  if (!key || !isBusySession(key)) {
+    startQueued(item);
     return;
   }
-  immediate.value = item;
-  stop();
+  immediate.value = { ...immediate.value, [key]: item };
+  stopTurn(key);
 }
 
 function removeQueued(id: string): void {
   queue.value = queue.value.filter((q) => q.id !== id);
 }
 
-/** Название другого диалога для реплики в очереди (для текущего — пусто). */
-function queueSessionTitle(id?: string): string {
-  if (!id || id === activeSessionId.value) return "";
-  return sessions.value.find((s) => s.id === id)?.title ?? "";
-}
 
 /** Вернуть реплику из очереди в поле ввода — её можно поправить. */
 async function editQueued(id: string): Promise<void> {
@@ -2112,21 +2203,7 @@ async function editQueued(id: string): Promise<void> {
 }
 
 /** Взять следующую реплику очереди и отправить. */
-async function drainQueue(): Promise<void> {
-  if (!canTakeNext(turnState.value.phase)) return;
-  const head = queue.value[0];
-  if (!head) return;
-  // Диалог удалили, пока реплика ждала: в другой её не переносим.
-  if (head.sessionId && !sessions.value.some((s) => s.id === head.sessionId)) {
-    queue.value = queue.value.slice(1);
-    error.value = t("chat.error.noSession");
-    return;
-  }
-  queue.value = queue.value.slice(1);
-  const sent = await dispatch(head, head.persist, head.sessionId);
-  // Не ушло (нет ключа, лимит) — возвращаем в начало, чтобы не потерять.
-  if (!sent) queue.value = [head, ...queue.value];
-}
+
 
 
 /** Проверка дневного лимита вызовов; false — отправлять нельзя. */
@@ -2174,36 +2251,44 @@ async function exchange(
 ): Promise<void> {
   stopDictation();
   lastText.value = text;
-  busy.value = true;
   const startedAt = Date.now();
-  turnState.value = stepTurn(
-    stepTurn(idleTurn(), {
-      type: "enqueue",
-      clientTurnId: `${session.id}:${startedAt}`,
-      text,
-    }),
-    { type: "start" },
-  );
-  // Часы хода: живой счётчик в облачке ответа и длительность после него.
-  startTurnClock(startedAt);
+  // Свой ход у своего диалога: другие диалоги работают параллельно.
+  openTurn(session.id);
+  patchTurn(session.id, {
+    startedAt,
+    state: stepTurn(
+      stepTurn(idleTurn(), {
+        type: "enqueue",
+        clientTurnId: `${session.id}:${startedAt}`,
+        text,
+      }),
+      { type: "start" },
+    ),
+  });
   // Ход помним в том же виде, что и история: в режиме токенов — токенами.
   const pendingText = storedContent(text, session);
   // Запоминаем ход: если вкладку закроют до ответа, при следующем открытии догоним.
   rememberPendingTurn({ sessionId: session.id, text: pendingText, at: Date.now() });
-  streamSessionId.value = session.id;
-  if (session.id === activeSessionId.value) streamingText.value = "";
   let failed = false;
   /**
    * Ход на сервере не значится и кадров в буфере нет: реплику надо отправить
    * заново (один раз, чтобы не устроить петлю при недоступном агенте).
    */
   let resend = false;
-  stoppedByUser.value = false;
   const controller = new AbortController();
-  abortCtrl.value = controller;
+  patchTurn(session.id, { controller });
   const limit = agent.settings.callLimit;
-  // Стрим рисуем только в том диалоге, к которому он относится.
+  // Стрим, ошибки и подсказки — только этого диалога: фоновые не мешают открытому.
   const shown = () => session.id === activeSessionId.value;
+  const fail = (text: string) => {
+    if (shown()) error.value = text;
+    else setSessionError(session.id, text);
+  };
+  const notify = (text: string, ttl?: number) => {
+    if (shown()) showNotice(text, ttl);
+  };
+  if (shown()) error.value = "";
+  else setSessionError(session.id, "");
   try {
     const key = await getAgentKey(agent);
     const response = await sendToAgent(
@@ -2222,10 +2307,10 @@ async function exchange(
         openKey: getAgentKey,
         events: {
           onTyping: (on) => {
-            if (shown()) typing.value = on;
+            patchTurn(session.id, { typing: on });
           },
           onDelta: (_id, chunk) => {
-            if (shown()) streamingText.value += chunk;
+            appendStream(session.id, chunk);
           },
           onMessage: async (m) => {
             await appendMessage(
@@ -2274,17 +2359,17 @@ async function exchange(
       response.usage,
     );
     // Ответ уже в ленте — живое облачко убираем, чтобы не было двух одинаковых.
-    if (shown()) streamingText.value = "";
+    patchTurn(session.id, { streaming: "" });
     // Пул и сводка считают лимит по модели внутри fallback.
     if (agent.protocol !== "model_pool" && agent.protocol !== "model_mix") {
       await recordCall(agent.id);
     }
     await refreshUsage();
     forgetPendingTurn(session.id, pendingText);
-    if (autoSpeak.value && response.reply.trim()) {
+    if (autoSpeak.value && response.reply.trim() && shown()) {
       speak(reply.id, response.reply);
     }
-    if (limit > 0) {
+    if (limit > 0 && shown()) {
       notice.value = t("chat.remaining", { remaining: Math.max(0, limit - usedToday.value) });
     }
   } catch (e) {
@@ -2298,29 +2383,25 @@ async function exchange(
     if (code === "turn_lost" && allowResend && !controller.signal.aborted) {
       // Сервер ход не начинал (сокет умер сразу после отправки) — повторяем.
       resend = true;
-      error.value = "";
-      showNotice(t("chat.link.resend"), 8_000);
-    } else if (stoppedByUser.value) {
+      fail("");
+      notify(t("chat.link.resend"), 8_000);
+    } else if (turnOf(session.id)?.stoppedByUser) {
       // «Стоп»: ход прекращён намеренно — это не ошибка, а сообщение-статус.
-      error.value = "";
-      showNotice(t("chat.stopped"));
+      fail("");
+      notify(t("chat.stopped"));
     } else if (retryable && code !== "ws_timeout") {
       // Обрыв связи — не ошибка пользователя. Строка статуса вместо красной
       // плашки, ход догоняется сам, как только связь вернётся.
-      error.value = "";
-      showNotice(t("chat.link.lost"), 20_000);
+      fail("");
+      notify(t("chat.link.lost"), 20_000);
       scheduleLinkRetry(session.id);
     } else {
-      error.value = describeError(e, t);
+      fail(describeError(e, t));
     }
   } finally {
-    turnState.value = stepTurn(turnState.value, { type: "complete" });
-    busy.value = false;
-    typing.value = false;
-    abortCtrl.value = null;
-    streamingText.value = "";
-    streamSessionId.value = null;
-    stopTurnClock();
+    const state = turnOf(session.id)?.state;
+    if (state) patchTurn(session.id, { state: stepTurn(state, { type: "complete" }) });
+    closeTurn(session.id);
     await nextTick();
     if (session.id === activeSessionId.value) composerEl.value?.focus();
     if (resend) {
@@ -2328,16 +2409,17 @@ async function exchange(
       void exchange(session, agent, text, media, history, false);
       return;
     }
-    // «Отправить сейчас» важнее ошибки; иначе тянем следующую реплику очереди.
-    const next = immediate.value;
-    immediate.value = null;
+    // «Отправить сейчас» важнее ошибки; иначе тянем следующую реплику этого диалога.
+    const next = immediate.value[session.id];
     if (next) {
-      void dispatch(next, next.persist, next.sessionId).then((sent) => {
-        if (!sent) queue.value = [next, ...queue.value];
-      });
-    } else if (!failed && queue.value.length > 0) {
-      void drainQueue();
+      const rest = { ...immediate.value };
+      delete rest[session.id];
+      immediate.value = rest;
+      startQueued(next);
     }
+    // Освободился слот — отдаём очередь тем диалогам, что ждут.
+    // Упавший диалог сразу не переспрашиваем: очередь других важнее.
+    void pumpQueue(failed ? session.id : undefined);
   }
 }
 
@@ -2347,7 +2429,8 @@ async function exchange(
  * в IndexedDB лежит только миниатюра.
  */
 function regenerate(m: Message): void {
-  if (busy.value) return;
+  // Перегенерировать можно, только если свободен диалог этого сообщения.
+  if (isBusySession(m.sessionId)) return;
   const index = messages.value.findIndex((item) => item.id === m.id);
   // Регенерация стирает хвост диалога — спрашиваем, если терять есть что.
   if (index >= 0 && index < messages.value.length - 1) {
@@ -2358,7 +2441,7 @@ function regenerate(m: Message): void {
 }
 
 async function runRegenerate(m: Message): Promise<void> {
-  if (busy.value) return;
+  if (isBusySession(m.sessionId)) return;
   // Повторяем ответ только в том диалоге, которому принадлежит сообщение.
   const session = sessions.value.find((s) => s.id === m.sessionId);
   const agent = agents.value.find((a) => a.id === session?.agentId);
@@ -2398,24 +2481,31 @@ async function runRegenerate(m: Message): Promise<void> {
 }
 
 function stop(): void {
-  if (stopping.value) return;
-  const id = streamSessionId.value;
-  const session = id ? sessions.value.find((s) => s.id === id) : undefined;
+  const id = activeSessionId.value;
+  if (id) stopTurn(id);
+}
+
+/**
+ * Остановить ход одного диалога: сначала просим сервер прекратить генерацию
+ * (закрытие сокета её не рвёт), затем обрываем локальный запрос.
+ */
+function stopTurn(sessionId: string): void {
+  const turn = turnOf(sessionId);
+  if (!turn || turn.stopping) return;
+  const session = sessions.value.find((s) => s.id === sessionId);
   const agent = session ? agents.value.find((a) => a.id === session.agentId) : undefined;
-  stoppedByUser.value = true;
-  stopping.value = true;
+  patchTurn(sessionId, { stoppedByUser: true, stopping: true });
   void (async () => {
     try {
-      // Сначала просим сервер прекратить генерацию: закрытие сокета её не рвёт.
-      if (id && agent) {
+      if (agent) {
         const key = await getAgentKey(agent);
-        await cancelAgentTurn(agent, key, id);
+        await cancelAgentTurn(agent, key, sessionId);
       }
     } catch {
       // Отмена на сервере вспомогательная — локальный обрыв делаем всё равно.
     } finally {
-      stopping.value = false;
-      abortCtrl.value?.abort();
+      patchTurn(sessionId, { stopping: false });
+      turnOf(sessionId)?.controller?.abort();
     }
   })();
 }
@@ -2862,7 +2952,7 @@ function onCompactChange(event: MediaQueryListEvent): void {
 }
 
 onUnmounted(() => {
-  stopTurnClock();
+  disposeTurns();
   window.visualViewport?.removeEventListener("resize", syncViewport);
   window.visualViewport?.removeEventListener("scroll", syncViewport);
   window.removeEventListener("resize", syncViewport);
@@ -2886,7 +2976,7 @@ onUnmounted(() => {
   composerObserver?.disconnect();
   composerObserver = null;
   document.documentElement.style.removeProperty("--app-vvh");
-  abortCtrl.value?.abort();
+  for (const turn of Object.values(turns.value)) turn.controller?.abort();
 });
 
 function useStarter(n: number): void {
@@ -3121,6 +3211,32 @@ function onRateChange(event: Event): void {
             </svg>
           </button>
         </div>
+        <div
+          class="chat-panel__filter-chips"
+          role="group"
+          :aria-label="t('chat.filterAgent')"
+        >
+          <button
+            type="button"
+            class="chat-panel__filter-chip"
+            :class="{ 'is-on': !historyAgent }"
+            :aria-pressed="!historyAgent"
+            @click="historyAgent = ''"
+          >
+            {{ t("chat.allAgents") }}
+          </button>
+          <button
+            v-for="agent in historyAgents"
+            :key="agent.id"
+            type="button"
+            class="chat-panel__filter-chip"
+            :class="{ 'is-on': historyAgent === agent.id }"
+            :aria-pressed="historyAgent === agent.id"
+            @click="historyAgent = agent.id"
+          >
+            {{ agent.name }}
+          </button>
+        </div>
         <p v-if="filteredSessions.length === 0" class="chat-panel__muted">
           {{ t("chat.selectOrCreate") }}
         </p>
@@ -3141,12 +3257,17 @@ function onRateChange(event: Event): void {
               v-longpress="() => showTitle(s.title)"
               @click="onTabClick(s.id)"
             >
-              <span class="chat-panel__session-title">
-                <span
-                  v-if="busySessionIds.has(s.id)"
-                  class="chat-panel__busy-dot"
-                  aria-hidden="true"
-                />{{ s.title }}
+              <span class="chat-panel__session-main">
+                <span class="chat-panel__session-title">
+                  <span
+                    v-if="busySessionIds.has(s.id)"
+                    class="chat-panel__busy-dot"
+                    aria-hidden="true"
+                  />{{ s.title }}
+                </span>
+                <span v-if="!historyAgent" class="chat-panel__session-agent">
+                  {{ agentNameOf(s.agentId) }}
+                </span>
               </span>
               <span class="chat-panel__session-count">{{ s.messageCount }}</span>
             </button>
@@ -3423,8 +3544,8 @@ function onRateChange(event: Event): void {
           class="chat-panel__message chat-panel__message--assistant"
         >
           <span class="chat-panel__role">
-            <span v-if="turnStartedAt !== null" class="chat-panel__time">{{
-              formatClock(turnStartedAt)
+            <span v-if="activeTurn" class="chat-panel__time">{{
+              formatClock(activeTurn.startedAt)
             }}</span>
             <span class="chat-panel__role-name">{{ agentRoleLabel() }}</span>
             <span v-if="liveElapsed" class="chat-panel__elapsed">{{ liveElapsed }}</span>
@@ -3505,24 +3626,22 @@ function onRateChange(event: Event): void {
       <p v-if="dictationMessage" class="chat-panel__warning" role="alert">{{ dictationMessage }}</p>
       <p v-if="attachError" class="chat-panel__warning" role="alert">{{ attachError }}</p>
       <p v-if="fileError" class="chat-panel__warning" role="alert">{{ fileError }}</p>
-      <p v-if="error" class="chat-panel__warning" role="alert">
-        {{ error }}
+      <p v-if="errorText" class="chat-panel__warning" role="alert">
+        {{ errorText }}
         <button v-if="lastText" type="button" class="chat-panel__link" @click="retry">
           {{ t("chat.retry") }}
         </button>
       </p>
       <p v-if="notice" class="chat-panel__notice" role="status">{{ notice }}</p>
 
-      <div v-if="queue.length > 0" class="chat-panel__queue">
+      <div v-if="sessionQueue.length > 0" class="chat-panel__queue">
         <p class="chat-panel__queue-title">
-          {{ t("chat.queue.title", { count: queue.length }) }}
+          {{ t("chat.queue.title", { count: sessionQueue.length }) }}
         </p>
         <ul class="chat-panel__queue-list">
-          <li v-for="q in queue" :key="q.id" class="chat-panel__queue-item">
+          <li v-for="q in sessionQueue" :key="q.id" class="chat-panel__queue-item">
             <span class="chat-panel__queue-text">
-              <template v-if="queueSessionTitle(q.sessionId)"
-                >{{ queueSessionTitle(q.sessionId) }}: </template
-              >{{ q.text || t("chat.queue.attachment") }}
+              {{ q.text || t("chat.queue.attachment") }}
             </span>
             <span class="chat-panel__queue-actions">
               <button
@@ -3936,7 +4055,7 @@ function onRateChange(event: Event): void {
               </svg>
             </button>
             <button
-              v-if="busy && streamSessionId === activeSessionId"
+              v-if="busy"
               type="button"
               class="chat-panel__send is-stop"
               v-tip="t('chat.stop')"
@@ -4480,6 +4599,57 @@ function onRateChange(event: Event): void {
 
 .chat-panel__search {
   padding: 6px 10px;
+}
+
+/* Фильтр истории по агенту: чипы «Все агенты» + те, у кого есть диалоги. */
+.chat-panel__filter-chips {
+  display: flex;
+  gap: 6px;
+  margin: 6px 0 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.chat-panel__filter-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.chat-panel__filter-chip {
+  flex: 0 0 auto;
+  max-width: 11rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.chat-panel__filter-chip.is-on {
+  border-color: var(--accent);
+  background: var(--panel-2);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.chat-panel__session-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  text-align: start;
+}
+
+.chat-panel__session-agent {
+  color: var(--muted);
+  font-size: 0.7rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-panel__session-list {

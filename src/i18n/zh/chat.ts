@@ -84,6 +84,8 @@ export const chatMessages = {
   "chat.attachError.count": "最多一次 5 张图片",
   "chat.close": "关闭",
   "chat.searchDialogs": "搜索对话",
+  "chat.allAgents": "所有代理",
+  "chat.filterAgent": "代理",
   "chat.pin": "置顶",
   "chat.unpin": "取消置顶",
   "chat.duplicate": "复制",

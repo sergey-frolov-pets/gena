@@ -84,6 +84,8 @@ export const chatMessages = {
   "chat.attachError.count": "一度に 5 枚まで",
   "chat.close": "閉じる",
   "chat.searchDialogs": "会話を検索",
+  "chat.allAgents": "すべてのエージェント",
+  "chat.filterAgent": "エージェント",
   "chat.pin": "固定",
   "chat.unpin": "固定を解除",
   "chat.duplicate": "複製",

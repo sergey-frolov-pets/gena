@@ -84,6 +84,8 @@ export const chatMessages = {
   "chat.attachError.count": "एक बार में अधिकतम 5 छवियाँ",
   "chat.close": "बंद करें",
   "chat.searchDialogs": "संवाद खोजें",
+  "chat.allAgents": "सभी एजेंट",
+  "chat.filterAgent": "एजेंट",
   "chat.pin": "पिन करें",
   "chat.unpin": "पिन हटाना",
   "chat.duplicate": "प्रतिलिपि",

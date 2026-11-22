@@ -84,6 +84,8 @@ export const chatMessages = {
   "chat.attachError.count": "5 صور كحد أقصى في المرة",
   "chat.close": "إغلاق",
   "chat.searchDialogs": "بحث في المحادثات",
+  "chat.allAgents": "كل الوكلاء",
+  "chat.filterAgent": "الوكيل",
   "chat.pin": "تثبيت",
   "chat.unpin": "إلغاء التثبيت",
   "chat.duplicate": "نسخ",

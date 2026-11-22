@@ -84,6 +84,8 @@ export const chatMessages = {
   "chat.attachError.count": "Up to 5 images at a time",
   "chat.close": "Close",
   "chat.searchDialogs": "Search dialogs",
+  "chat.allAgents": "All agents",
+  "chat.filterAgent": "Agent",
   "chat.pin": "Pin",
   "chat.unpin": "Unpin",
   "chat.duplicate": "Duplicate",
