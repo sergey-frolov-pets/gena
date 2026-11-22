@@ -21,13 +21,19 @@ import type { TransferEntry } from "./transfer";
 import { planMerge, type MergeConflict, type MergePolicy } from "./merge";
 import { newId } from "@/lib/id";
 
-/** Запись справочника с открытым значением. */
+/**
+ * Запись справочника с открытым значением.
+ *
+ * `caseSensitive` — свойство самой записи, а не диалога и не серии замен:
+ * для одного токена «ВТБ» и «втб» — разные значения, для другого — одно и то же.
+ */
 export interface TokenEntry {
   id: string;
   name: string;
   value: string;
   note?: string;
   variants?: string[];
+  caseSensitive?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -61,6 +67,7 @@ function toEntry(record: TokenRecord, value: string): TokenEntry {
     value,
     ...(record.note ? { note: record.note } : {}),
     ...(record.variants && record.variants.length > 0 ? { variants: record.variants } : {}),
+    ...(record.caseSensitive ? { caseSensitive: true } : {}),
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
@@ -90,6 +97,8 @@ export interface TokenInput {
   value: string;
   note?: string;
   variants?: string[];
+  /** Учитывать регистр при поиске значения (по умолчанию нет). */
+  caseSensitive?: boolean;
 }
 
 function normalizeVariants(input: string[] | undefined): string[] {
@@ -144,6 +153,7 @@ export async function saveToken(input: TokenInput): Promise<TokenEntry> {
     sealedValue,
     ...(note ? { note } : {}),
     ...(variants.length > 0 ? { variants } : {}),
+    ...(input.caseSensitive ? { caseSensitive: true } : {}),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };
@@ -158,10 +168,16 @@ export async function removeToken(id: string): Promise<void> {
   await loadTokens();
 }
 
+/** Запись справочника по имени токена (без учёта регистра). */
+export function tokenEntryByName(name: string): TokenEntry | undefined {
+  const key = tokenNameKey(name);
+  if (!key) return undefined;
+  return tokenEntries.value.find((entry) => tokenNameKey(entry.name) === key);
+}
+
 /** Значение по имени токена (без учёта регистра). */
 export function tokenLookup(name: string): string | undefined {
-  const key = tokenNameKey(name);
-  return tokenEntries.value.find((entry) => tokenNameKey(entry.name) === key)?.value;
+  return tokenEntryByName(name)?.value;
 }
 
 /** Текст для чтения: токены → значения. Неизвестные токены остаются как есть. */
@@ -209,6 +225,7 @@ export async function importTokenEntries(
       value: entry.value,
       note: entry.note,
       variants: entry.variants,
+      caseSensitive: entry.caseSensitive,
     });
     if (existing) replaced += 1;
     else added += 1;
@@ -223,6 +240,7 @@ export function transferEntries(): TransferEntry[] {
     value: entry.value,
     ...(entry.note ? { note: entry.note } : {}),
     ...(entry.variants && entry.variants.length > 0 ? { variants: entry.variants } : {}),
+    ...(entry.caseSensitive ? { caseSensitive: true } : {}),
     createdAt: entry.createdAt,
     updatedAt: entry.updatedAt,
   }));

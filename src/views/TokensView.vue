@@ -43,7 +43,7 @@ const error = ref("");
 const notice = ref("");
 
 const editingId = ref<string | null>(null);
-const form = reactive({ name: "", value: "", variants: "", note: "" });
+const form = reactive({ name: "", value: "", variants: "", note: "", caseSensitive: false });
 const revealed = ref<Set<string>>(new Set());
 const savedId = ref("");
 
@@ -109,6 +109,7 @@ function resetForm(): void {
   form.value = "";
   form.variants = "";
   form.note = "";
+  form.caseSensitive = false;
 }
 
 function startEdit(entry: TokenEntry): void {
@@ -119,6 +120,7 @@ function startEdit(entry: TokenEntry): void {
   form.value = entry.value;
   form.variants = (entry.variants ?? []).join("\n");
   form.note = entry.note ?? "";
+  form.caseSensitive = entry.caseSensitive === true;
   revealed.value = new Set([...revealed.value, entry.id]);
 }
 
@@ -132,6 +134,7 @@ async function submit(): Promise<void> {
       value: form.value,
       variants: form.variants.split("\n"),
       note: form.note,
+      caseSensitive: form.caseSensitive,
     });
     savedId.value = saved.id;
     resetForm();
@@ -386,6 +389,10 @@ function setDecision(key: string, policy: MergePolicy): void {
         <span>{{ t("tokens.note") }}</span>
         <input v-model="form.note" type="text" :placeholder="t('tokens.notePlaceholder')" />
       </label>
+      <label class="tokens-field tokens-field--check">
+        <input v-model="form.caseSensitive" type="checkbox" />
+        <span>{{ t("tokens.caseSensitive") }}</span>
+      </label>
       <div class="tokens-actions">
         <button type="submit" class="is-primary">{{ t("tokens.save") }}</button>
         <button v-if="editingId" type="button" @click="resetForm">{{ t("tokens.cancel") }}</button>
@@ -402,6 +409,14 @@ function setDecision(key: string, policy: MergePolicy): void {
               {{ revealed.has(entry.id) ? entry.value : masked(entry) }}
             </span>
             <span v-if="entry.note" class="muted small">{{ entry.note }}</span>
+            <span
+              v-if="entry.caseSensitive"
+              class="tokens-case"
+              :title="t('tokens.caseSensitive')"
+              :aria-label="t('tokens.caseSensitive')"
+            >
+              Aa
+            </span>
             <span v-if="entry.variants && entry.variants.length" class="muted small">
               · {{ entry.variants.join(" · ") }}
             </span>
@@ -562,6 +577,33 @@ function setDecision(key: string, policy: MergePolicy): void {
   background: var(--panel);
   color: var(--text);
   font: inherit;
+}
+
+/* Галочка «учитывать регистр» — свойство записи, а не серии замен. */
+.tokens-field--check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  cursor: pointer;
+}
+
+.tokens-field--check input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.tokens-case {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.68rem;
+  color: var(--muted);
 }
 
 .tokens-actions {

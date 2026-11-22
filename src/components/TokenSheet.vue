@@ -34,7 +34,7 @@ const { t } = useLocale();
 
 const editingId = ref<string | null>(null);
 const creating = ref(false);
-const form = reactive({ name: "", value: "", variants: "", note: "" });
+const form = reactive({ name: "", value: "", variants: "", note: "", caseSensitive: false });
 const error = ref("");
 const notice = ref("");
 const revealed = ref<Set<string>>(new Set());
@@ -75,6 +75,7 @@ function startEdit(entry?: TokenEntry): void {
     form.value = entry.value;
     form.variants = (entry.variants ?? []).join("\n");
     form.note = entry.note ?? "";
+    form.caseSensitive = entry.caseSensitive === true;
   } else {
     editingId.value = null;
     creating.value = true;
@@ -82,6 +83,7 @@ function startEdit(entry?: TokenEntry): void {
     form.value = "";
     form.variants = "";
     form.note = "";
+    form.caseSensitive = false;
   }
 }
 
@@ -92,6 +94,7 @@ function cancelEdit(): void {
   form.value = "";
   form.variants = "";
   form.note = "";
+  form.caseSensitive = false;
   error.value = "";
 }
 
@@ -106,6 +109,7 @@ async function save(): Promise<void> {
         .map((item) => item.trim())
         .filter((item) => item.length > 0),
       note: form.note,
+      caseSensitive: form.caseSensitive,
       ...(editingId.value ? { id: editingId.value } : {}),
     };
     await saveToken(input);
@@ -250,6 +254,10 @@ onBeforeUnmount(() => {
         <label class="token-sheet__field">
           <span>{{ t("tokens.note") }}</span>
           <input v-model="form.note" type="text" :placeholder="t('tokens.notePlaceholder')" />
+        </label>
+        <label class="token-sheet__check">
+          <input v-model="form.caseSensitive" type="checkbox" />
+          <span>{{ t("tokens.caseSensitive") }}</span>
         </label>
         <p v-if="error" class="token-sheet__error" role="alert">{{ error }}</p>
         <div class="token-sheet__form-actions">
@@ -580,6 +588,24 @@ onBeforeUnmount(() => {
 .token-sheet__field textarea:focus {
   outline: none;
   border-color: var(--accent);
+}
+
+/* Галочка «учитывать регистр»: свойство записи, а не диалога. */
+.token-sheet__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.74rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.token-sheet__check input {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 
 .token-sheet__form-actions,

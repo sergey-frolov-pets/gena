@@ -137,6 +137,8 @@ export interface TokenRecord {
   note?: string;
   /** Дополнительные написания: падежи, сокращения, другой порядок слов. */
   variants?: string[];
+  /** Искать значение с учётом регистра (по умолчанию регистр не важен). */
+  caseSensitive?: boolean;
   createdAt: number;
   updatedAt: number;
 }

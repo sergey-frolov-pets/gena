@@ -74,3 +74,27 @@ describe("tokens/substitute: значения → токены", () => {
     expect(valuesToTokens("текст", [])).toEqual({ text: "текст", hits: 0 });
   });
 });
+
+describe("tokens/substitute: регистр — свойство записи, а не диалога", () => {
+  const mixed = [
+    { name: "ВТБ", value: "ВТБ", caseSensitive: true },
+    { name: "город", value: "Москва" },
+  ];
+
+  it("флаг у записи — регистр важен, у соседней — нет", () => {
+    expect(valuesToTokens("ВТБ, втб и МОСКВА", mixed).text).toBe(
+      "⟦ВТБ⟧, втб и ⟦город⟧",
+    );
+  });
+
+  it("без флага запись по-прежнему не различает регистр", () => {
+    expect(valuesToTokens("москва и Москва", mixed).text).toBe("⟦город⟧ и ⟦город⟧");
+  });
+
+  it("флаг действует и на дополнительные написания", () => {
+    const entry = [{ name: "счёт", value: "Счёт", variants: ["счёта"], caseSensitive: true }];
+    // «Счёт» и «счёта» — написания записи; «счёт» в нижнем регистре — уже не она.
+    expect(valuesToTokens("Счёт, счёта и счёт", entry).text).toBe("⟦счёт⟧, ⟦счёт⟧ и счёт");
+    expect(valuesToTokens("Счёт и счёта", entry).hits).toBe(2);
+  });
+});

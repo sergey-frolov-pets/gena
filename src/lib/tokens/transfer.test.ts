@@ -12,6 +12,7 @@ const entries = [
     value: "1 234 567 ₽",
     note: "до 2027-03",
     variants: ["вклада ВТБ", "ВТБ вклад"],
+    caseSensitive: true,
   },
   { name: "аренда", value: "Квартира на Ленина, 15" },
 ];
@@ -38,8 +39,10 @@ describe("tokens/transfer: файл переноса", () => {
       value: "1 234 567 ₽",
       note: "до 2027-03",
       variants: ["вклада ВТБ", "ВТБ вклад"],
+      caseSensitive: true,
     });
     expect(back[1].value).toBe("Квартира на Ленина, 15");
+    expect(back[1].caseSensitive).toBeUndefined();
   });
 
   it("неверный пароль — отдельная ошибка", async () => {

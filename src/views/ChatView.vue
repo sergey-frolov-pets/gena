@@ -114,6 +114,7 @@ import {
   restoreValues,
   saveToken,
   tokenEntries,
+  tokenEntryByName,
   tokenLookup,
   tokensLoaded,
   TokenError,
@@ -359,6 +360,8 @@ const pendingTokenSend = ref(false);
 const selectionRange = ref<{ start: number; end: number; text: string } | null>(null);
 /** Имя нового токена, когда выделенного фрагмента ещё нет в справочнике. */
 const selectionName = ref("");
+/** Новый токен: искать значение с учётом регистра. Свойство записи, по умолчанию выкл. */
+const selectionCaseSensitive = ref(false);
 /** Фрагмент, для которого имя уже предложено: повторные события `select`
  *  не должны затирать то, что человек успел ввести. */
 const selectionSource = ref("");
@@ -375,6 +378,7 @@ const selectionMatch = computed(() => {
 function clearSelection(): void {
   selectionRange.value = null;
   selectionName.value = "";
+  selectionCaseSensitive.value = false;
   selectionSource.value = "";
   selectionConfirm.value = null;
 }
@@ -481,11 +485,13 @@ const occurrenceBlocked = ref({ token: 0, word: 0, mode: 0 });
 /** Подсвеченное сообщение ленты — чтобы было видно, какое вхождение меняем. */
 const occurrenceMessageId = ref("");
 /**
- * Учитывать регистр при поиске вхождений. По умолчанию выключено: «счёт»
- * и «Счёт» — одно значение, человек об этом не думает. Галочка — отдельная,
- * рядом с «Заменить все», и действует только на текущую серию.
+ * Учитывать регистр при поиске вхождений — свойство самого токена, а не
+ * диалога и не серии замен: для одной записи «ВТБ» и «втб» — одно значение,
+ * для другой — разные. По умолчанию выключено (регистр не важен).
  */
-const occurrenceCaseSensitive = ref(false);
+const occurrenceCaseSensitive = computed(
+  () => tokenEntryByName(occurrenceToken.value)?.caseSensitive === true,
+);
 /** Выбор вхождения сделан программно: событие `select` не должно сбрасывать серию. */
 let occurrencePicking = false;
 
@@ -589,16 +595,6 @@ function refreshOccurrences(index = 0, highlight = true): number {
   }
   if (highlight) void highlightOccurrence();
   return items.length;
-}
-
-/**
- * Галочка «учитывать регистр» переключилась: пересобираем серию.
- * Текущее вхождение подсвечиваем заново — после смены фильтра его может
- * уже не быть в списке, и стрелки должны показать новое число.
- */
-function onOccurrenceCaseChange(): void {
-  if (!occurrenceNeedle.value) return;
-  refreshOccurrences(occurrenceIndex.value);
 }
 
 /** Серия началась: первое вхождение уже заменено токеном. */
@@ -742,7 +738,7 @@ async function createTokenFromSelection(): Promise<void> {
   if (!range || !name) return;
   error.value = "";
   try {
-    await saveToken({ name, value: range.text });
+    await saveToken({ name, value: range.text, caseSensitive: selectionCaseSensitive.value });
     await applySelectionToken(name);
     notice.value = t("chat.tokens.created");
   } catch (e) {
@@ -4160,14 +4156,6 @@ function onRateChange(event: Event): void {
             >
               {{ t("chat.tokens.replaceAll", { count: occurrenceTotal }) }}
             </button>
-            <label v-if="occurrenceNeedle" class="chat-panel__selection-case">
-              <input
-                v-model="occurrenceCaseSensitive"
-                type="checkbox"
-                @change="onOccurrenceCaseChange"
-              />
-              <span>{{ t("chat.tokens.caseSensitive") }}</span>
-            </label>
           </template>
           <template v-else>
             <input
@@ -4200,6 +4188,10 @@ function onRateChange(event: Event): void {
                 ⟦{{ name }}⟧
               </button>
             </span>
+            <label class="chat-panel__selection-case">
+              <input v-model="selectionCaseSensitive" type="checkbox" />
+              <span>{{ t("tokens.caseSensitive") }}</span>
+            </label>
           </template>
           <span v-if="occurrenceBlockedHint" class="chat-panel__selection-hint">
             {{ occurrenceBlockedHint }}
@@ -5710,7 +5702,7 @@ function onRateChange(event: Event): void {
   border-color: var(--accent);
 }
 
-/* Отдельная галочка «учитывать регистр»: по умолчанию снята. */
+/* Галочка «учитывать регистр» — свойство нового токена, по умолчанию снята. */
 .chat-panel__selection-case {
   display: inline-flex;
   align-items: center;

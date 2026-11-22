@@ -44,6 +44,8 @@ export interface TransferEntry {
   value: string;
   note?: string;
   variants?: string[];
+  /** Учитывать регистр — свойство записи, переносится вместе с ней. */
+  caseSensitive?: boolean;
   createdAt?: number;
   updatedAt?: number;
 }
@@ -99,6 +101,7 @@ function normalizeForTransfer(entries: TransferEntry[]): TransferEntry[] {
       value,
       ...(note ? { note } : {}),
       ...(variants.length > 0 ? { variants } : {}),
+      ...(entry.caseSensitive ? { caseSensitive: true } : {}),
       ...(typeof entry.createdAt === "number" ? { createdAt: entry.createdAt } : {}),
       ...(typeof entry.updatedAt === "number" ? { updatedAt: entry.updatedAt } : {}),
     });
@@ -216,6 +219,7 @@ function cleanEntries(raw: unknown): TransferEntry[] {
       value,
       ...(note ? { note } : {}),
       ...(variants.length > 0 ? { variants } : {}),
+      ...(record.caseSensitive === true ? { caseSensitive: true } : {}),
       ...(typeof record.createdAt === "number" ? { createdAt: record.createdAt } : {}),
       ...(typeof record.updatedAt === "number" ? { updatedAt: record.updatedAt } : {}),
     });

@@ -5,8 +5,9 @@
  *  - значения из нескольких слов («вклад ВТБ в Альфа-Банке»);
  *  - разные написания одного значения — падежи, сокращения, обратный порядок
  *    слов — задаются в `variants` записи, поэтому морфология здесь не гадает;
- *  - регистр не важен, границы слова соблюдаются (иначе «ВТБ» вырезался бы
- *    из середины другого слова);
+ *  - регистр по умолчанию не важен, но запись может попросить обратное:
+ *    `caseSensitive: true` — тогда «ВТБ» и «втб» для неё разные написания;
+ *    флаг живёт в токене, а не в диалоге и не в серии замен;
  *  - самое длинное совпадение выигрывает, уже стоящие токены не оборачиваются
  *    повторно — повторный проход идемпотентен.
  */
@@ -23,6 +24,8 @@ export interface TokenSource {
   name: string;
   value: string;
   variants?: string[];
+  /** Учитывать регистр при поиске написаний этой записи. */
+  caseSensitive?: boolean;
 }
 
 export interface SubstitutionResult {
@@ -32,9 +35,12 @@ export interface SubstitutionResult {
 }
 
 interface Needle {
-  /** Приведённое к нижнему регистру написание. */
+  /** Написание в исходном регистре. */
+  raw: string;
+  /** Приведённое к нижнему регистру — для поиска без учёта регистра. */
   needle: string;
   name: string;
+  caseSensitive: boolean;
 }
 
 const WORD = /[\p{L}\p{N}_]/u;
@@ -44,24 +50,25 @@ const MIN_NEEDLE = 2;
 
 /** Собрать написания значений: само значение плюс `variants`, длинные — первыми. */
 export function buildNeedles(entries: TokenSource[]): Needle[] {
-  const map = new Map<string, string>();
+  const map = new Map<string, Needle>();
   for (const entry of entries) {
     const name = String(entry.name ?? "").trim();
     if (!name) continue;
+    const caseSensitive = entry.caseSensitive === true;
     const variants = [entry.value, ...(entry.variants ?? [])];
     for (const variant of variants) {
-      const needle = String(variant ?? "").replace(/\s+/g, " ").trim();
-      if (needle.length < MIN_NEEDLE) continue;
+      const raw = String(variant ?? "").replace(/\s+/g, " ").trim();
+      if (raw.length < MIN_NEEDLE) continue;
       // Значение со скобками токена сломает разбор — такое пропускаем.
-      if (needle.includes(TOKEN_OPEN) || needle.includes(TOKEN_CLOSE)) continue;
-      if (needle.includes("\n")) continue;
-      const key = needle.toLowerCase();
-      if (!map.has(key)) map.set(key, name);
+      if (raw.includes(TOKEN_OPEN) || raw.includes(TOKEN_CLOSE)) continue;
+      if (raw.includes("\n")) continue;
+      const key = raw.toLowerCase();
+      if (!map.has(key)) map.set(key, { raw, needle: key, name, caseSensitive });
     }
   }
-  return [...map.entries()]
-    .map(([needle, name]) => ({ needle, name }))
-    .sort((a, b) => b.needle.length - a.needle.length || a.needle.localeCompare(b.needle));
+  return [...map.values()].sort(
+    (a, b) => b.raw.length - a.raw.length || a.raw.localeCompare(b.raw),
+  );
 }
 
 function isWordAt(text: string, index: number): boolean {
@@ -112,10 +119,15 @@ export function valuesToTokens(text: string, entries: TokenSource[]): Substituti
     let replaced = false;
     if (isFreeStart(source, i)) {
       for (const needle of needles) {
-        const end = i + needle.needle.length;
+        const end = i + needle.raw.length;
         if (end > source.length) continue;
-        const chunk = sameLength ? lower.slice(i, end) : source.slice(i, end).toLowerCase();
-        if (chunk !== needle.needle) continue;
+        const slice = source.slice(i, end);
+        if (needle.caseSensitive) {
+          if (slice !== needle.raw) continue;
+        } else {
+          const chunk = sameLength ? lower.slice(i, end) : slice.toLowerCase();
+          if (chunk !== needle.needle) continue;
+        }
         if (!isFreeEnd(source, end)) continue;
         out += formatToken(needle.name);
         i = end;

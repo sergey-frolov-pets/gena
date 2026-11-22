@@ -105,6 +105,36 @@ describe("lib/tokens/registry", () => {
     expect(edited.createdAt).toBe(saved.createdAt);
   });
 
+  it("чувствительность к регистру — свойство записи, а не диалога", async () => {
+    const { loadTokens, saveToken, tokenEntries, transferEntries } = await import("./registry");
+    const strict = await saveToken({ name: "ВТБ", value: "ВТБ", caseSensitive: true });
+    const plain = await saveToken({ name: "город", value: "Москва" });
+    expect(strict.caseSensitive).toBe(true);
+    expect(plain.caseSensitive).toBeUndefined();
+
+    await loadTokens();
+    const byName = (name: string) => tokenEntries.value.find((entry) => entry.name === name);
+    expect(byName("ВТБ")?.caseSensitive).toBe(true);
+    expect(byName("город")?.caseSensitive).toBeUndefined();
+    // Флаг уезжает вместе с записью в файл переноса.
+    expect(transferEntries().find((entry) => entry.name === "ВТБ")?.caseSensitive).toBe(true);
+
+    const { listTokenRecords } = await import("@/storage/tokens");
+    const records = await listTokenRecords();
+    expect(records.find((record) => record.name === "ВТБ")?.caseSensitive).toBe(true);
+    expect(records.find((record) => record.name === "город")?.caseSensitive).toBeUndefined();
+  });
+
+  it("флаг записи управляет заменой значений на токены", async () => {
+    const { replaceValues, saveToken, loadTokens } = await import("./registry");
+    await saveToken({ name: "ВТБ", value: "ВТБ", caseSensitive: true });
+    await saveToken({ name: "город", value: "Москва" });
+    await loadTokens();
+    expect(replaceValues("ВТБ и втб, Москва и москва").text).toBe(
+      "⟦ВТБ⟧ и втб, ⟦город⟧ и ⟦город⟧",
+    );
+  });
+
   it("импорт: новые добавляются, совпадения заменяются, keep оставляет свои", async () => {
     const { importTokenEntries, loadTokens, saveToken, tokenEntries } = await import("./registry");
     await saveToken({ name: "аренда", value: "старое" });
