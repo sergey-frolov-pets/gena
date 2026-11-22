@@ -38,13 +38,13 @@ import TokenSheet from "@/components/TokenSheet.vue";
 import SessionTabs from "@/components/SessionTabs.vue";
 import HistorySheet from "@/components/HistorySheet.vue";
 import SessionQueue from "@/components/SessionQueue.vue";
+import MessageBubble from "@/components/MessageBubble.vue";
 import AttachmentTray from "@/components/AttachmentTray.vue";
 import { listenToAgent, sendToAgent, type TransportAttachment } from "@/lib/agent-client";
 import { cancelAgentTurn } from "@/lib/agent-client";
 import { describeError } from "@/lib/errors";
-import { renderMarkdown } from "@/lib/markdown";
+import { markdownLabels, mdHtml } from "@/lib/chat-markdown";
 import { toCsv, toTsv, xlsxBlob } from "@/lib/table-file";
-import { splitContent } from "@/lib/ui-blocks";
 import { hasOpenSlot } from "@/lib/model-fallback";
 import { canCall, getCallCount, recordCall } from "@/storage/usage";
 import { listMessages } from "@/storage/db";
@@ -71,7 +71,6 @@ import {
   DocumentError,
   documentKindOf,
   documentsToMessage,
-  formatBytes,
   prepareDocument,
   type PreparedDocument,
 } from "@/lib/documents";
@@ -2652,31 +2651,8 @@ function stopTurn(sessionId: string): void {
  * Клик по своей реплике забирает её в поле ввода. Кнопки, картинки и
  * выделенный текст не перехватываем — там свои действия.
  */
-/** Markdown реплики → безопасный HTML (кеш внутри lib/markdown). */
-function mdHtml(text: string): string {
-  noteUiBlock(text);
-  return renderMarkdown(text, {
-    copy: t("chat.copyMessage"),
-    tableCopy: t("chat.table.copy"),
-    tableCsv: t("chat.table.csv"),
-    tableXlsx: t("chat.table.xlsx"),
-  });
-}
-
-/**
- * P0 контракта плагинов: блок уже находится, рендера ещё нет — один раз
- * пишем в консоль, какой плагин пришёл (или почему блок не принят).
- */
-const seenUiBlocks = new Set<string>();
-function noteUiBlock(text: string): void {
-  if (!text.includes("```gena-ui")) return;
-  if (seenUiBlocks.has(text)) return;
-  if (seenUiBlocks.size > 200) seenUiBlocks.clear();
-  seenUiBlocks.add(text);
-  const parts = splitContent(text);
-  console.debug("[gena-ui]", parts.block ? `block:${parts.block.plugin}` : "fallback:text", parts.issues);
-}
-
+/** HTML реплики: подписи кнопок кода и таблиц берём из текущей локали. */
+const uiLabels = computed(() => markdownLabels(t));
 
 /**
  * Делегированный клик по markdown: кнопка «Копировать» в шапке блока кода.
@@ -3352,150 +3328,34 @@ function onRateChange(event: Event): void {
               <div class="chat-panel__thought-inner">{{ turnThoughtText(entry.index) }}</div>
             </div>
           </div>
-          <article
+          <MessageBubble
             v-if="entry.message.kind !== 'thought'"
-            class="chat-panel__message"
-            :class="[
-              `chat-panel__message--${entry.message.role}`,
-              { 'is-token-target': occurrenceMessageId === entry.message.id },
-            ]"
-            :data-message-id="entry.message.id"
-            @click="onMessageClick($event, entry.message)"
-          >
-            <span class="chat-panel__role">
-              <span class="chat-panel__time">{{ messageClock(entry.message) }}</span>
-              <span class="chat-panel__role-name">{{ roleLabel(entry.message) }}</span>
-              <span v-if="messageElapsed(entry.index)" class="chat-panel__elapsed">
-                {{ messageElapsed(entry.index) }}
-              </span>
-            </span>
-            <div
-              v-if="entry.message.content"
-              class="chat-panel__content md"
-              @click="onMarkdownClick"
-              v-html="mdHtml(displayContent(entry.message.content))"
-            ></div>
-            <details v-if="entry.message.edits?.length" class="chat-panel__edits">
-              <summary>{{ t("chat.edited") }}</summary>
-              <div
-                v-for="(v, i) in entry.message.edits"
-                :key="i"
-                class="chat-panel__content md"
-                @click="onMarkdownClick"
-                v-html="mdHtml(displayContent(v))"
-              ></div>
-            </details>
-            <div
-              v-if="imagesOf(entry.message).length"
-              class="chat-panel__images"
-              :data-count="Math.min(imagesOf(entry.message).length, 4)"
-            >
-              <button
-                v-for="(a, i) in imagesOf(entry.message).slice(0, 4)"
-                :key="i"
-                type="button"
-                class="chat-panel__image"
-                @click="openAttachment(a)"
-              >
-                <img :src="a.thumb" alt="" loading="lazy" @load="scrollToBottom()" />
-              </button>
-            </div>
-            <div v-if="filesOf(entry.message).length" class="chat-panel__file-row">
-              <span
-                v-for="(a, i) in filesOf(entry.message)"
-                :key="`file-${i}`"
-                class="chat-panel__file-badge"
-                :title="a.name"
-              >
-                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
-                  <path d="M14 3v5h5" />
-                </svg>
-                <span class="chat-panel__file-name">{{ a.name }}</span>
-                <span v-if="a.bytes" class="chat-panel__file-size">{{ formatBytes(a.bytes) }}</span>
-              </span>
-            </div>
-            <div class="chat-panel__message-actions">
-              <button
-                v-if="entry.message.role === 'user' && !entry.message.kind"
-                type="button"
-                class="chat-panel__action"
-                v-tip="t('chat.liftMessage')"
-                :aria-label="t('chat.liftMessage')"
-                @click="startEdit(entry.message)"
-              >
-                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M4 20h4l10-10a2.8 2.8 0 1 0-4-4L4 16z" />
-                </svg>
-              </button>
-              <button
-                type="button"
-                class="chat-panel__action"
-                v-tip="copiedId === entry.message.id ? t('chat.copied') : t('chat.copyMessage')"
-                :aria-label="t('chat.copyMessage')"
-                @click="copyText(entry.message.id, entry.message.content)"
-              >
-                <svg v-if="copiedId === entry.message.id" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="m5 13 4 4L19 7" />
-                </svg>
-                <svg v-else viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <rect x="9" y="9" width="11" height="11" rx="2" />
-                  <path d="M5 15V5a2 2 0 0 1 2-2h10" />
-                </svg>
-              </button>
-              <button
-                v-if="entry.message.role === 'assistant' && speechAvailable"
-                type="button"
-                class="chat-panel__action"
-                :class="{ 'is-on': speakingId === entry.message.id }"
-                v-tip="speakingId === entry.message.id ? t('chat.stopSpeaking') : t('chat.speakReply')"
-                :aria-label="speakingId === entry.message.id ? t('chat.stopSpeaking') : t('chat.speakReply')"
-                :aria-pressed="speakingId === entry.message.id"
-                @click="toggleSpeech(entry.message.id, entry.message.content)"
-              >
-                <svg v-if="speakingId === entry.message.id" viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true">
-                  <rect x="7" y="7" width="10" height="10" rx="2" />
-                </svg>
-                <svg v-else viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M11 5 6 9H3v6h3l5 4z" />
-                  <path d="M16 9a4 4 0 0 1 0 6" />
-                </svg>
-              </button>
-              <button
-                v-if="entry.message.role === 'assistant' && (!entry.message.kind || entry.message.kind === 'text') && entry.message.content"
-                type="button"
-                class="chat-panel__action chat-panel__export"
-                v-tip="t('chat.downloadMd')"
-                :aria-label="t('chat.downloadMd')"
-                @click="downloadReply(entry.message, 'md', $event)"
-              >
-                MD
-              </button>
-              <button
-                v-if="entry.message.role === 'assistant' && (!entry.message.kind || entry.message.kind === 'text') && entry.message.content"
-                type="button"
-                class="chat-panel__action chat-panel__export"
-                v-tip="t('chat.downloadTxt')"
-                :aria-label="t('chat.downloadTxt')"
-                @click="downloadReply(entry.message, 'txt', $event)"
-              >
-                TXT
-              </button>
-              <button
-                v-if="entry.message.role === 'assistant' && entry.index === feed.length - 1 && !busy"
-                type="button"
-                class="chat-panel__action"
-                v-tip="t('chat.regenerate')"
-                :aria-label="t('chat.regenerate')"
-                @click="regenerate(entry.message)"
-              >
-                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M20 12a8 8 0 1 1-2.34-5.66" />
-                  <path d="M20 4v5h-5" />
-                </svg>
-              </button>
-            </div>
-          </article>
+            :message="entry.message"
+            :text="displayContent(entry.message.content)"
+            :edit-texts="(entry.message.edits ?? []).map(displayContent)"
+            :images="imagesOf(entry.message)"
+            :files="filesOf(entry.message)"
+            :role-name="roleLabel(entry.message)"
+            :clock="messageClock(entry.message)"
+            :elapsed="messageElapsed(entry.index)"
+            :token-target="occurrenceMessageId === entry.message.id"
+            :copied="copiedId === entry.message.id"
+            :speaking="speakingId === entry.message.id"
+            :speech-available="speechAvailable"
+            :can-lift="entry.message.role === 'user' && !entry.message.kind"
+            :can-regenerate="
+              entry.message.role === 'assistant' && entry.index === feed.length - 1 && !busy
+            "
+            @lift="startEdit(entry.message)"
+            @copy="copyText(entry.message.id, entry.message.content)"
+            @speak="toggleSpeech(entry.message.id, entry.message.content)"
+            @download="(kind, event) => downloadReply(entry.message, kind, event)"
+            @regenerate="regenerate(entry.message)"
+            @open-attachment="openAttachment"
+            @markdown-click="onMarkdownClick"
+            @message-click="onMessageClick($event, entry.message)"
+            @image-load="scrollToBottom()"
+          />
         </template>
 
         <div
@@ -3545,7 +3405,7 @@ function onRateChange(event: Event): void {
           <div
             class="chat-panel__content md"
             @click="onMarkdownClick"
-            v-html="mdHtml(liveStreaming)"
+            v-html="mdHtml(liveStreaming, uiLabels)"
           ></div>
         </article>
 
@@ -4355,47 +4215,11 @@ function onRateChange(event: Event): void {
 }
 
 /* --- Пузыри: как .ai-chat-panel__message --------------------------------- */
-.chat-panel__message {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-width: min(100%, 36rem);
-  padding: 4px 10px;
-  border-radius: 14px;
-}
 
-.chat-panel__message--user {
-  align-self: flex-end;
-  margin-inline-start: 2rem;
-  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
-  border-end-end-radius: 4px;
-}
 
-.chat-panel__message--assistant {
-  align-self: flex-start;
-  margin-inline-start: 0.75rem;
-  margin-inline-end: 1.25rem;
-  padding-inline: 0;
-  background: transparent;
-}
 
-.chat-panel__role {
-  color: var(--muted);
-  font-size: 0.68rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.35rem;
-}
 
 /* Время появления сообщения — мелко, в начале строки автора. */
-.chat-panel__time {
-  font-size: 0.64rem;
-  font-variant-numeric: tabular-nums;
-  opacity: 0.75;
-}
 
 /* Живой счётчик хода: виден всё время, пока агент работает. */
 .chat-panel__turn {
@@ -4433,37 +4257,9 @@ function onRateChange(event: Event): void {
 }
 
 /* Длительность ответа: «42 с», «1 мин 05 с». */
-.chat-panel__elapsed {
-  font-size: 0.62rem;
-  letter-spacing: 0;
-  text-transform: none;
-  font-variant-numeric: tabular-nums;
-  opacity: 0.85;
-  white-space: nowrap;
-}
 
-.chat-panel__content {
-  margin: 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  line-height: 1.45;
-  font-size: 0.88rem;
-}
 
-.chat-panel__message-actions {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 2px;
-  opacity: 0;
-  transition: opacity 120ms ease;
-}
 
-.chat-panel__message:hover .chat-panel__message-actions,
-.chat-panel__message:focus-within .chat-panel__message-actions,
-.chat-panel__message:last-child .chat-panel__message-actions {
-  opacity: 1;
-}
 
 /* Кнопка шагов хода: иконка-шеврон + счётчик шагов. */
 .chat-panel__action--steps {
@@ -4989,23 +4785,8 @@ function onRateChange(event: Event): void {
   font-size: 0.72rem;
 }
 
-.chat-panel__edits {
-  margin-top: 2px;
-  color: var(--muted);
-  font-size: 0.72rem;
-}
 
-.chat-panel__edits summary {
-  cursor: pointer;
-}
 
-.chat-panel__edits .chat-panel__content {
-  margin-top: 4px;
-  padding-inline-start: 8px;
-  border-inline-start: 2px solid var(--border);
-  opacity: 0.75;
-  font-size: 0.8rem;
-}
 
 @media (max-width: 720px) {
   .chat-panel {
@@ -5016,14 +4797,8 @@ function onRateChange(event: Event): void {
   .chat-panel__messages {
     padding: 6px 6px 0;
   }
-  .chat-panel__message-actions {
-    opacity: 1;
-  }
   .chat-panel__dock {
     padding-bottom: calc(8px + env(safe-area-inset-bottom));
-  }
-  .chat-panel__message--user {
-    margin-inline-start: 1rem;
   }
 }
 
@@ -5075,32 +4850,9 @@ function onRateChange(event: Event): void {
   display: none;
 }
 
-.chat-panel__images {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 4px;
-  max-width: 20rem;
-}
 
-.chat-panel__images[data-count="1"] {
-  grid-template-columns: minmax(0, 1fr);
-}
 
-.chat-panel__image {
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  overflow: hidden;
-  background: var(--panel-2);
-  aspect-ratio: 4 / 3;
-}
 
-.chat-panel__image img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
 
 .chat-panel__lightbox {
   position: fixed;
@@ -5133,38 +4885,9 @@ function onRateChange(event: Event): void {
 }
 
 /* Документы в истории сообщений: бейджи под текстом. */
-.chat-panel__file-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 6px;
-}
 
-.chat-panel__file-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  max-width: 100%;
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--panel-2);
-  color: var(--muted);
-  font-size: 0.75rem;
-}
 
-.chat-panel__file-name {
-  overflow: hidden;
-  max-width: 160px;
-  color: var(--text);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
-.chat-panel__file-size {
-  flex: 0 0 auto;
-  opacity: 0.8;
-}
 
 /* --- Единый блок размышлений: счётчик мыслей ---------------------------- */
 .chat-panel__thought-count {
@@ -5553,10 +5276,6 @@ function onRateChange(event: Event): void {
 }
 
 /* Текущее вхождение в ленте — рамка, чтобы было видно, что меняем. */
-.chat-panel__message.is-token-target {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
 
 .chat-panel__selection-input {
   flex: 1 1 120px;
