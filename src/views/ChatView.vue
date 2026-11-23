@@ -2094,9 +2094,7 @@ function closeComposer(): void {
   fieldPick.value = null;
 }
 
-/** Тап по полотну чата открывает ввод, но больше его не прячет.
- * Сворачивание — только явная кнопка «свернуть» в поле (или Escape):
- * случайное касание ленты не должно убирать поле из-под пальца. */
+/** Тап по полотну чата прячет открытый ввод и снова показывает его. */
 function onChatTap(event: MouseEvent): void {
   // Открытая панель стандартных сообщений: первый тап по полотну её сворачивает.
   if (quickOpen.value) {
@@ -2110,7 +2108,8 @@ function onChatTap(event: MouseEvent): void {
   // Низ панели (док, панель токенов, плашки) — не «полотно чата».
   if (target && dockEl.value?.contains(target)) return;
   if (target?.closest("button, a, input, textarea, select, details, summary")) return;
-  if (!composerOpen.value) openComposer();
+  if (composerOpen.value) closeComposer();
+  else openComposer();
 }
 
 /**
@@ -5519,7 +5518,7 @@ function onRateChange(event: Event): void {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 0;
   /* Высоту отдаёт колонка .app: шапка, плашки и подвал занимают своё место,
      панель забирает остаток. Фиксированный вычет ломался, когда плашек не было
      или их было несколько. */
@@ -5620,7 +5619,7 @@ function onRateChange(event: Event): void {
 .chat-panel__messages {
   flex: 1 1 auto;
   min-height: 0;
-  padding: 8px 8px 0;
+  padding: 0;
   overflow-y: auto;
 }
 
@@ -6247,16 +6246,12 @@ function onRateChange(event: Event): void {
   .chat-panel {
     border-radius: 0;
     border-inline: 0;
-    gap: 0;
   }
   .chat-panel__toolbar {
     padding: 4px 6px;
   }
   .chat-panel__title-text {
     font-size: 0.95rem;
-  }
-  .chat-panel__messages {
-    padding: 8px 8px 0;
   }
   .chat-panel__dock {
     padding-bottom: calc(8px + env(safe-area-inset-bottom));
@@ -7361,9 +7356,6 @@ function onRateChange(event: Event): void {
 @media (min-width: 1100px) {
   .chat-panel__title-text {
     font-size: 1rem;
-  }
-  .chat-panel__messages {
-    padding-inline: clamp(16px, 5vw, 72px);
   }
 }
 
