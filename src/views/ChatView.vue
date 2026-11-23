@@ -5385,7 +5385,7 @@ function onRateChange(event: Event): void {
           </button>
         </div>
       </form>
-      <div v-if="stickBottom" class="chat-panel__footer">
+      <div v-if="stickBottom && composerOpen" class="chat-panel__footer">
         <AppFooter />
       </div>
     </div>
