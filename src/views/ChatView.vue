@@ -127,7 +127,7 @@ import {
 import { formatToken, isValidTokenName, parseTokens, tokenNameKey } from "@/lib/tokens/format";
 import { aliasByName, canRenameInDialog, upsertAlias } from "@/lib/tokens/dialog-alias";
 import { loadNameBases, suggestBaseNames } from "@/lib/tokens/name-bases";
-import { categoryBase, findSelectionEntry, replaceRange, suggestTokenNames } from "@/lib/tokens/selection";
+import { categoryBase, findSelectionEntry, replaceRange } from "@/lib/tokens/selection";
 import { replaceSelectionWithToken, replaceTokenWithValue } from "@/lib/tokens/message-replace";
 import {
   describeFieldPick,
@@ -494,17 +494,17 @@ function clearSelection(): void {
   selectionConfirm.value = null;
 }
 
-/** Варианты имени-подсказки: то, что предлагает словарь выделения. */
+/** Подсказки имени — только основы справочника, не слова из выделения. */
 const selectionSuggestions = computed(() => {
   const range = selectionRange.value;
   if (!range || selectionMatch.value) return [];
   const taken = selectionName.value.trim().toLocaleLowerCase();
-  const bases = suggestBaseNames(loadNameBases(), tokenNames.value, categoryBase(range.text), 6);
-  const fromWords = suggestTokenNames(range.text, tokenNames.value, 2);
-  return [...bases, ...fromWords].filter((name, index, all) => {
-    const key = name.toLocaleLowerCase();
-    return key !== taken && all.findIndex((item) => item.toLocaleLowerCase() === key) === index;
-  });
+  return suggestBaseNames(loadNameBases(), tokenNames.value, categoryBase(range.text), 6).filter(
+    (name, index, all) => {
+      const key = name.toLocaleLowerCase();
+      return key !== taken && all.findIndex((item) => item.toLocaleLowerCase() === key) === index;
+    },
+  );
 });
 
 /** Токены, которые уже стоят в этом диалоге: ими можно закрыть другое слово. */
@@ -628,12 +628,10 @@ function onComposerSelect(): void {
   if (known) {
     selectionName.value = known.name;
   } else if (selectionSource.value !== text || !selectionName.value.trim()) {
-    // Новый фрагмент — предлагаем имя сами: «цена 1 200 ₽» → «цена»,
-    // без букв — «имя» (и «имя2», если занято).
+    // Имя не берём из выделенных слов: только основа справочника
+    // («1 200 ₽» → «сумма1», иначе «имя1»).
     selectionName.value =
-      suggestBaseNames(loadNameBases(), tokenNames.value, categoryBase(text), 1)[0] ??
-      suggestTokenNames(text, tokenNames.value, 1)[0] ??
-      "";
+      suggestBaseNames(loadNameBases(), tokenNames.value, categoryBase(text), 1)[0] ?? "";
   }
   selectionSource.value = text;
   selectionConfirm.value = null;
@@ -1092,12 +1090,12 @@ const feedSuggestions = computed(() => {
   const picked = feedSelection.value;
   if (!picked || feedMatch.value) return [];
   const taken = feedName.value.trim().toLocaleLowerCase();
-  const bases = suggestBaseNames(loadNameBases(), tokenNames.value, categoryBase(picked.text), 6);
-  const fromWords = suggestTokenNames(picked.text, tokenNames.value, 2);
-  return [...bases, ...fromWords].filter((name, index, all) => {
-    const key = name.toLocaleLowerCase();
-    return key !== taken && all.findIndex((item) => item.toLocaleLowerCase() === key) === index;
-  });
+  return suggestBaseNames(loadNameBases(), tokenNames.value, categoryBase(picked.text), 6).filter(
+    (name, index, all) => {
+      const key = name.toLocaleLowerCase();
+      return key !== taken && all.findIndex((item) => item.toLocaleLowerCase() === key) === index;
+    },
+  );
 });
 
 function clearFeedSelection(): void {
@@ -1138,9 +1136,7 @@ function onFeedSelect(): void {
     const known = findSelectionEntry(text, declinedEntries.value);
     feedName.value = known
       ? known.name
-      : (suggestBaseNames(loadNameBases(), tokenNames.value, categoryBase(text), 1)[0] ??
-        suggestTokenNames(text, tokenNames.value, 1)[0] ??
-        "");
+      : (suggestBaseNames(loadNameBases(), tokenNames.value, categoryBase(text), 1)[0] ?? "");
   }
 }
 
