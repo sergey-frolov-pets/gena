@@ -180,10 +180,20 @@ watch([() => props.activeId, () => props.tabs], () => void nextTick(revealActive
   color: var(--text);
 }
 
-/* Защищённый диалог: активная вкладка того же цвета, что полотно чата. */
+/* Защищённый диалог: полоса и активная вкладка прозрачные, поэтому виден
+   тот же градиент, что у ленты. Плоский --tokens-bg светлее или темнее. */
+.chat-panel.is-tokens .chat-panel__tabs {
+  background: transparent;
+}
+
+.chat-panel.is-tokens .chat-panel__tabs::after {
+  background: transparent;
+}
+
 .chat-panel.is-tokens .chat-panel__tab.is-active {
-  background: var(--tokens-bg);
-  border-bottom-color: var(--tokens-bg);
+  background: transparent;
+  border-color: var(--tokens-edge);
+  border-bottom-color: transparent;
 }
 
 .chat-panel__tab-open {
