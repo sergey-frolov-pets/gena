@@ -1617,6 +1617,25 @@ function toggleThought(key: string): void {
   thoughtOpen.value = next;
 }
 
+/**
+ * Тап по самому блоку размышлений.
+ *
+ * Строка «Размышления · N» слева — основная цель, но на телефоне в неё легко
+ * промахнуться, а раскрытый текст мысли закрывает под ней пол-экрана. Поэтому
+ * блок целиком работает как переключатель: тап по строке, по левой линии или
+ * по пустому месту тела сворачивает раскрытые размышления. Выделение текста
+ * (перетаскиванием) не считается тапом — иначе нельзя было бы скопировать мысль.
+ */
+function onThoughtTap(event: MouseEvent, key: string): void {
+  if (!thoughtExpanded(key)) return;
+  const target = event.target as HTMLElement | null;
+  // Ссылки и кнопки внутри мысли живут своей жизнью.
+  if (target?.closest("a, button")) return;
+  const selection = typeof window.getSelection === "function" ? window.getSelection() : null;
+  if (selection && !selection.isCollapsed && selection.toString().trim()) return;
+  toggleThought(key);
+}
+
 /** Мысли текущего (ещё не завершённого) хода — тоже одним блоком. */
 const liveThoughts = computed<Message[]>(() => collectTrailingThoughts(feed.value));
 const liveThoughtText = computed(() => thoughtText(liveThoughts.value));
@@ -3570,6 +3589,7 @@ function onRateChange(event: Event): void {
             v-if="entry.message.role === 'assistant' && entry.message.kind !== 'thought' && turnThoughtText(entry.index)"
             class="chat-panel__thought"
             :class="{ 'is-open': thoughtExpanded(entry.message.id) }"
+            @click="onThoughtTap($event, entry.message.id)"
           >
             <button
               type="button"
@@ -3633,6 +3653,7 @@ function onRateChange(event: Event): void {
           v-if="liveThoughtText"
           class="chat-panel__thought"
           :class="{ 'is-open': thoughtExpanded(LIVE_KEY) }"
+          @click="onThoughtTap($event, LIVE_KEY)"
         >
           <button
             type="button"
@@ -3949,26 +3970,11 @@ function onRateChange(event: Event): void {
       </p>
 
       <div
+        v-if="isTokenSession(activeSession)"
         class="chat-panel__tokenbar"
-        :class="{ 'is-off': !isTokenSession(activeSession) }"
         role="group"
         :aria-label="t('chat.tokens.bar')"
       >
-        <button
-          v-if="!isTokenSession(activeSession)"
-          type="button"
-          class="chat-panel__token-toggle"
-          v-tip="t('chat.tokenMode')"
-          :aria-label="t('chat.tokenMode')"
-          @click="toggleTokenMode"
-        >
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M12 3l7 3v6c0 4.2-2.9 7.4-7 9-4.1-1.6-7-4.8-7-9V6z" />
-            <path d="M9 12l2 2 4-4" />
-          </svg>
-          <span>{{ t("chat.tokensShort") }}</span>
-        </button>
-        <template v-if="isTokenSession(activeSession)">
         <span class="chat-panel__tokenbar-lock" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="4" y="10" width="16" height="10" rx="2" />
@@ -4030,7 +4036,6 @@ function onRateChange(event: Event): void {
             <path d="m17 8 4 4-4 4" />
           </svg>
         </button>
-        </template>
       </div>
 
       <div
@@ -4698,12 +4703,23 @@ function onRateChange(event: Event): void {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 2px 6px 2px 2px;
+  align-self: stretch;
+  width: 100%;
+  min-height: 26px;
+  padding: 3px 6px 3px 2px;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: var(--muted);
   font-size: 0.76rem;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.chat-panel__thought.is-open {
   cursor: pointer;
 }
 
