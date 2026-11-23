@@ -512,8 +512,17 @@ const fieldPick = ref<FieldPick | null>(null);
 /** Номер попытки: пока справочник дочитывался, каретка уже ушла. */
 let fieldPickSeq = 0;
 
-/** Значение под пальцем видно в поле, а в черновике стоит токен. */
-const fieldPickShowsValue = computed(() => displayValues.value);
+/**
+ * В поле на этом месте виден сам токен ⟦имя⟧ (а не значение).
+ *
+ * Тогда вторая сторона — значение: тап по нему снимает токенизацию.
+ * Во всех остальных случаях под пальцем значение и вторая сторона — токен.
+ */
+const fieldPickShowsToken = computed(() => {
+  const pick = fieldPick.value;
+  if (!pick) return false;
+  return pick.tokenized && !displayValues.value;
+});
 
 /** Ищем фрагмент по каретке в точке тапа. */
 async function pickComposerFragment(): Promise<void> {
@@ -4219,28 +4228,26 @@ function onRateChange(event: Event): void {
         :aria-label="t('chat.tokens.selection')"
       >
         <span class="chat-panel__pick-text" :title="fieldPick.text">«{{ fieldPick.text }}»</span>
-        <template v-if="fieldPickShowsValue">
-          <button
-            type="button"
-            class="chat-panel__pick-side is-token"
-            v-tip="t('chat.tokens.replaceSelection')"
-            :aria-label="t('chat.tokens.replaceSelection')"
-            @click="guardBlur(); applyFieldPick('token')"
-          >
-            ⟦{{ fieldPick.name }}⟧
-          </button>
-        </template>
-        <template v-else>
-          <button
-            type="button"
-            class="chat-panel__pick-side is-value"
-            v-tip="t('chat.tokens.untokenize')"
-            :aria-label="t('chat.tokens.untokenize')"
-            @click="guardBlur(); applyFieldPick('value')"
-          >
-            {{ fieldPick.value }}
-          </button>
-        </template>
+        <button
+          v-if="fieldPickShowsToken"
+          type="button"
+          class="chat-panel__pick-side is-value"
+          v-tip="t('chat.tokens.untokenize')"
+          :aria-label="t('chat.tokens.untokenize')"
+          @click="guardBlur(); applyFieldPick('value')"
+        >
+          {{ fieldPick.value }}
+        </button>
+        <button
+          v-else
+          type="button"
+          class="chat-panel__pick-side is-token"
+          v-tip="t('chat.tokens.replaceSelection')"
+          :aria-label="t('chat.tokens.replaceSelection')"
+          @click="guardBlur(); applyFieldPick('token')"
+        >
+          ⟦{{ fieldPick.name }}⟧
+        </button>
         <button
           type="button"
           class="chat-panel__pick-close"
