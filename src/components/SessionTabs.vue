@@ -180,6 +180,12 @@ watch([() => props.activeId, () => props.tabs], () => void nextTick(revealActive
   color: var(--text);
 }
 
+/* Защищённый диалог: активная вкладка того же цвета, что полотно чата. */
+.chat-panel.is-tokens .chat-panel__tab.is-active {
+  background: var(--tokens-bg);
+  border-bottom-color: var(--tokens-bg);
+}
+
 .chat-panel__tab-open {
   display: flex;
   align-items: center;
