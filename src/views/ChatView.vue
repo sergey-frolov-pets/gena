@@ -126,6 +126,7 @@ import {
 } from "@/lib/tokens/registry";
 import { formatToken, parseTokens } from "@/lib/tokens/format";
 import { findSelectionEntry, replaceRange, suggestTokenNames } from "@/lib/tokens/selection";
+import { replaceSelectionWithToken } from "@/lib/tokens/message-replace";
 import {
   findOccurrences,
   replaceAllInText,
@@ -469,11 +470,94 @@ function onComposerSelectSoon(): void {
   selectionTimer = window.setTimeout(onComposerSelect, 120);
 }
 
-/** Перетаскивание выделения мышью/пальцем внутри поля. */
+/** Перетаскивание выделения мышью/пальцем: поле ввода или лента сообщений. */
 function onDocSelectionChange(): void {
   const el = composerEl.value;
-  if (!el || document.activeElement !== el) return;
-  onComposerSelectSoon();
+  if (el && document.activeElement === el) {
+    onComposerSelectSoon();
+    return;
+  }
+  onFeedSelectSoon();
+}
+
+/* ── Выделение в ленте: токен из текста сообщения ─────────────────────── */
+
+/**
+ * Выделенный фрагмент сообщения ленты.
+ *
+ * Плашка под полем ввода живёт только в открытом поле, а на телефоне человек
+ * часто выделяет значение прямо в ответе агента. Поэтому у ленты своя плашка:
+ * известное значение — заменить в этом сообщении, новое — записать в справочник.
+ */
+const feedSelection = ref<{ messageId: string; text: string } | null>(null);
+/** Имя нового токена для фрагмента из ленты. */
+const feedName = ref("");
+
+/** Запись справочника, совпадающая с выделением в ленте. */
+const feedMatch = computed(() => {
+  const picked = feedSelection.value;
+  if (!picked) return null;
+  return findSelectionEntry(picked.text, tokenEntries.value);
+});
+
+/** Выделен ровно канонический токен — заменять в сообщении нечего. */
+const feedAlreadyToken = computed(() => {
+  const picked = feedSelection.value;
+  const match = feedMatch.value;
+  if (!picked || !match) return false;
+  return picked.text.trim() === formatToken(match.name);
+});
+
+/** Подсказки имени для фрагмента из ленты. */
+const feedSuggestions = computed(() => {
+  const picked = feedSelection.value;
+  if (!picked || feedMatch.value) return [];
+  const taken = feedName.value.trim().toLocaleLowerCase();
+  return suggestTokenNames(picked.text, tokenNames.value, 4)
+    .filter((name) => name.toLocaleLowerCase() !== taken)
+    .slice(0, 3);
+});
+
+function clearFeedSelection(): void {
+  feedSelection.value = null;
+  feedName.value = "";
+}
+
+/** Что выделено в ленте: текст и сообщение, внутри которого он лежит. */
+function onFeedSelect(): void {
+  const el = composerEl.value;
+  if (el && document.activeElement === el) return;
+  const sel = window.getSelection?.();
+  const text = sel?.toString().trim() ?? "";
+  if (!sel || sel.rangeCount === 0 || text.length < 2 || text.length > 300) {
+    clearFeedSelection();
+    return;
+  }
+  const range = sel.getRangeAt(0);
+  const node = range.commonAncestorContainer;
+  const element = node.nodeType === 1 ? (node as Element) : node.parentElement;
+  const host = element?.closest?.("[data-message-id]") as HTMLElement | null;
+  const messageId = host?.dataset?.messageId ?? "";
+  if (!messageId) {
+    clearFeedSelection();
+    return;
+  }
+  void ensureTokens();
+  const changed =
+    feedSelection.value?.messageId !== messageId || feedSelection.value?.text !== text;
+  feedSelection.value = { messageId, text };
+  if (changed) {
+    const known = findSelectionEntry(text, tokenEntries.value);
+    feedName.value = known ? known.name : (suggestTokenNames(text, tokenNames.value, 1)[0] ?? "");
+  }
+}
+
+let feedSelectTimer = 0;
+
+/** Выделение в ленте с задержкой: на телефоне маркеры двигаются после touchend. */
+function onFeedSelectSoon(): void {
+  window.clearTimeout(feedSelectTimer);
+  feedSelectTimer = window.setTimeout(onFeedSelect, 120);
 }
 
 /* ── Вхождения значения: стрелки и «Заменить все» ─────────────────────── */
@@ -628,11 +712,15 @@ function finishOccurrences(): void {
 
 function dismissSelection(): void {
   clearSelection();
+  clearFeedSelection();
   finishOccurrences();
 }
 
-// Сменили диалог — серия замен относилась к прежнему.
-watch(activeSessionId, () => finishOccurrences());
+// Сменили диалог — серия замен и плашка ленты относились к прежнему.
+watch(activeSessionId, () => {
+  finishOccurrences();
+  clearFeedSelection();
+});
 
 /** Стрелки: по кругу от второго вхождения до последнего. */
 function stepOccurrence(delta: number): void {
@@ -752,6 +840,50 @@ async function createTokenFromSelection(): Promise<void> {
   try {
     await saveToken({ name, value: range.text, caseSensitive: selectionCaseSensitive.value });
     await applySelectionToken(name);
+    notice.value = t("chat.tokens.created");
+  } catch (e) {
+    error.value = e instanceof TokenError ? describeTokenError(e.code) : t("tokens.error.save_failed");
+  }
+}
+
+/* ── Действия плашки ленты ────────────────────────────────────────────── */
+
+/**
+ * Заменить выделенный фрагмент сообщения токеном.
+ *
+ * В ленте текст показан человеку (значения или токены — как выбрано), поэтому
+ * заменяем в отображаемом тексте и пересчитываем хранимый: в режиме токенов
+ * значения на диск не попадают.
+ */
+async function replaceSelectionInMessage(name?: string): Promise<void> {
+  const picked = feedSelection.value;
+  const entryName = name ?? feedMatch.value?.name ?? "";
+  if (!picked || !entryName) return;
+  const message = messages.value.find((item) => item.id === picked.messageId);
+  if (!message) {
+    clearFeedSelection();
+    return;
+  }
+  const session = sessions.value.find((item) => item.id === message.sessionId);
+  const shown = displayContent(message.content);
+  const replaced = replaceSelectionWithToken(shown, picked.text, entryName);
+  clearFeedSelection();
+  if (!replaced.replaced) return;
+  const nextStored = isTokenSession(session) ? replaceValues(replaced.text).text : replaced.text;
+  if (await editMessage(message.id, nextStored)) {
+    notice.value = t("chat.tokens.replaced", { count: 1 });
+  }
+}
+
+/** Новый токен из выделения в ленте: пишем в справочник, текст не трогаем. */
+async function createTokenFromFeed(): Promise<void> {
+  const picked = feedSelection.value;
+  const name = feedName.value.trim();
+  if (!picked || !name) return;
+  error.value = "";
+  try {
+    await saveToken({ name, value: picked.text });
+    clearFeedSelection();
     notice.value = t("chat.tokens.created");
   } catch (e) {
     error.value = e instanceof TokenError ? describeTokenError(e.code) : t("tokens.error.save_failed");
@@ -3116,6 +3248,8 @@ onUnmounted(() => {
   window.removeEventListener("pagehide", flushQueue);
   document.removeEventListener("visibilitychange", onVisibility);
   document.removeEventListener("selectionchange", onDocSelectionChange);
+  window.clearTimeout(selectionTimer);
+  window.clearTimeout(feedSelectTimer);
   document.removeEventListener("pointerdown", onQuickOutside, true);
   document.removeEventListener("pointerdown", onRenameOutside, true);
   document.removeEventListener("click", onRenameClickOutside, true);
@@ -3339,6 +3473,8 @@ function onRateChange(event: Event): void {
         aria-live="polite"
         @scroll="onMessagesScroll"
         @click="onChatTap"
+        @pointerup="onFeedSelectSoon"
+        @touchend="onFeedSelectSoon"
         @dragover.prevent
         @drop.prevent="onDrop"
       >
@@ -3384,6 +3520,7 @@ function onRateChange(event: Event): void {
           <MessageBubble
             v-if="entry.message.kind !== 'thought'"
             :message="entry.message"
+            :data-message-id="entry.message.id"
             :text="displayContent(entry.message.content)"
             :edit-texts="(entry.message.edits ?? []).map(displayContent)"
             :images="imagesOf(entry.message)"
@@ -3514,6 +3651,78 @@ function onRateChange(event: Event): void {
         </button>
       </div>
     </div>
+
+      <div
+        v-if="feedSelection"
+        class="chat-panel__selection is-feed"
+        role="group"
+        :aria-label="t('chat.tokens.selection')"
+      >
+        <span class="chat-panel__selection-text" :title="feedSelection.text">
+          «{{ feedSelection.text }}»
+        </span>
+        <template v-if="feedMatch">
+          <span class="chat-panel__selection-target">⟦{{ feedMatch.name }}⟧</span>
+          <span v-if="feedAlreadyToken" class="chat-panel__selection-hint">
+            {{ t("chat.tokens.alreadyToken") }}
+          </span>
+          <button
+            v-else
+            type="button"
+            class="chat-panel__token-btn is-icon"
+            v-tip="t('chat.tokens.replaceSelection')"
+            :aria-label="t('chat.tokens.replaceSelection')"
+            @click="replaceSelectionInMessage()"
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m5 13 4 4L19 7" />
+            </svg>
+          </button>
+        </template>
+        <template v-else>
+          <input
+            v-model="feedName"
+            class="chat-panel__selection-input"
+            type="text"
+            :placeholder="t('tokens.name')"
+            :aria-label="t('tokens.name')"
+          />
+          <button
+            type="button"
+            class="chat-panel__token-btn is-icon"
+            v-tip="t('chat.tokens.makeToken')"
+            :aria-label="t('chat.tokens.makeToken')"
+            :disabled="!feedName.trim()"
+            @click="createTokenFromFeed"
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
+          <span v-if="feedSuggestions.length > 0" class="chat-panel__selection-suggest">
+            <button
+              v-for="name in feedSuggestions"
+              :key="name"
+              type="button"
+              class="chat-panel__selection-sug"
+              @click="feedName = name"
+            >
+              ⟦{{ name }}⟧
+            </button>
+          </span>
+        </template>
+        <button
+          type="button"
+          class="chat-panel__selection-close"
+          v-tip="t('chat.cancel')"
+          :aria-label="t('chat.cancel')"
+          @click="clearFeedSelection"
+        >
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+      </div>
 
         <div
           ref="dockEl"
@@ -5318,6 +5527,15 @@ function onRateChange(event: Event): void {
   border: 1px solid var(--border);
   border-radius: 9px;
   background: var(--panel-2);
+}
+
+/* Плашка выделения в ленте: между лентой и полем ввода, не поверх него. */
+.chat-panel__selection.is-feed {
+  flex: 0 0 auto;
+  margin: 0 8px 6px;
+  background: var(--panel);
+  max-height: 92px;
+  overflow-y: auto;
 }
 
 /* Подсказки имени: то, что предложил словарь выделения. */
