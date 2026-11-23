@@ -1,6 +1,6 @@
 /* Gena service worker: offline app shell + runtime cache for same-origin GET.
    Agent calls are cross-origin POST — they pass through untouched. */
-const CACHE = "gena-cache-v0.2.13";
+const CACHE = "gena-cache-v0.2.14";
 const CORE = [
   "./",
   "./index.html",
