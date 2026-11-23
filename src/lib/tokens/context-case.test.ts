@@ -5,6 +5,7 @@ import { SAMPLE } from "./morph/sample";
 import {
   caseAfterPreposition,
   declineWithContext,
+  contextForms,
   restoreValuesWithCase,
 } from "./context-case";
 import { tokenEntries } from "./registry";
@@ -66,5 +67,21 @@ describe("context-case: падеж по предлогу", () => {
   it("неизвестный токен не теряется", () => {
     tokenEntries.value = [];
     expect(restoreValuesWithCase("о ⟦нет такого⟧")).toBe("о ⟦нет такого⟧");
+  });
+
+  it("каждому вхождению — своя форма, а не один канон", () => {
+    tokenEntries.value = [
+      {
+        id: "t1",
+        name: "я",
+        value: "вклад ВТБ",
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ];
+    expect(contextForms("письмо для ⟦я⟧ и ответ к ⟦я⟧")).toEqual([
+      "вклада ВТБ",
+      "вкладу ВТБ",
+    ]);
   });
 });

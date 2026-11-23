@@ -33,6 +33,28 @@ export interface FieldPick {
 
 const TOKEN_NAME_RE = /^⟦([^⟦⟧\n]{1,80})⟧$/u;
 
+/**
+ * Все написания записи: канон, явные варианты и падежи из словаря.
+ *
+ * Повтор в другом регистре не дублируем — в списке остаётся первое.
+ */
+export function listForms(
+  value: string,
+  variants: readonly string[] = [],
+  declensions: readonly string[] = [],
+): string[] {
+  const seen = new Set<string>();
+  const forms: string[] = [];
+  for (const raw of [value, ...variants, ...declensions]) {
+    const form = String(raw ?? "").replace(/\s+/g, " ").trim();
+    const key = form.toLocaleLowerCase();
+    if (!form || seen.has(key)) continue;
+    seen.add(key);
+    forms.push(form);
+  }
+  return forms;
+}
+
 /** Токен ⟦имя⟧, накрывающий каретку. */
 export function tokenAtCaret(
   text: string,

@@ -13,6 +13,7 @@
  * слово.
  */
 
+import { parseTokens } from "./format";
 import { tokenSpans } from "./occurrences";
 import { restoreValues } from "./registry";
 import { declineValue } from "./morph/service";
@@ -129,4 +130,32 @@ export function restoreValuesWithCase(text: string): string {
     from = span.end;
   }
   return out + source.slice(from);
+}
+
+/**
+ * Форма каждого токена так, как её показала бы лента.
+ *
+ * Перенос реплики в поле ввода не должен схлопывать все ⟦я⟧ в канон записи:
+ * у каждого вхождения свой падеж по предлогу перед ним. Нет падежа — канон.
+ * Неизвестный токен даёт пустую строку: подставлять вместо него нечего.
+ */
+export function contextForms(text: string): string[] {
+  const source = String(text ?? "");
+  const forms: string[] = [];
+  let shown = "";
+  let from = 0;
+  for (const token of parseTokens(source)) {
+    shown += source.slice(from, token.start);
+    const canon = restoreValues(token.raw);
+    if (canon === token.raw) {
+      forms.push("");
+      shown += token.raw;
+    } else {
+      const form = declineWithContext(shown, canon);
+      forms.push(form);
+      shown += form;
+    }
+    from = token.end;
+  }
+  return forms;
 }
