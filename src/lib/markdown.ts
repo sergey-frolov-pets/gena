@@ -60,7 +60,16 @@ const ALLOWED_TAGS = new Set([
 ]);
 
 /** Атрибуты, которые разрешено оставлять (остальные отбрасываются). */
-const ALLOWED_ATTRS = new Set(["class", "href", "aria-label", "title", "type"]);
+const ALLOWED_ATTRS = new Set([
+  "class",
+  "href",
+  "aria-label",
+  "title",
+  "type",
+  "data-name",
+  "data-start",
+  "data-end",
+]);
 
 const NAMED_ENTITIES: Record<string, string> = {
   amp: "&",
@@ -157,6 +166,17 @@ function buildAttrs(tag: string, raw: string): { attrs: string; dropTag: boolean
     }
     if (name === "aria-label" || name === "title") {
       parts.push(`${name}="${escapeHtml(decodeEntities(value))}"`);
+      continue;
+    }
+    if (name === "data-name") {
+      const label = decodeEntities(value).trim();
+      if (label && label.length <= 80 && !/[<>"']/.test(label)) {
+        parts.push(`data-name="${escapeHtml(label)}"`);
+      }
+      continue;
+    }
+    if ((name === "data-start" || name === "data-end") && /^\d+$/.test(value.trim())) {
+      parts.push(`${name}="${value.trim()}"`);
     }
   }
 

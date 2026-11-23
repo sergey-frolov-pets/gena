@@ -159,7 +159,7 @@ import {
 } from "@/lib/tokens/display";
 import { restoreValuesWithCase } from "@/lib/tokens/context-case";
 import { tokenModeActive } from "@/lib/tokens/mode-intent";
-import { highlightSegments } from "@/lib/tokens/highlight";
+import { highlightSegments, markChatHtml } from "@/lib/tokens/highlight";
 import { findOfferSpans } from "@/lib/tokens/substitute";
 import { withDeclensions } from "@/lib/tokens/morph/service";
 import { loadMorph } from "@/lib/tokens/morph/service";
@@ -243,10 +243,39 @@ function storedContent(text: string, session?: Session | null): string {
 }
 
 /** Что человек видит в ленте: значения (по умолчанию) или токены. */
-function displayContent(text: string): string {
+function displayContent(text: string, messageId = ""): string {
   // В ленте исходной формы под рукой нет — подбираем падеж по предлогу
   // перед токеном: «о ⟦вклад⟧» → «о вкладе», а не «о вклад».
-  return viewValues.value ? restoreValuesWithCase(text) : text;
+  // Выбранное в облачке написание важнее падежа: человек явно его поставил.
+  if (!viewValues.value) return text;
+  const bag = messageForms.value[messageId];
+  if (!bag) return restoreValuesWithCase(text);
+  return visibleText(text, true, (name, index) => {
+    const chosen = bag[`${name.toLocaleLowerCase()}#${index}`];
+    return chosen && chosen.trim() ? chosen : restoreValuesWithCase(`⟦${name}⟧`);
+  });
+}
+
+/**
+ * Написания, которые человек выбрал для вхождения в сообщении.
+ * Ключ — id сообщения, внутри «имя#номер» → строка.
+ */
+const messageForms = ref<Record<string, Record<string, string>>>({});
+
+/** Лента с подсветкой: красным — токен, жёлтым — значение, которое можно заменить. */
+function markedContent(text: string, messageId: string): string {
+  if (!isTokenSession(activeSession.value)) return displayContent(text, messageId);
+  const offers = findOfferSpans(text, declinedEntries.value);
+  return markChatHtml(
+    text,
+    viewValues.value,
+    (raw, name, index) => {
+      const chosen = messageForms.value[messageId]?.[`${name.toLocaleLowerCase()}#${index}`];
+      if (chosen && chosen.trim()) return chosen;
+      return restoreValuesWithCase(raw);
+    },
+    offers,
+  );
 }
 
 /**
@@ -743,6 +772,115 @@ function applyFieldPick(target: "token" | "value"): void {
  * Крестик: у токена — отмена токенизации (возвращаем значение),
  * у значения — просто закрыть облачко.
  */
+/** Все написания записи: значение и варианты, без падежей словаря. */
+function spellingsOf(name: string): string[] {
+  const entry = tokenEntryByName(name);
+  if (!entry) return [];
+  const seen = new Set<string>();
+  const list: string[] = [];
+  for (const item of [entry.value, ...(entry.variants ?? [])]) {
+    const text = String(item ?? "").trim();
+    const key = text.toLocaleLowerCase();
+    if (!text || seen.has(key)) continue;
+    seen.add(key);
+    list.push(text);
+  }
+  return list;
+}
+
+const fieldSpellings = computed(() => spellingsOf(fieldPick.value?.name ?? ""));
+
+/** Поставить в это место другое написание той же записи. */
+function applyFieldSpelling(spelling: string): void {
+  const pick = fieldPick.value;
+  const text = spelling.trim();
+  if (!pick || !text) return;
+  if (pick.tokenized) {
+    rememberForm(tokenForms, draft.value, pick.name, pick.start, text);
+    fieldPick.value = null;
+    fieldPickAnchor.value = null;
+    syncComposerField();
+    return;
+  }
+  draft.value = draft.value.slice(0, pick.start) + text + draft.value.slice(pick.end);
+  fieldPick.value = null;
+  fieldPickAnchor.value = null;
+  syncComposerField();
+}
+
+/**
+ * Облачко в ленте: те же написания и крестик, что у поля ввода.
+ * Координаты — у выделения или у клика по подсветке.
+ */
+const chatPick = ref<{
+  messageId: string;
+  name: string;
+  start: number;
+  end: number;
+  left: number;
+  top: number;
+} | null>(null);
+
+const chatSpellings = computed(() => spellingsOf(chatPick.value?.name ?? ""));
+
+function openChatMark(mark: HTMLElement, messageId: string, x?: number, y?: number): boolean {
+  const name = mark.dataset.name ?? "";
+  const start = Number(mark.dataset.start);
+  const end = Number(mark.dataset.end);
+  if (!name || !Number.isFinite(start) || !Number.isFinite(end)) return false;
+  const rect = mark.getBoundingClientRect();
+  chatPick.value = {
+    messageId,
+    name,
+    start,
+    end,
+    left: x ?? rect.left,
+    top: y ?? rect.top,
+  };
+  return true;
+}
+
+/** Другое написание в этом месте сообщения. Токен остаётся, меняется видимый текст. */
+function applyChatSpelling(spelling: string): void {
+  const pick = chatPick.value;
+  const text = spelling.trim();
+  if (!pick || !text) return;
+  const message = messages.value.find((item) => item.id === pick.messageId);
+  if (!message) {
+    chatPick.value = null;
+    return;
+  }
+  const slice = message.content.slice(pick.start, pick.end);
+  const tokenized = slice.startsWith("⟦");
+  if (tokenized) {
+    const index = tokenIndexAt(message.content, pick.name, pick.start);
+    const key = `${pick.name.toLocaleLowerCase()}#${index}`;
+    const bag = { ...(messageForms.value[pick.messageId] ?? {}), [key]: text };
+    messageForms.value = { ...messageForms.value, [pick.messageId]: bag };
+  } else {
+    const next = message.content.slice(0, pick.start) + text + message.content.slice(pick.end);
+    void editMessage(pick.messageId, next);
+  }
+  chatPick.value = null;
+}
+
+/** Крестик в ленте: снять токен в этом месте или просто закрыть облачко. */
+function dismissChatPick(): void {
+  const pick = chatPick.value;
+  if (!pick) return;
+  const message = messages.value.find((item) => item.id === pick.messageId);
+  const slice = message?.content.slice(pick.start, pick.end) ?? "";
+  if (message && slice.startsWith("⟦")) {
+    const index = tokenIndexAt(message.content, pick.name, pick.start);
+    const key = `${pick.name.toLocaleLowerCase()}#${index}`;
+    const form = messageForms.value[pick.messageId]?.[key];
+    const value = form && form.trim() ? form : tokenEntryByName(pick.name)?.value ?? slice;
+    const next = message.content.slice(0, pick.start) + value + message.content.slice(pick.end);
+    void editMessage(pick.messageId, next);
+  }
+  chatPick.value = null;
+}
+
 function closeFieldPick(): void {
   const pick = fieldPick.value;
   if (pick && pick.tokenized && fieldPickOriginal.value.trim()) {
@@ -832,6 +970,11 @@ function onFeedSelect(): void {
   const host = element?.closest?.("[data-message-id]") as HTMLElement | null;
   const messageId = host?.dataset?.messageId ?? "";
   if (!messageId) {
+    clearFeedSelection();
+    return;
+  }
+  const mark = element?.closest?.(".md-token, .md-offer") as HTMLElement | null;
+  if (mark && openChatMark(mark, messageId)) {
     clearFeedSelection();
     return;
   }
@@ -3430,6 +3573,15 @@ const uiLabels = computed(() => markdownLabels(t));
  */
 async function onMarkdownClick(event: MouseEvent): Promise<void> {
   const target = event.target as HTMLElement | null;
+  const mark = target?.closest?.(".md-token, .md-offer") as HTMLElement | null;
+  const host = mark?.closest?.("[data-message-id]") as HTMLElement | null;
+  const messageId = host?.dataset?.messageId ?? "";
+  if (mark && messageId && openChatMark(mark, messageId, event.clientX, event.clientY)) {
+    event.preventDefault();
+    event.stopPropagation();
+    clearFeedSelection();
+    return;
+  }
   const tableTool = target?.closest(".md-table__tool");
   if (tableTool instanceof HTMLElement) {
     event.preventDefault();
@@ -4151,8 +4303,8 @@ function onRateChange(event: Event): void {
             v-if="entry.message.kind !== 'thought'"
             :message="entry.message"
             :data-message-id="entry.message.id"
-            :text="displayContent(entry.message.content)"
-            :edit-texts="(entry.message.edits ?? []).map(displayContent)"
+            :text="markedContent(entry.message.content, entry.message.id)"
+            :edit-texts="(entry.message.edits ?? []).map((text) => displayContent(text))"
             :images="imagesOf(entry.message)"
             :files="filesOf(entry.message)"
             :role-name="roleLabel(entry.message)"
@@ -4715,6 +4867,17 @@ function onRateChange(event: Event): void {
             role="group"
             :aria-label="t('chat.tokens.selection')"
           >
+            <span v-if="fieldSpellings.length > 0" class="chat-panel__pick-list">
+              <button
+                v-for="spelling in fieldSpellings"
+                :key="spelling"
+                type="button"
+                class="chat-panel__pick-bubble"
+                @click="guardBlur(); applyFieldSpelling(spelling)"
+              >
+                {{ spelling }}
+              </button>
+            </span>
             <button
               type="button"
               class="chat-panel__pick-bubble"
@@ -5007,6 +5170,44 @@ function onRateChange(event: Event): void {
       <div v-if="stickBottom" class="chat-panel__footer">
         <AppFooter />
       </div>
+    </div>
+
+    <div
+      v-if="chatPick"
+      class="chat-panel__pick is-placed is-chat"
+      :style="{ left: `${chatPick.left}px`, top: `${chatPick.top}px` }"
+      role="group"
+      :aria-label="t('chat.tokens.selection')"
+    >
+      <span v-if="chatSpellings.length > 0" class="chat-panel__pick-list">
+        <button
+          v-for="spelling in chatSpellings"
+          :key="spelling"
+          type="button"
+          class="chat-panel__pick-bubble"
+          @click="applyChatSpelling(spelling)"
+        >
+          {{ spelling }}
+        </button>
+      </span>
+      <button
+        type="button"
+        class="chat-panel__pick-bubble is-token"
+        @click="applyChatSpelling(chatPick.name)"
+      >
+        ⟦{{ chatPick.name }}⟧
+      </button>
+      <button
+        type="button"
+        class="chat-panel__pick-close"
+        v-tip="t('chat.tokens.untokenize')"
+        :aria-label="t('chat.tokens.untokenize')"
+        @click="dismissChatPick"
+      >
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18" />
+        </svg>
+      </button>
     </div>
 
     <div
@@ -6048,12 +6249,28 @@ function onRateChange(event: Event): void {
   justify-content: center;
   pointer-events: none;
   color: var(--tokens-mark);
-  opacity: 1;
+  opacity: 0.28;
 }
 
 .chat-panel__watermark svg {
-  width: min(46%, 240px);
+  width: min(22%, 120px);
   height: auto;
+}
+
+:deep(.md-token),
+:deep(.md-offer) {
+  border-radius: 3px;
+  box-decoration-break: clone;
+}
+
+:deep(.md-token) {
+  background: var(--token-mark);
+  box-shadow: 0 0 0 2px var(--token-mark);
+}
+
+:deep(.md-offer) {
+  background: var(--token-offer);
+  box-shadow: 0 0 0 2px var(--token-offer);
 }
 
 /* Панель кнопок токенов над полем — прозрачная: под ней видна лента,
@@ -6268,7 +6485,7 @@ function onRateChange(event: Event): void {
   position: absolute;
   z-index: 6;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 4px;
   max-width: calc(100% - 8px);
   /* Пустое место вокруг облачка не мешает тапам по полю. */
@@ -6284,6 +6501,20 @@ function onRateChange(event: Event): void {
 
 .chat-panel__pick > * {
   pointer-events: auto;
+}
+
+.chat-panel__pick.is-chat {
+  position: fixed;
+  z-index: 30;
+  transform: translateY(-100%);
+}
+
+.chat-panel__pick-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 160px;
+  overflow-y: auto;
 }
 
 .chat-panel__pick-bubble {
