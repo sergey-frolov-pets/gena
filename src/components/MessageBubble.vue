@@ -377,6 +377,19 @@ const canExport = computed(
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+/* Широкий экран: обе стороны ленты стоят слева. Своя реплика остаётся
+   подкрашенной (её видно по фону и подписи), но выравнивание — как у ответов:
+   глазам не приходится перескакивать с края на край по широкой панели. */
+@media (min-width: 721px) {
+  .chat-panel__message--user {
+    align-self: flex-start;
+    margin-inline-start: 0.75rem;
+    margin-inline-end: 1.25rem;
+    border-end-end-radius: 14px;
+    border-end-start-radius: 4px;
+  }
+}
+
 @media (max-width: 720px) {
   .chat-panel__message-actions {
     opacity: 1;
