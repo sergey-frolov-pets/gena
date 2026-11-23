@@ -727,6 +727,11 @@ async function placeFieldPick(): Promise<void> {
     bubbleHeight: bubble.offsetHeight,
     boxWidth: box.clientWidth,
   });
+  // На телефоне место под словом занимает клавиатура: список держим над полем.
+  if (compact.value && placement.below) {
+    fieldPickAnchor.value = { left: placement.left, top: 4, below: false };
+    return;
+  }
   fieldPickAnchor.value = placement;
 }
 
@@ -1932,13 +1937,6 @@ function openComposer(): void {
 }
 
 /** Кнопка «Токены» в свёрнутом доке: включает режим (если надо) и открывает ввод. */
-function openTokenMode(): void {
-  if (!isTokenSession(activeSession.value)) void toggleTokenMode();
-  if (composerOpen.value) return;
-  composerOpen.value = true;
-  void nextTick(() => composerEl.value?.focus());
-}
-
 function closeComposer(): void {
   if (!compact.value) return;
   composerOpen.value = false;
@@ -3970,10 +3968,22 @@ watch(lightbox, (open) => {
   if (open) window.addEventListener("keydown", onLightboxKey, { once: true });
 });
 
+/** Нижняя граница видимой области: ниже неё список значений прячется под клавиатуру. */
+const keyboardBottom = ref(typeof window === "undefined" ? 800 : window.innerHeight);
+
+const chatPickStyle = computed(() => {
+  const pick = chatPick.value;
+  if (!pick) return undefined;
+  const top = Math.min(pick.top, Math.max(56, keyboardBottom.value - 12));
+  return { left: `${pick.left}px`, top: `${top}px` };
+});
+
 /** Высота видимой области: на мобильном клавиатура ужимает `visualViewport`. */
 function syncViewport(): void {
   const viewport = window.visualViewport;
   const height = viewport?.height ?? window.innerHeight;
+  const offset = viewport?.offsetTop ?? 0;
+  keyboardBottom.value = offset + height;
   document.documentElement.style.setProperty("--app-vvh", `${Math.round(height)}px`);
   void scrollToBottom();
   void nextTick(updateJumpHints);
@@ -4099,6 +4109,15 @@ function onRateChange(event: Event): void {
 
 <template>
   <section class="chat-panel" :class="{ 'is-tokens': isTokenSession(activeSession) }">
+    <button
+      type="button"
+      class="chat-panel__mode"
+      :class="{ 'is-on': isTokenSession(activeSession) }"
+      :aria-pressed="isTokenSession(activeSession)"
+      @click="toggleTokenMode"
+    >
+      {{ t("chat.mode") }}
+    </button>
     <div v-if="isTokenSession(activeSession)" class="chat-panel__watermark" aria-hidden="true">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
         <rect x="4" y="10" width="16" height="10" rx="2.4" />
@@ -4609,16 +4628,6 @@ function onRateChange(event: Event): void {
         v-if="compact && !composerOpen"
         class="chat-panel__open-row"
       >
-        <button
-          type="button"
-          class="chat-panel__open-input"
-          @click="openComposer"
-        >
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M4 7h16M4 12h10M4 17h7" />
-          </svg>
-          <span>{{ t("chat.composeHint") }}</span>
-        </button>
         <span v-if="turnElapsed" class="chat-panel__turn is-dock" role="status">
           <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
             <circle cx="12" cy="12" r="9" />
@@ -4640,16 +4649,14 @@ function onRateChange(event: Event): void {
         </button>
         <button
           type="button"
-          class="chat-panel__quick-trigger is-token"
-          :class="{ 'is-on': isTokenSession(activeSession) }"
-          v-tip="t('chat.tokenMode')"
-          :aria-label="t('chat.tokenMode')"
-          :aria-pressed="isTokenSession(activeSession)"
-          @click="openTokenMode"
+          class="chat-panel__quick-trigger"
+          v-tip="t('chat.composeHint')"
+          :aria-label="t('chat.composeHint')"
+          @click="openComposer"
         >
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <rect x="4" y="10" width="16" height="10" rx="2" />
-            <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+            <path d="M12 20h9" />
+            <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" />
           </svg>
         </button>
         <button
@@ -5212,7 +5219,7 @@ function onRateChange(event: Event): void {
     <div
       v-if="chatPick"
       class="chat-panel__pick is-placed is-chat"
-      :style="{ left: `${chatPick.left}px`, top: `${chatPick.top}px` }"
+      :style="chatPickStyle"
       role="group"
       :aria-label="t('chat.tokens.selection')"
     >
@@ -6612,8 +6619,32 @@ function onRateChange(event: Event): void {
   flex-direction: column;
   align-items: stretch;
   gap: 3px;
-  max-height: 160px;
+  max-height: min(160px, 32dvh);
   overflow-y: auto;
+}
+
+.chat-panel__mode {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  z-index: 25;
+  transform: translateY(-50%);
+  padding: 8px 10px 8px 8px;
+  border: 1px solid var(--border);
+  border-left: 0;
+  border-radius: 0 12px 12px 0;
+  background: color-mix(in srgb, var(--panel) 72%, transparent);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.chat-panel__mode.is-on {
+  color: var(--text);
+  border-color: var(--tokens-edge, var(--accent));
+  background: color-mix(in srgb, var(--tokens-bg, var(--panel)) 80%, transparent);
 }
 
 .chat-panel__pick-bubble {

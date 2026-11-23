@@ -221,7 +221,7 @@ export async function deleteAgent(id: string): Promise<void> {
 
 export async function putSession(session: Session): Promise<void> {
   const db = await getDb();
-  await db.put("sessions", session);
+  await db.put("sessions", cloneForDb(session));
 }
 
 export async function getSession(id: string): Promise<Session | undefined> {
@@ -255,9 +255,14 @@ export async function deleteSession(id: string): Promise<void> {
 
 // ---------- Messages ----------
 
+/** IndexedDB не клонирует реактивные прокси Vue: сначала снимаем их в простой объект. */
+function cloneForDb<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
 export async function putMessage(message: Message): Promise<void> {
   const db = await getDb();
-  await db.put("messages", message);
+  await db.put("messages", cloneForDb(message));
 }
 
 export async function listMessages(sessionId: string): Promise<Message[]> {
