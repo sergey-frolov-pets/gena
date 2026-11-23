@@ -3072,11 +3072,26 @@ async function resumePending(sessionId: string): Promise<void> {
   await exchange(session, agent, forAgent(pending.text), [], history);
 }
 
-/** Вернулись на вкладку — проверяем, не остался ли незавершённый ход. */
+/** Справочник мог измениться в другом окне: читаем заново, но не пачкой. */
+let tokenReloadTimer = 0;
+
+function reloadTokens(): void {
+  window.clearTimeout(tokenReloadTimer);
+  tokenReloadTimer = window.setTimeout(() => {
+    void loadTokens().catch(() => undefined);
+  }, 50);
+}
+
+/** Вернулись на вкладку — справочник заново и незавершённый ход. */
 function onVisibility(): void {
   if (document.visibilityState !== "visible") return;
+  reloadTokens();
   const id = activeSessionId.value;
   if (id) void resumePending(id);
+}
+
+function onChatFocus(): void {
+  reloadTokens();
 }
 
 /** Пауза перед самостоятельным догоном после обрыва связи. */
@@ -4136,8 +4151,8 @@ function syncViewport(): void {
 
 onMounted(() => {
   syncViewport();
-  // Справочник подстановок нужен уже к первой отправке.
-  void loadTokens();
+  // Окно чата открылось снова — справочник читаем с диска, не из памяти.
+  reloadTokens();
   // Скачанный морфологический словарь даёт падежные написания значений.
   void loadMorph();
   // Реплики, ждавшие ответа, поднимаем из IndexedDB — закрытие вкладки их не теряет.
@@ -4161,6 +4176,7 @@ onMounted(() => {
   window.addEventListener("pagehide", restoreLiftOnHide);
   window.addEventListener("pagehide", flushQueue);
   document.addEventListener("visibilitychange", onVisibility);
+  window.addEventListener("focus", onChatFocus);
   // Выделение в поле ввода: плашка «заменить на токен» под полем.
   document.addEventListener("selectionchange", onDocSelectionChange);
   document.addEventListener("pointerdown", onQuickOutside, true);
@@ -4210,6 +4226,8 @@ onUnmounted(() => {
   window.removeEventListener("pagehide", restoreLiftOnHide);
   window.removeEventListener("pagehide", flushQueue);
   document.removeEventListener("visibilitychange", onVisibility);
+  window.removeEventListener("focus", onChatFocus);
+  window.clearTimeout(tokenReloadTimer);
   document.removeEventListener("selectionchange", onDocSelectionChange);
   window.clearTimeout(selectionTimer);
   window.clearTimeout(feedSelectTimer);

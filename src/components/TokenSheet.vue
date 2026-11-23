@@ -195,7 +195,7 @@ function onKeydown(event: KeyboardEvent): void {
 
 onMounted(() => {
   document.addEventListener("keydown", onKeydown);
-  if (!tokenEntries.value.length) void loadTokens().catch(() => undefined);
+  void loadTokens().catch(() => undefined);
 });
 
 onBeforeUnmount(() => {
