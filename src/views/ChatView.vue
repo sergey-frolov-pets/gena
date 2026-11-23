@@ -1633,6 +1633,8 @@ function onThoughtTap(event: MouseEvent, key: string): void {
   if (target?.closest("a, button")) return;
   const selection = typeof window.getSelection === "function" ? window.getSelection() : null;
   if (selection && !selection.isCollapsed && selection.toString().trim()) return;
+  // Свернули осознанно — не даём тапу дойти до полотна чата и открыть ввод.
+  event.stopPropagation();
   toggleThought(key);
 }
 
