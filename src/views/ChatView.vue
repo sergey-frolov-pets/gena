@@ -29,6 +29,7 @@ import {
   sessionsLoaded,
   setSessionTokenMode,
   setSessionTokenView,
+  setSessionTokenAlias,
   ackTokenSend,
 } from "@/lib/store";
 import { newId } from "@/lib/id";
@@ -115,15 +116,16 @@ import { idleTurn, stepTurn } from "@/turn/machine";
 import {
   loadTokens,
   replaceValues,
-  restoreValues,
   saveToken,
   tokenEntries,
   tokenEntryByName,
+  tokenLookup,
   tokensLoaded,
   TokenError,
   type TokenEntry,
 } from "@/lib/tokens/registry";
-import { formatToken, parseTokens } from "@/lib/tokens/format";
+import { formatToken, isValidTokenName, parseTokens, tokenNameKey } from "@/lib/tokens/format";
+import { aliasByName, canRenameInDialog, upsertAlias } from "@/lib/tokens/dialog-alias";
 import { loadNameBases, suggestBaseNames } from "@/lib/tokens/name-bases";
 import { categoryBase, findSelectionEntry, replaceRange, suggestTokenNames } from "@/lib/tokens/selection";
 import { replaceSelectionWithToken, replaceTokenWithValue } from "@/lib/tokens/message-replace";
@@ -253,11 +255,11 @@ function displayContent(text: string, messageId = ""): string {
   // Выбранное в облачке написание важнее падежа: человек явно его поставил.
   if (!viewValues.value) return text;
   const bag = messageForms.value[messageId];
-  if (!bag) return restoreValuesWithCase(text);
+  if (!bag) return restoreValuesWithCase(text, dialogTokenLookup);
   return visibleText(text, true, (name, index) => {
     const chosen = bag[`${name.toLocaleLowerCase()}#${index}`];
-    return chosen && chosen.trim() ? chosen : restoreValuesWithCase(`⟦${name}⟧`);
-  });
+    return chosen && chosen.trim() ? chosen : restoreValuesWithCase(`⟦${name}⟧`, dialogTokenLookup);
+  }, dialogTokenLookup);
 }
 
 /**
@@ -276,7 +278,7 @@ function markedContent(text: string, messageId: string): string {
     (raw, name, index) => {
       const chosen = messageForms.value[messageId]?.[`${name.toLocaleLowerCase()}#${index}`];
       if (chosen && chosen.trim()) return chosen;
-      return restoreValuesWithCase(raw);
+      return restoreValuesWithCase(raw, dialogTokenLookup);
     },
     offers,
   );
@@ -523,6 +525,49 @@ const dialogTokenNames = computed(() => {
   return names;
 });
 
+/** Имена, заданные только в этом диалоге: справочник их не знает. */
+const pendingAliases = ref<{ name: string; source: string }[]>([]);
+
+const dialogAliases = computed(() => {
+  const session = sessions.value.find((item) => item.id === activeSessionId.value);
+  return session?.tokenAliases ?? pendingAliases.value;
+});
+
+function dialogTokenLookup(name: string): string | undefined {
+  const direct = tokenLookup(name);
+  if (direct !== undefined) return direct;
+  const alias = aliasByName(dialogAliases.value, name);
+  return alias ? tokenLookup(alias.source) : undefined;
+}
+
+/** Жёлтое значение можно назвать иначе, только если этого токена ещё нет в диалоге. */
+function offerCanRename(sourceName: string): boolean {
+  return canRenameInDialog(sourceName, dialogTokenNames.value);
+}
+
+async function saveDialogAlias(name: string, source: string): Promise<void> {
+  if (tokenNameKey(name) === tokenNameKey(source)) return;
+  const id = activeSessionId.value;
+  if (!id) {
+    pendingAliases.value = upsertAlias(pendingAliases.value, name, source);
+    return;
+  }
+  await setSessionTokenAlias(id, name, source);
+}
+
+/** Имя из плашки: чужая запись справочника не переписывается. */
+async function commitDialogName(name: string, source: string): Promise<string | null> {
+  const next = name.trim();
+  if (!isValidTokenName(next)) return null;
+  const other = tokenEntryByName(next);
+  if (other && tokenNameKey(other.name) !== tokenNameKey(source)) {
+    error.value = t("tokens.error.name_duplicate");
+    return null;
+  }
+  await saveDialogAlias(next, source);
+  return next;
+}
+
 /**
  * Выделение изменилось: показать плашку под полем.
  *
@@ -628,6 +673,16 @@ function onComposerSelectSoon(): void {
  * «отменить токенизацию» для токена, «свернуть» для значения.
  */
 const fieldPick = ref<FieldPick | null>(null);
+const fieldAliasName = ref("");
+const fieldCanRename = computed(
+  () =>
+    Boolean(fieldPick.value) &&
+    !fieldPick.value?.tokenized &&
+    offerCanRename(fieldPick.value?.name ?? ""),
+);
+watch(fieldPick, (pick) => {
+  fieldAliasName.value = pick && !pick.tokenized ? pick.name : "";
+});
 /** Номер попытки: пока справочник дочитывался, каретка уже ушла. */
 let fieldPickSeq = 0;
 /** Облачко: где его поставить. Считаем по месту слова, а не по полю целиком. */
@@ -749,6 +804,29 @@ async function placeFieldPick(): Promise<void> {
  * Заменяя значение на токен, запоминаем исходную форму: снятие токенизации
  * вернёт ровно её, а не каноническое написание из справочника.
  */
+async function applyFieldAlias(): Promise<void> {
+  const pick = fieldPick.value;
+  if (!pick) return;
+  const name = await commitDialogName(fieldAliasName.value || pick.name, pick.name);
+  if (!name) return;
+  if (tokenNameKey(name) === tokenNameKey(pick.name)) {
+    applyFieldPick("token");
+    return;
+  }
+  rememberForm(tokenForms, draft.value, name, pick.start, pick.text);
+  const result = replaceRange(draft.value, pick.start, pick.end, formatToken(name));
+  fieldPick.value = null;
+  fieldPickAnchor.value = null;
+  draft.value = result.text;
+  void nextTick(() => {
+    const area = composerEl.value;
+    if (!area) return;
+    const pos = toVisibleOffset(draft.value, result.caret);
+    area.focus();
+    area.setSelectionRange(pos, pos);
+  });
+}
+
 function applyFieldPick(target: "token" | "value"): void {
   const pick = fieldPick.value;
   if (!pick) return;
@@ -828,6 +906,31 @@ const chatPick = ref<{
   /** Красная подсветка: токен уже стоит. Жёлтая — только предложение заменить. */
   tokenized: boolean;
 } | null>(null);
+const chatAliasName = ref("");
+watch(chatPick, (pick) => {
+  chatAliasName.value = pick?.name ?? "";
+});
+const chatCanRename = computed(() => {
+  const pick = chatPick.value;
+  if (!pick) return false;
+  const message = messages.value.find((item) => item.id === pick.messageId);
+  const slice = message?.content.slice(pick.start, pick.end) ?? "";
+  if (!slice || slice.startsWith("⟦")) return false;
+  return offerCanRename(pick.name);
+});
+
+async function applyChatAlias(): Promise<void> {
+  const pick = chatPick.value;
+  if (!pick) return;
+  const name = await commitDialogName(chatAliasName.value || pick.name, pick.name);
+  if (!name) return;
+  const message = messages.value.find((item) => item.id === pick.messageId);
+  chatPick.value = null;
+  if (!message) return;
+  const next =
+    message.content.slice(0, pick.start) + formatToken(name) + message.content.slice(pick.end);
+  await editMessage(pick.messageId, next);
+}
 
 const chatSpellings = computed(() => spellingsOf(chatPick.value?.name ?? ""));
 
@@ -910,6 +1013,13 @@ function dismissChatPick(): void {
   chatPick.value = null;
 }
 
+/** Спрятать облачко, не меняя текст: Esc и клик мимо. */
+function hideTokenPicks(): void {
+  fieldPick.value = null;
+  fieldPickAnchor.value = null;
+  chatPick.value = null;
+}
+
 function closeFieldPick(): void {
   const pick = fieldPick.value;
   if (pick && pick.tokenized && fieldPickOriginal.value.trim()) {
@@ -963,6 +1073,19 @@ const feedAlreadyToken = computed(() => {
   if (!picked || !match) return false;
   return picked.text.trim() === formatToken(match.name);
 });
+
+const feedCanRename = computed(() => {
+  const match = feedMatch.value;
+  return Boolean(match) && !feedAlreadyToken.value && offerCanRename(match?.name ?? "");
+});
+
+async function applyFeedDialogName(): Promise<void> {
+  const match = feedMatch.value;
+  if (!match) return;
+  const name = await commitDialogName(feedName.value, match.name);
+  if (!name) return;
+  await replaceSelectionInMessage(name);
+}
 
 /** Подсказки имени для фрагмента из ленты. */
 const feedSuggestions = computed(() => {
@@ -1404,6 +1527,20 @@ function askSelectionReplace(): void {
   if (match) selectionConfirm.value = match;
 }
 
+const selectionCanRename = computed(() => {
+  const match = selectionMatch.value;
+  return Boolean(match) && !selectionAlreadyToken.value && offerCanRename(match?.name ?? "");
+});
+
+/** Имя только для этого диалога: справочник остаётся со старым названием. */
+async function applySelectionDialogName(): Promise<void> {
+  const match = selectionMatch.value;
+  if (!match) return;
+  const name = await commitDialogName(selectionName.value, match.name);
+  if (!name) return;
+  await applySelectionToken(name);
+}
+
 function confirmSelectionReplace(): void {
   const entry = selectionConfirm.value;
   clearSelection();
@@ -1606,7 +1743,7 @@ const highlightParts = computed(() =>
     ? highlightSegments(
         draft.value,
         displayValues.value,
-        (raw, name, index) => formAt(tokenForms, name, index) ?? restoreValues(raw),
+        (raw, name, index) => formAt(tokenForms, name, index) ?? restoreValuesWithCase(raw, dialogTokenLookup),
         offerSpans.value,
       )
     : [],
@@ -1652,7 +1789,7 @@ let draftFromField = false;
 
 /** Показать в поле актуальное представление черновика (значения или токены). */
 function syncComposerField(): void {
-  const next = visibleText(draft.value, displayValues.value, formLookup(tokenForms));
+  const next = visibleText(draft.value, displayValues.value, formLookup(tokenForms), dialogTokenLookup);
   if (next !== composerField.value) composerField.value = next;
 }
 
@@ -1895,12 +2032,19 @@ function onQuickOutside(event: Event): void {
       agentMenuOpen.value = false;
     }
   }
+  if ((fieldPick.value || chatPick.value) && !target.closest(".chat-panel__pick")) {
+    hideTokenPicks();
+  }
 }
 
 function onQuickKey(event: KeyboardEvent): void {
   if (event.key !== "Escape") return;
   quickOpen.value = false;
   agentMenuOpen.value = false;
+  if (fieldPick.value || chatPick.value) {
+    event.preventDefault();
+    hideTokenPicks();
+  }
 }
 
 function toggleAgentMenu(): void {
@@ -2494,17 +2638,6 @@ const composerPlaceholder = computed(() =>
       }),
 );
 
-/**
- * Что реально уйдёт агенту из текущего черновика: значения уже заменены
- * токенами. Строка над полем показывает это до отправки — видно, какие
- * значения станут токенами и сколько замен движок сделал.
- */
-const outgoingDraft = computed(() =>
-  isTokenSession(activeSession.value)
-    ? replaceValues(draft.value)
-    : { text: draft.value, hits: 0 },
-);
-
 const canSend = computed(
   () =>
     agents.value.length > 0 &&
@@ -3000,6 +3133,7 @@ watch(activeSessionId, (id) => {
   if (id) rememberTab(id);
   // Открыли настоящий диалог — намерение «токеновый новый диалог» больше не нужно.
   if (id) pendingTokenMode.value = false;
+  if (id) pendingAliases.value = [];
   // Диалог сменился — забранная реплика возвращается в свою ленту.
   if (lifted.value && lifted.value.message.sessionId !== id) lifted.value = null;
   // Таблица соответствий относится к прежнему диалогу — закрываем.
@@ -3072,6 +3206,10 @@ async function startSession(text: string): Promise<string | undefined> {
   const agent = activeAgent.value;
   if (!agent) return undefined;
   const created = await createSession(agent.id, sessionTitle(text));
+  for (const alias of pendingAliases.value) {
+    await setSessionTokenAlias(created.id, alias.name, alias.source);
+  }
+  pendingAliases.value = [];
   await applyPendingTokenMode(created.id);
   await loadMessages(created.id);
   return created.id;
@@ -4522,11 +4660,19 @@ function onRateChange(event: Event): void {
         <span class="chat-panel__selection-text" :title="feedSelection.text">
           «{{ feedSelection.text }}»
         </span>
-        <template v-if="feedMatch">
+          <template v-if="feedMatch">
           <span v-if="feedAlreadyToken" class="chat-panel__selection-target">
             {{ feedMatch.value }}
           </span>
-          <span v-else class="chat-panel__selection-target">⟦{{ feedMatch.name }}⟧</span>
+          <span v-else-if="!feedCanRename" class="chat-panel__selection-target">⟦{{ feedMatch.name }}⟧</span>
+          <input
+            v-if="feedCanRename"
+            v-model="feedName"
+            class="chat-panel__selection-input"
+            type="text"
+            :placeholder="t('chat.tokens.dialogName')"
+            :aria-label="t('chat.tokens.dialogName')"
+          />
           <template v-if="feedAlreadyToken">
             <span class="chat-panel__selection-hint">
               {{ t("chat.tokens.alreadyToken") }}
@@ -4549,7 +4695,7 @@ function onRateChange(event: Event): void {
             class="chat-panel__token-btn is-icon"
             v-tip="t('chat.tokens.replaceSelection')"
             :aria-label="t('chat.tokens.replaceSelection')"
-            @click="replaceSelectionInMessage()"
+            @click="feedCanRename ? applyFeedDialogName() : replaceSelectionInMessage()"
           >
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="m5 13 4 4L19 7" />
@@ -4927,6 +5073,15 @@ function onRateChange(event: Event): void {
           >
             <div class="chat-panel__pick-col">
               <div class="chat-panel__pick-head">
+                <input
+                  v-if="fieldCanRename"
+                  v-model="fieldAliasName"
+                  class="chat-panel__selection-input"
+                  type="text"
+                  :placeholder="t('chat.tokens.dialogName')"
+                  :aria-label="t('chat.tokens.dialogName')"
+                  @keydown.enter.prevent="guardBlur(); applyFieldAlias()"
+                />
                 <button
                   v-if="!fieldPick.tokenized"
                   type="button"
@@ -4934,9 +5089,9 @@ function onRateChange(event: Event): void {
                   :title="fieldPick.text"
                   v-tip="t('chat.tokens.replaceSelection')"
                   :aria-label="t('chat.tokens.replaceSelection')"
-                  @click="guardBlur(); applyFieldPick('token')"
+                  @click="guardBlur(); fieldCanRename ? applyFieldAlias() : applyFieldPick('token')"
                 >
-                  ⟦{{ fieldPick.name }}⟧
+                  ⟦{{ fieldCanRename ? fieldAliasName || fieldPick.name : fieldPick.name }}⟧
                 </button>
                 <span v-else class="chat-panel__pick-bubble is-token">⟦{{ fieldPick.name }}⟧</span>
                 <button
@@ -5062,7 +5217,7 @@ function onRateChange(event: Event): void {
         </div>
         <div v-if="pendingTokenSend" class="chat-panel__token-confirm" role="alert">
           <p class="chat-panel__token-confirm-text">
-            {{ t("chat.tokens.confirmSend", { count: outgoingDraft.hits }) }}
+            {{ offerSpans.length > 0 ? t("chat.tokens.confirmSendOpen") : t("chat.tokens.confirmSend") }}
           </p>
           <div class="chat-panel__token-confirm-actions">
             <button type="button" class="chat-panel__token-btn" @click="cancelTokenSend">
@@ -5106,7 +5261,15 @@ function onRateChange(event: Event): void {
             «{{ bannerFragment }}»
           </span>
           <template v-if="selectionMatch || occurrenceToken">
-            <span class="chat-panel__selection-target">⟦{{ bannerToken }}⟧</span>
+            <span v-if="!selectionCanRename" class="chat-panel__selection-target">⟦{{ bannerToken }}⟧</span>
+            <input
+              v-if="selectionCanRename"
+              v-model="selectionName"
+              class="chat-panel__selection-input"
+              type="text"
+              :placeholder="t('chat.tokens.dialogName')"
+              :aria-label="t('chat.tokens.dialogName')"
+            />
             <span v-if="occurrenceTotal > 1" class="chat-panel__selection-nav">
               <button
                 type="button"
@@ -5144,7 +5307,7 @@ function onRateChange(event: Event): void {
               class="chat-panel__token-btn is-icon"
               v-tip="t('chat.tokens.replaceSelection')"
               :aria-label="t('chat.tokens.replaceSelection')"
-              @click="onReplaceClick"
+              @click="selectionCanRename ? applySelectionDialogName() : onReplaceClick"
             >
               <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="m5 13 4 4L19 7" />
@@ -5236,13 +5399,22 @@ function onRateChange(event: Event): void {
     >
       <div class="chat-panel__pick-col">
         <div class="chat-panel__pick-head">
+          <input
+            v-if="chatCanRename"
+            v-model="chatAliasName"
+            class="chat-panel__selection-input"
+            type="text"
+            :placeholder="t('chat.tokens.dialogName')"
+            :aria-label="t('chat.tokens.dialogName')"
+            @keydown.enter.prevent="applyChatAlias()"
+          />
           <button
             v-if="!chatPick.tokenized"
             type="button"
             class="chat-panel__pick-bubble is-token"
-            @click="applyChatToken"
+            @click="chatCanRename ? applyChatAlias() : applyChatToken()"
           >
-            ⟦{{ chatPick.name }}⟧
+            ⟦{{ chatCanRename ? chatAliasName || chatPick.name : chatPick.name }}⟧
           </button>
           <span v-else class="chat-panel__pick-bubble is-token">⟦{{ chatPick.name }}⟧</span>
           <button
@@ -6452,6 +6624,28 @@ function onRateChange(event: Event): void {
   padding: 0 10px;
   border-radius: 10px;
   font-size: 0.82rem;
+}
+
+@media (min-width: 721px) {
+  .chat-panel__token-btn.is-icon,
+  .chat-panel__tokenbar .chat-panel__token-btn.is-icon,
+  .chat-panel__icon-btn,
+  .chat-panel__selection-close,
+  .chat-panel__pick-close,
+  .chat-panel__selection-arrow {
+    width: 40px;
+    height: 40px;
+  }
+
+  .chat-panel__token-btn.is-icon svg,
+  .chat-panel__tokenbar .chat-panel__token-btn.is-icon svg,
+  .chat-panel__icon-btn svg,
+  .chat-panel__selection-close svg,
+  .chat-panel__pick-close svg,
+  .chat-panel__selection-arrow svg {
+    width: 22px;
+    height: 22px;
+  }
 }
 
 @media (max-width: 720px) {

@@ -12,7 +12,7 @@
  * а не часть записи. Форму подсказывает `formFor`: имя + номер вхождения.
  */
 
-import { parseTokens, normalizeTokenName } from "./format";
+import { parseTokens, normalizeTokenName, tokensToValues, type TokenLookup } from "./format";
 import { replaceValues, restoreValues } from "./registry";
 
 /** Исходная форма токена: имя и номер вхождения среди одноимённых. */
@@ -28,10 +28,12 @@ export function visibleText(
   tokenText: string,
   showValues: boolean,
   formFor?: FormLookup,
+  lookup?: TokenLookup,
 ): string {
+  const read = (raw: string) => (lookup ? tokensToValues(raw, lookup) : restoreValues(raw));
   if (!showValues) return tokenText;
   const source = String(tokenText ?? "");
-  if (!source.includes("⟦")) return restoreValues(source);
+  if (!source.includes("⟦")) return read(source);
   const tokens = parseTokens(source);
   if (tokens.length === 0) return source;
   const counters = new Map<string, number>();
@@ -43,7 +45,7 @@ export function visibleText(
     const index = counters.get(key) ?? 0;
     counters.set(key, index + 1);
     const form = formFor?.(token.name, index) ?? null;
-    out += form && form.trim() ? form : restoreValues(token.raw);
+    out += form && form.trim() ? form : read(token.raw);
     from = token.end;
   }
   return out + source.slice(from);

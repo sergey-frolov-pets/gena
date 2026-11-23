@@ -15,6 +15,7 @@
 
 import { parseTokens } from "./format";
 import { tokenSpans } from "./occurrences";
+import { tokensToValues } from "./format";
 import { restoreValues } from "./registry";
 import { declineValue } from "./morph/service";
 import { MORPH_CASES } from "./morph/format";
@@ -117,7 +118,10 @@ export function declineWithContext(before: string, value: string): string {
  * Идём слева направо и смотрим на уже собранный текст перед токеном: там и
  * лежит предлог. Неизвестное имя токена остаётся как есть — текст не теряется.
  */
-export function restoreValuesWithCase(text: string): string {
+export function restoreValuesWithCase(
+  text: string,
+  lookup?: (name: string) => string | undefined,
+): string {
   const source = String(text ?? "");
   if (!source.includes("⟦")) return source;
   let out = "";
@@ -125,7 +129,7 @@ export function restoreValuesWithCase(text: string): string {
   for (const span of tokenSpans(source)) {
     out += source.slice(from, span.start);
     const raw = source.slice(span.start, span.end);
-    const canon = restoreValues(raw);
+    const canon = lookup ? tokensToValues(raw, lookup) : restoreValues(raw);
     out += canon === raw ? raw : declineWithContext(out, canon);
     from = span.end;
   }
