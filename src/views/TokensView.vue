@@ -36,6 +36,7 @@ import {
   type TransferEntry,
 } from "@/lib/tokens/transfer";
 import ConfirmModal from "@/components/ConfirmModal.vue";
+import { loadNameBases, saveNameBases } from "@/lib/tokens/name-bases";
 
 const { t, locale } = useLocale();
 
@@ -83,6 +84,14 @@ function formatLemmas(count: number): string {
   } catch {
     return String(count);
   }
+}
+
+const nameBasesText = ref(loadNameBases().join("\n"));
+
+function saveBases(): void {
+  const stored = saveNameBases(nameBasesText.value.split(/\n/));
+  nameBasesText.value = stored.join("\n");
+  notice.value = t("tokens.nameBasesSaved");
 }
 
 onMounted(async () => {
@@ -324,6 +333,15 @@ function setDecision(key: string, policy: MergePolicy): void {
     <p v-if="tokensBroken > 0" class="tokens-banner is-warn">
       {{ t("tokens.error.broken", { count: tokensBroken }) }}
     </p>
+
+    <section class="tokens-dict">
+      <h3 class="tokens-subtitle">{{ t("tokens.nameBases") }}</h3>
+      <p class="muted small">{{ t("tokens.nameBasesHint") }}</p>
+      <textarea v-model="nameBasesText" rows="4" :aria-label="t('tokens.nameBases')" />
+      <div class="tokens-actions">
+        <button type="button" class="is-primary" @click="saveBases">{{ t("tokens.save") }}</button>
+      </div>
+    </section>
 
     <section class="tokens-dict">
       <h3 class="tokens-subtitle">{{ t("tokens.dict.title") }}</h3>

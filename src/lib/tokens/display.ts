@@ -80,3 +80,121 @@ export function toVisibleCaret(tokenText: string, offset: number, showValues: bo
   if (!showValues) return offset;
   return restoreValues(tokenText.slice(0, offset)).length;
 }
+
+interface VisiblePiece {
+  draftStart: number;
+  draftEnd: number;
+  visibleStart: number;
+  visibleEnd: number;
+  token: boolean;
+}
+
+/**
+ * Куски видимого текста в тех же координатах, что и подсветка поля.
+ *
+ * Форма вхождения может быть длиннее или короче и токена, и канона
+ * справочника. Клик по подсветке считается по этим кускам, а не по
+ * перекодировке префикса: иначе каретка промахивается мимо ⟦токена⟧.
+ */
+export function visiblePieces(
+  tokenText: string,
+  showValues: boolean,
+  formFor?: FormLookup,
+): VisiblePiece[] {
+  const source = String(tokenText ?? "");
+  if (!showValues) {
+    return source
+      ? [{ draftStart: 0, draftEnd: source.length, visibleStart: 0, visibleEnd: source.length, token: false }]
+      : [];
+  }
+  const tokens = parseTokens(source);
+  const pieces: VisiblePiece[] = [];
+  const counters = new Map<string, number>();
+  let draftFrom = 0;
+  let visibleFrom = 0;
+  for (const token of tokens) {
+    if (token.start > draftFrom) {
+      const gap = source.slice(draftFrom, token.start);
+      pieces.push({
+        draftStart: draftFrom,
+        draftEnd: token.start,
+        visibleStart: visibleFrom,
+        visibleEnd: visibleFrom + gap.length,
+        token: false,
+      });
+      visibleFrom += gap.length;
+    }
+    const key = normalizeTokenName(token.name).toLocaleLowerCase();
+    const index = counters.get(key) ?? 0;
+    counters.set(key, index + 1);
+    const form = formFor?.(token.name, index) ?? null;
+    const shown = form && form.trim() ? form : restoreValues(token.raw);
+    pieces.push({
+      draftStart: token.start,
+      draftEnd: token.end,
+      visibleStart: visibleFrom,
+      visibleEnd: visibleFrom + shown.length,
+      token: true,
+    });
+    visibleFrom += shown.length;
+    draftFrom = token.end;
+  }
+  if (draftFrom < source.length) {
+    const gap = source.slice(draftFrom);
+    pieces.push({
+      draftStart: draftFrom,
+      draftEnd: source.length,
+      visibleStart: visibleFrom,
+      visibleEnd: visibleFrom + gap.length,
+      token: false,
+    });
+  }
+  return pieces;
+}
+
+/**
+ * Клик по видимому тексту → позиция в черновике.
+ *
+ * Попадание в показанную форму токена возвращает точку внутри ⟦токена⟧,
+ * даже если форма длиннее самого токена.
+ */
+export function draftOffsetForVisible(
+  tokenText: string,
+  visibleOffset: number,
+  showValues: boolean,
+  formFor?: FormLookup,
+): number {
+  const source = String(tokenText ?? "");
+  const at = Math.max(0, Math.trunc(visibleOffset) || 0);
+  if (!showValues) return Math.min(at, source.length);
+  const pieces = visiblePieces(source, true, formFor);
+  for (const piece of pieces) {
+    if (at < piece.visibleStart || at > piece.visibleEnd) continue;
+    if (piece.token) {
+      if (at <= piece.visibleStart) return piece.draftStart;
+      return Math.max(piece.draftStart, piece.draftEnd - 1);
+    }
+    return piece.draftStart + (at - piece.visibleStart);
+  }
+  return source.length;
+}
+
+/** Начало видимого слова для позиции в черновике — куда ставить облачко. */
+export function visibleOffsetForDraft(
+  tokenText: string,
+  draftOffset: number,
+  showValues: boolean,
+  formFor?: FormLookup,
+): number {
+  const source = String(tokenText ?? "");
+  const at = Math.max(0, Math.trunc(draftOffset) || 0);
+  if (!showValues) return Math.min(at, source.length);
+  const pieces = visiblePieces(source, true, formFor);
+  for (const piece of pieces) {
+    if (at < piece.draftStart || at > piece.draftEnd) continue;
+    if (piece.token) return piece.visibleStart;
+    return piece.visibleStart + (at - piece.draftStart);
+  }
+  const last = pieces[pieces.length - 1];
+  return last ? last.visibleEnd : 0;
+}

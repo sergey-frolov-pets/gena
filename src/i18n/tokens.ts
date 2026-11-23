@@ -11,6 +11,9 @@ import type { LocaleMessages } from "./types";
 
 const en = {
   "tokens.title": "Token dictionary",
+  "tokens.nameBases": "Name bases",
+  "tokens.nameBasesHint": "One base per line. A selection offers имя1, компания2, ПО1 — the next free number. The list is edited here.",
+  "tokens.nameBasesSaved": "Name bases saved.",
   "tokens.intro":
     "A token hides a value behind a short name: ⟦name⟧. The agent only ever sees tokens — real values stay on this device and are substituted back in the chat.",
   "tokens.empty": "Nothing saved yet.",
@@ -137,6 +140,9 @@ const en = {
 
 const ru = {
   "tokens.title": "Справочник подстановок",
+  "tokens.nameBases": "Основы имён",
+  "tokens.nameBasesHint": "По одной основе в строке. Выделение предлагает имя1, компания2, ПО1 — следующий свободный номер. Список правится здесь.",
+  "tokens.nameBasesSaved": "Основы имён сохранены.",
   "tokens.intro":
     "Токен прячет значение за коротким именем: ⟦имя⟧. Агент видит только токены — настоящие значения остаются на устройстве и подставляются в чате.",
   "tokens.empty": "Пока ничего не сохранено.",
@@ -264,6 +270,9 @@ const ru = {
 const de = {
   ...en,
   "tokens.title": "Token-Wörterbuch",
+  "tokens.nameBases": "Namensstämme",
+  "tokens.nameBasesHint": "Ein Stamm pro Zeile. Eine Auswahl schlägt имя1, компания2, ПО1 vor — die nächste freie Nummer. Die Liste wird hier bearbeitet.",
+  "tokens.nameBasesSaved": "Namensstämme gespeichert.",
   "tokens.intro":
     "Ein Token verbirgt einen Wert hinter einem kurzen Namen: ⟦Name⟧. Der Agent sieht nur Tokens — die echten Werte bleiben auf diesem Gerät und werden im Chat eingesetzt.",
   "tokens.empty": "Noch nichts gespeichert.",
@@ -366,6 +375,9 @@ const de = {
 const es = {
   ...en,
   "tokens.title": "Diccionario de tokens",
+  "tokens.nameBases": "Bases de nombre",
+  "tokens.nameBasesHint": "Una base por línea. La selección ofrece имя1, компания2, ПО1: el siguiente número libre. La lista se edita aquí.",
+  "tokens.nameBasesSaved": "Bases de nombre guardadas.",
   "tokens.intro":
     "Un token oculta un valor tras un nombre corto: ⟦nombre⟧. El agente solo ve tokens: los valores reales se quedan en este dispositivo y se sustituyen en el chat.",
   "tokens.empty": "Todavía no hay nada guardado.",
@@ -468,6 +480,9 @@ const es = {
 const pt = {
   ...en,
   "tokens.title": "Dicionário de tokens",
+  "tokens.nameBases": "Bases de nome",
+  "tokens.nameBasesHint": "Uma base por linha. A seleção oferece имя1, компания2, ПО1 — o próximo número livre. A lista edita-se aqui.",
+  "tokens.nameBasesSaved": "Bases de nome guardadas.",
   "tokens.intro":
     "Um token esconde um valor atrás de um nome curto: ⟦nome⟧. O agente vê apenas tokens — os valores reais ficam neste dispositivo e são substituídos no chat.",
   "tokens.empty": "Nada guardado ainda.",
@@ -570,6 +585,9 @@ const pt = {
 const zh = {
   ...en,
   "tokens.title": "令牌词典",
+  "tokens.nameBases": "名称词干",
+  "tokens.nameBasesHint": "每行一个词干。选中文本会建议 имя1、компания2、ПО1，即下一个空号。列表在这里修改。",
+  "tokens.nameBasesSaved": "名称词干已保存。",
   "tokens.intro": "令牌用短名称隐藏真实值：⟦名称⟧。代理只能看到令牌——真实值保留在本设备，并在聊天中替换显示。",
   "tokens.empty": "还没有保存任何内容。",
   "tokens.name": "名称",
@@ -669,6 +687,9 @@ const zh = {
 const ja = {
   ...en,
   "tokens.title": "トークン辞書",
+  "tokens.nameBases": "名前の語幹",
+  "tokens.nameBasesHint": "1行に1語幹。選択すると имя1、компания2、ПО1 のように次の空き番号を提案します。一覧はここで編集します。",
+  "tokens.nameBasesSaved": "名前の語幹を保存しました。",
   "tokens.intro": "トークンは短い名前で値を隠します：⟦名前⟧。エージェントが見るのはトークンだけで、実際の値はこの端末に残り、チャット内で置換されます。",
   "tokens.empty": "まだ保存されていません。",
   "tokens.name": "名前",
@@ -769,6 +790,9 @@ const ja = {
 const hi = {
   ...en,
   "tokens.title": "टोकन शब्दकोश",
+  "tokens.nameBases": "नाम आधार",
+  "tokens.nameBasesHint": "हर पंक्ति में एक आधार। चयन имя1, компания2, ПО1 सुझाता है — अगला खाली नंबर। सूची यहीं संपादित होती है।",
+  "tokens.nameBasesSaved": "नाम आधार सहेजे गए।",
   "tokens.intro":
     "टोकन एक छोटे नाम के पीछे मान छिपाता है: ⟦नाम⟧। एजेंट को केवल टोकन दिखते हैं — असली मान इसी डिवाइस पर रहते हैं और चैट में बदले जाते हैं।",
   "tokens.empty": "अभी कुछ सहेजा नहीं गया।",
@@ -870,6 +894,9 @@ const hi = {
 const ar = {
   ...en,
   "tokens.title": "قاموس الرموز",
+  "tokens.nameBases": "جذور الأسماء",
+  "tokens.nameBasesHint": "جذر واحد في كل سطر. التحديد يقترح имя1 وкомпания2 وПО1 — الرقم الحر التالي. تُعدَّل القائمة هنا.",
+  "tokens.nameBasesSaved": "حُفظت جذور الأسماء.",
   "tokens.intro":
     "الرمز يخفي القيمة خلف اسم قصير: ⟦الاسم⟧. الوكيل يرى الرموز فقط، وتبقى القيم الحقيقية على هذا الجهاز وتُستبدل داخل المحادثة.",
   "tokens.empty": "لم يُحفظ شيء بعد.",
