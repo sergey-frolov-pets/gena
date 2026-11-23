@@ -192,8 +192,11 @@ export function restoreValues(text: string): string {
  * написания — иначе «вклада ВТБ» ушло бы агенту открытым текстом только
  * потому, что человек написал значение в другом падеже.
  */
-export function replaceValues(text: string): SubstitutionResult {
-  return valuesToTokens(text, withDeclensions(tokenEntries.value));
+export function replaceValues(
+  text: string,
+  onHit?: (hit: { name: string; form: string }) => void,
+): SubstitutionResult {
+  return valuesToTokens(text, withDeclensions(tokenEntries.value), onHit);
 }
 
 export interface ImportSummary {

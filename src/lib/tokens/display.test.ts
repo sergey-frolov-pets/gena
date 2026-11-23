@@ -71,3 +71,35 @@ describe("tokens/display: поле ввода в двух режимах", () =>
     expect(toVisibleCaret("⟦сумма⟧", 5, false)).toBe(5);
   });
 });
+
+describe("исходные формы в поле", () => {
+  beforeEach(() => {
+    tokenEntries.value = entries.map((entry) => ({ ...entry }));
+  });
+
+  it("показывает форму вхождения, а не канон записи", () => {
+    const forms = (_name: string, index: number) =>
+      index === 0 ? "вклада ВТБ" : index === 1 ? "вкладу ВТБ" : null;
+    expect(visibleText("⟦вклад ВТБ⟧ и ⟦вклад ВТБ⟧", true, forms)).toBe(
+      "вклада ВТБ и вкладу ВТБ",
+    );
+  });
+
+  it("нет формы — канон справочника", () => {
+    expect(visibleText("⟦вклад ВТБ⟧", true, () => null)).toBe("вклад ВТБ");
+    expect(visibleText("⟦вклад ВТБ⟧", true)).toBe("вклад ВТБ");
+  });
+
+  it("перекодировка поля сообщает, какие написания стали токенами", () => {
+    const hits: Array<{ name: string; form: string }> = [];
+    const draft = draftText("Открыл вклад ВТБ вчера", true, (hit) => hits.push(hit));
+    expect(draft).toBe("Открыл ⟦вклад ВТБ⟧ вчера");
+    expect(hits).toEqual([{ name: "вклад ВТБ", form: "вклад ВТБ" }]);
+  });
+
+  it("в режиме токенов форм не собирает", () => {
+    const hits: Array<{ name: string; form: string }> = [];
+    draftText("⟦вклад ВТБ⟧", false, (hit) => hits.push(hit));
+    expect(hits).toEqual([]);
+  });
+});

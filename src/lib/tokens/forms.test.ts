@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { forgetForms, lookupForm, rememberForm, shiftForms, tokenIndexAt } from "./forms";
+import { forgetForms, formAt, formLookup, lookupForm, rememberForm, shiftForms, tokenIndexAt, applyForms, type FormStore } from "./forms";
 
 describe("tokenIndexAt", () => {
   it("считает только токены с тем же именем", () => {
@@ -118,5 +118,37 @@ describe("shiftForms", () => {
     rememberForm(store, "⟦почта⟧ и тут", "почта", 0, "a@b.ru");
     shiftForms(store, "вклад", 0);
     expect(lookupForm(store, "⟦почта⟧", "почта", 0)).toBe("a@b.ru");
+  });
+});
+
+describe("applyForms: формы из перекодировки поля", () => {
+  it("раскладывает формы по порядку одноимённых токенов", () => {
+    const store: FormStore = new Map();
+    applyForms(store, "⟦вклад⟧ и ⟦вклад⟧", [
+      { name: "вклад", form: "вклада ВТБ" },
+      { name: "вклад", form: "вкладу ВТБ" },
+    ]);
+    expect(formAt(store, "вклад", 0)).toBe("вклада ВТБ");
+    expect(formAt(store, "вклад", 1)).toBe("вкладу ВТБ");
+  });
+
+  it("не трогает имена, которых в тексте нет", () => {
+    const store: FormStore = new Map();
+    applyForms(store, "⟦вклад⟧", [{ name: "почта", form: "a@b.ru" }]);
+    expect(store.size).toBe(0);
+  });
+
+  it("пустые формы игнорируются", () => {
+    const store: FormStore = new Map();
+    applyForms(store, "⟦вклад⟧", [{ name: "вклад", form: "   " }]);
+    expect(formAt(store, "вклад", 0)).toBeNull();
+  });
+
+  it("резолвер отдаёт форму по имени и номеру", () => {
+    const store: FormStore = new Map();
+    rememberForm(store, "⟦вклад⟧", "вклад", 0, "вклада ВТБ");
+    const lookup = formLookup(store);
+    expect(lookup("вклад", 0)).toBe("вклада ВТБ");
+    expect(lookup("вклад", 1)).toBeNull();
   });
 });

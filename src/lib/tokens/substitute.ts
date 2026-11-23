@@ -90,8 +90,16 @@ function isFreeEnd(text: string, index: number): boolean {
  *
  * `[[…]]` и `{{…}}` в тексте сначала приводятся к канону `⟦…⟧`.
  * Уже стоящие токены не меняются.
+ *
+ * `onHit` получает имя и исходное написание каждого заменённого вхождения —
+ * по нему вызывающая сторона помнит, как значение выглядело до токенизации,
+ * чтобы вернуть его в том же падеже и регистре.
  */
-export function valuesToTokens(text: string, entries: TokenSource[]): SubstitutionResult {
+export function valuesToTokens(
+  text: string,
+  entries: TokenSource[],
+  onHit?: (hit: { name: string; form: string }) => void,
+): SubstitutionResult {
   const source = normalizeTokenForms(text ?? "");
   if (!source) return { text: "", hits: 0 };
   const needles = buildNeedles(entries);
@@ -130,6 +138,7 @@ export function valuesToTokens(text: string, entries: TokenSource[]): Substituti
         }
         if (!isFreeEnd(source, end)) continue;
         out += formatToken(needle.name);
+        onHit?.({ name: needle.name, form: slice });
         i = end;
         hits += 1;
         replaced = true;

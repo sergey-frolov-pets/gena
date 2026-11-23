@@ -253,6 +253,75 @@ function declinableFlags(parts: readonly Part[]): boolean[] {
   return flags;
 }
 
+/** Разбор значения, общий для всех падежных вариантов и для одного падежа. */
+interface ValueAnalysis {
+  parts: Part[];
+  flags: boolean[];
+  parses: (MorphParse | undefined)[];
+  total: number;
+  covered: number;
+  unknown: string[];
+  head: MorphParse | null;
+  gender: string;
+  inanimateMasculine: boolean;
+}
+
+function analyzeValue(value: string, index: MorphIndex | null): ValueAnalysis | null {
+  const text = String(value ?? "");
+  const parts = splitParts(text);
+  if (!index || parts.length === 0) return null;
+  const flags = declinableFlags(parts);
+  const parses: (MorphParse | undefined)[] = [];
+  const unknown: string[] = [];
+  let total = 0;
+  let covered = 0;
+  for (let partIndex = 0; partIndex < parts.length; partIndex += 1) {
+    const part = parts[partIndex];
+    if (!part.word || !flags[partIndex]) {
+      parses.push(undefined);
+      continue;
+    }
+    total += 1;
+    const parse = pickParse(index.lookup(part.text));
+    parses.push(parse);
+    if (parse) covered += 1;
+    else unknown.push(part.text);
+  }
+  const head = parses.find((parse) => parse?.pos === "N") ?? null;
+  if (!head) {
+    return { parts, flags, parses, total, covered, unknown, head: null, gender: "", inanimateMasculine: false };
+  }
+  const headEntry = index.entry(head.lemma);
+  const gender = headEntry && headEntry.p === "N" ? headEntry.g ?? "" : "";
+  const inanimateMasculine =
+    headEntry && headEntry.p === "N" ? headEntry.f[3] === headEntry.f[0] : false;
+  return { parts, flags, parses, total, covered, unknown, head, gender, inanimateMasculine };
+}
+
+/** Собрать написание значения в одном падеже; null — если форма неполная. */
+function renderTarget(
+  analysis: ValueAnalysis,
+  target: Target,
+  index: MorphIndex,
+): string | null {
+  const chunks: string[] = [];
+  for (let partIndex = 0; partIndex < analysis.parts.length; partIndex += 1) {
+    const part = analysis.parts[partIndex];
+    const parse = analysis.parses[partIndex];
+    if (!part.word || !analysis.flags[partIndex] || !parse) {
+      chunks.push(part.text);
+      continue;
+    }
+    const entry = index.entry(parse.lemma);
+    const form = entry
+      ? formFor(entry, target, analysis.gender, analysis.inanimateMasculine)
+      : null;
+    if (!form) return null;
+    chunks.push(letterCase(part.text, form));
+  }
+  return chunks.join("").replace(SPACES, " ").trim();
+}
+
 /**
  * Падежные написания значения по словарю.
  *
@@ -261,59 +330,47 @@ function declinableFlags(parts: readonly Part[]): boolean[] {
  * `variants`.
  */
 export function caseVariants(value: string, index: MorphIndex | null): DeclensionResult {
-  const text = String(value ?? "");
-  const parts = splitParts(text);
-  const flags = declinableFlags(parts);
   const result: DeclensionResult = { variants: [], covered: 0, total: 0, unknown: [] };
-  if (!index || parts.length === 0) return result;
+  const analysis = analyzeValue(value, index);
+  if (!analysis) return result;
+  result.covered = analysis.covered;
+  result.total = analysis.total;
+  result.unknown = analysis.unknown;
+  if (!analysis.head || !index) return result;
 
-  const parses: (MorphParse | undefined)[] = [];
-  for (let partIndex = 0; partIndex < parts.length; partIndex += 1) {
-    const part = parts[partIndex];
-    if (!part.word || !flags[partIndex]) {
-      parses.push(undefined);
-      continue;
-    }
-    result.total += 1;
-    const parse = pickParse(index.lookup(part.text));
-    parses.push(parse);
-    if (parse) result.covered += 1;
-    else result.unknown.push(part.text);
-  }
-
-  const headIndex = parses.findIndex((parse) => parse?.pos === "N");
-  const head = headIndex >= 0 ? parses[headIndex] : undefined;
-  if (!head) return result;
-  const headEntry = index.entry(head.lemma);
-  const gender = headEntry && headEntry.p === "N" ? headEntry.g ?? "" : "";
-  const inanimateMasculine =
-    headEntry && headEntry.p === "N" ? headEntry.f[3] === headEntry.f[0] : false;
-
+  const text = String(value ?? "");
   const seen = new Set<string>([text.replace(SPACES, " ").trim().toLowerCase()]);
-  for (const target of buildTargets(head)) {
-    const chunks: string[] = [];
-    let complete = true;
-    for (let partIndex = 0; partIndex < parts.length; partIndex += 1) {
-      const part = parts[partIndex];
-      const parse = parses[partIndex];
-      if (!part.word || !flags[partIndex] || !parse) {
-        chunks.push(part.text);
-        continue;
-      }
-      const entry = index.entry(parse.lemma);
-      const form = entry ? formFor(entry, target, gender, inanimateMasculine) : null;
-      if (!form) {
-        complete = false;
-        break;
-      }
-      chunks.push(letterCase(part.text, form));
-    }
-    if (!complete) continue;
-    const variant = chunks.join("").replace(SPACES, " ").trim();
+  for (const target of buildTargets(analysis.head)) {
+    const variant = renderTarget(analysis, target, index);
+    if (!variant) continue;
     const key = variant.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
     result.variants.push(variant);
   }
   return result;
+}
+
+/**
+ * Одно написание значения в нужном падеже — для подстановки по контексту.
+ *
+ * Зачем отдельно от `caseVariants`: там нужен весь набор, чтобы находить
+ * значение в тексте при любой форме, а здесь — ровно та форма, которую требует
+ * предлог («в ⟦вклад⟧» → «в вклад», «о ⟦вклад⟧» → «о вкладе»).
+ * null — словарь не загружен, в значении нет ведущего существительного или
+ * парадигма дефектная: тогда вызывающая сторона оставляет канон.
+ */
+export function declineToCase(
+  value: string,
+  caseIndex: number,
+  plural: boolean,
+  index: MorphIndex | null,
+): string | null {
+  if (!index) return null;
+  if (!Number.isInteger(caseIndex) || caseIndex < 0 || caseIndex >= MORPH_CASES.length) {
+    return null;
+  }
+  const analysis = analyzeValue(value, index);
+  if (!analysis || !analysis.head) return null;
+  return renderTarget(analysis, { caseIndex, plural: plural === true }, index);
 }

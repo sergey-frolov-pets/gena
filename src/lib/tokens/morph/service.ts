@@ -15,7 +15,7 @@ import {
   MORPH_VERSION,
   type MorphDictionary,
 } from "./format";
-import { buildMorphIndex, caseVariants, yoeForms, type MorphIndex } from "./analyze";
+import { buildMorphIndex, caseVariants, declineToCase, yoeForms, type MorphIndex } from "./analyze";
 import { fetchMorphDictionary, MorphLoadError, MORPH_URL } from "./loader";
 import { MORPH_ID, clearMorphRecord, readMorphRecord, writeMorphRecord } from "@/storage/morph";
 import type { MorphRecord } from "@/storage/types";
@@ -42,10 +42,13 @@ export const morphReady = computed(() => morphStatus.value === "ready");
 let index: MorphIndex | null = null;
 let loading: Promise<void> | null = null;
 const cache = new Map<string, string[]>();
+/** Кэш одного падежа: значение + падеж → написание. */
+const declineCache = new Map<string, string | null>();
 const CACHE_LIMIT = 400;
 
 function resetCache(): void {
   cache.clear();
+  declineCache.clear();
 }
 
 function adopt(record: MorphRecord): void {
@@ -169,6 +172,31 @@ export function declensionsFor(value: string): string[] {
   }
   cache.set(key, variants);
   return variants;
+}
+
+/**
+ * Значение в нужном падеже — для подстановки по контексту.
+ *
+ * `null` — словарь не скачан или ведущего слова нет в словаре: вызывающая
+ * сторона оставляет канон записи, а не выдумывает форму.
+ */
+export function declineValue(
+  value: string,
+  caseIndex: number,
+  plural = false,
+): string | null {
+  if (!index) return null;
+  const text = String(value ?? "");
+  const key = `${caseIndex}|${plural ? "p" : "s"}|${text}`;
+  const hit = declineCache.get(key);
+  if (hit !== undefined) return hit;
+  const declined = declineToCase(text, caseIndex, plural, index);
+  if (declineCache.size >= CACHE_LIMIT) {
+    const oldest = declineCache.keys().next();
+    if (!oldest.done) declineCache.delete(oldest.value);
+  }
+  declineCache.set(key, declined);
+  return declined;
 }
 
 /** Сколько слов значения словарь знает — для подсказки в интерфейсе. */

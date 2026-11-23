@@ -131,7 +131,16 @@ import {
   replaceFieldPick,
   type FieldPick,
 } from "@/lib/tokens/field-pick";
-import { lookupForm, rememberForm, shiftForms, tokenIndexAt, type FormStore } from "@/lib/tokens/forms";
+import {
+  applyForms,
+  formAt,
+  formLookup,
+  lookupForm,
+  rememberForm,
+  shiftForms,
+  tokenIndexAt,
+  type FormStore,
+} from "@/lib/tokens/forms";
 import { measureCaret, placeBubble } from "@/lib/tokens/caret-point";
 import {
   findOccurrences,
@@ -140,6 +149,7 @@ import {
   stepIndex,
 } from "@/lib/tokens/occurrences";
 import { draftText, toDraftCaret, toVisibleCaret, visibleText } from "@/lib/tokens/display";
+import { restoreValuesWithCase } from "@/lib/tokens/context-case";
 import { tokenModeActive } from "@/lib/tokens/mode-intent";
 import { highlightSegments } from "@/lib/tokens/highlight";
 import { loadMorph } from "@/lib/tokens/morph/service";
@@ -224,7 +234,9 @@ function storedContent(text: string, session?: Session | null): string {
 
 /** Что человек видит в ленте: значения (по умолчанию) или токены. */
 function displayContent(text: string): string {
-  return viewValues.value ? restoreValues(text) : text;
+  // В ленте исходной формы под рукой нет — подбираем падеж по предлогу
+  // перед токеном: «о ⟦вклад⟧» → «о вкладе», а не «о вклад».
+  return viewValues.value ? restoreValuesWithCase(text) : text;
 }
 
 /**
@@ -351,8 +363,12 @@ function onComposerInput(event: Event): void {
   const typed = composerField.value || el?.value || "";
   const visibleCaret = el && el.selectionStart !== null ? el.selectionStart : typed.length;
   // Черновик = токены. Поле при этом не переписываем: всё, что набрал человек,
-  // остаётся как есть, каретка никуда не прыгает.
-  const nextDraft = draftText(typed, displayValues.value);
+  // остаётся как есть, каретка никуда не прыгает. Исходные формы, которые поле
+  // показало значениями, запоминаем: переключение на токены и обратно не должно
+  // «переодевать» набранное в канон справочника.
+  const typedHits: Array<{ name: string; form: string }> = [];
+  const nextDraft = draftText(typed, displayValues.value, (hit) => typedHits.push(hit));
+  if (typedHits.length > 0) applyForms(tokenForms, nextDraft, typedHits);
   if (nextDraft !== draft.value) {
     draftFromField = true;
     draft.value = nextDraft;
@@ -966,6 +982,8 @@ function finishOccurrences(): void {
   occurrenceToken.value = "";
   occurrenceBlocked.value = { token: 0, word: 0, mode: 0 };
   occurrenceMessageId.value = "";
+  pendingReplaceAll.value = false;
+  pendingReplaceAllCount.value = 0;
 }
 
 function dismissSelection(): void {
@@ -1056,8 +1074,30 @@ function replaceDraftOccurrences(
   return hits.length;
 }
 
+/** «Заменить все» ждёт подтверждения: сразу менять десяток вхождений нельзя. */
+const pendingReplaceAll = ref(false);
+/** Сколько вхождений будет заменено — число фиксируем на момент вопроса. */
+const pendingReplaceAllCount = ref(0);
+/** Диалог действительно в режиме токенов: иначе серия по ленте запрещена. */
+const tokenSessionNow = computed(() => isTokenSession(activeSession.value));
+
+/** Спросить подтверждение перед «Заменить все N». */
+function askReplaceAll(): void {
+  if (!tokenSessionNow.value) return;
+  if (occurrenceTotal.value < 2) return;
+  pendingReplaceAllCount.value = occurrenceTotal.value;
+  pendingReplaceAll.value = true;
+}
+
+function cancelReplaceAll(): void {
+  pendingReplaceAll.value = false;
+  pendingReplaceAllCount.value = 0;
+}
+
 /** «Заменить все N»: поле ввода и ответы агента разом. */
 async function replaceAllOccurrences(): Promise<void> {
+  pendingReplaceAll.value = false;
+  if (!tokenSessionNow.value) return;
   if (!ensureOccurrenceState()) return;
   const name = occurrenceToken.value;
   const needle = occurrenceNeedle.value;
@@ -1065,13 +1105,11 @@ async function replaceAllOccurrences(): Promise<void> {
   const insert = formatToken(name);
   const findOptions = { caseSensitive: occurrenceCaseSensitive.value };
   let replaced = 0;
-  if (isTokenSession(activeSession.value)) {
-    for (const message of messages.value) {
-      if ((message.kind && message.kind !== "text") || !message.content) continue;
-      const result = replaceAllInText(message.content, needle, insert, findOptions);
-      if (result.replaced === 0) continue;
-      if (await editMessage(message.id, result.text)) replaced += result.replaced;
-    }
+  for (const message of messages.value) {
+    if ((message.kind && message.kind !== "text") || !message.content) continue;
+    const result = replaceAllInText(message.content, needle, insert, findOptions);
+    if (result.replaced === 0) continue;
+    if (await editMessage(message.id, result.text)) replaced += result.replaced;
   }
   const inDraft = replaceDraftOccurrences(needle, name, findOptions);
   if (inDraft > 0) replaced += inDraft;
@@ -1261,7 +1299,11 @@ const displayValues = computed(() => isTokenSession(activeSession.value) && view
  */
 const highlightParts = computed(() =>
   isTokenSession(activeSession.value)
-    ? highlightSegments(draft.value, displayValues.value, restoreValues)
+    ? highlightSegments(
+        draft.value,
+        displayValues.value,
+        (raw, name, index) => formAt(tokenForms, name, index) ?? restoreValues(raw),
+      )
     : [],
 );
 /** Прокрутка поля: подложка едет вместе с текстом. */
@@ -1305,7 +1347,7 @@ let draftFromField = false;
 
 /** Показать в поле актуальное представление черновика (значения или токены). */
 function syncComposerField(): void {
-  const next = visibleText(draft.value, displayValues.value);
+  const next = visibleText(draft.value, displayValues.value, formLookup(tokenForms));
   if (next !== composerField.value) composerField.value = next;
 }
 
@@ -4668,6 +4710,24 @@ function onRateChange(event: Event): void {
           </div>
         </div>
 
+        <div v-if="pendingReplaceAll" class="chat-panel__token-confirm" role="alert">
+          <p class="chat-panel__token-confirm-text">
+            {{ t("chat.tokens.replaceAllConfirm", { count: pendingReplaceAllCount }) }}
+          </p>
+          <div class="chat-panel__token-confirm-actions">
+            <button type="button" class="chat-panel__token-btn" @click="cancelReplaceAll">
+              {{ t("chat.cancel") }}
+            </button>
+            <button
+              type="button"
+              class="chat-panel__token-btn is-primary"
+              @click="replaceAllOccurrences"
+            >
+              {{ t("chat.tokens.replaceAll", { count: pendingReplaceAllCount }) }}
+            </button>
+          </div>
+        </div>
+
         <div
           v-if="selectionBanner"
           class="chat-panel__selection"
@@ -4723,10 +4783,10 @@ function onRateChange(event: Event): void {
               </svg>
             </button>
             <button
-              v-if="occurrenceTotal > 1"
+              v-if="occurrenceTotal > 1 && tokenSessionNow"
               type="button"
               class="chat-panel__token-btn chat-panel__selection-all"
-              @click="replaceAllOccurrences"
+              @click="askReplaceAll"
             >
               {{ t("chat.tokens.replaceAll", { count: occurrenceTotal }) }}
             </button>

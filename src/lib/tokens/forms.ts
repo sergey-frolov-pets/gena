@@ -10,7 +10,7 @@
  * На диск не пишем: значение на диск не попадает (черновик хранит токены).
  */
 
-import { normalizeTokenName } from "./format";
+import { normalizeTokenName, parseTokens } from "./format";
 import { tokenSpans } from "./occurrences";
 
 /** Имя+номер вхождения → исходная форма. */
@@ -105,5 +105,57 @@ export function forgetForms(store: FormStore, name: string): void {
   const prefix = `${nameKey(name)}#`;
   for (const key of [...store.keys()]) {
     if (key.startsWith(prefix)) store.delete(key);
+  }
+}
+
+/** Форма по имени и номеру вхождения — без разбора текста (номер уже известен). */
+export function formAt(store: FormStore, name: string, index: number): string | null {
+  const value = store.get(storeKey(name, index));
+  return value && value.trim() ? value : null;
+}
+
+/**
+ * Резолвер форм для показа поля: `visibleText` и подсветка зовут его на
+ * каждый токен, поэтому форма отдаётся по имени и номеру, без поиска по тексту.
+ */
+export function formLookup(
+  store: FormStore,
+): (name: string, index: number) => string | null {
+  return (name, index) => formAt(store, name, index);
+}
+
+/**
+ * Запомнить формы, добытые перекодировкой поля (значения → токены).
+ *
+ * `hits` идут в порядке появления токенов в новом тексте, поэтому номер
+ * вхождения каждого имени считается по самому тексту. Форма, которую поле
+ * только что показало, должна остаться той же при следующем переключении —
+ * иначе набор в режиме значений «переодевал» бы текст в канон справочника.
+ */
+export function applyForms(
+  store: FormStore,
+  text: string,
+  hits: readonly { name: string; form: string }[],
+): void {
+  if (hits.length === 0) return;
+  const queues = new Map<string, string[]>();
+  for (const hit of hits) {
+    const form = String(hit.form ?? "");
+    if (!form.trim()) continue;
+    const key = nameKey(hit.name);
+    const queue = queues.get(key);
+    if (queue) queue.push(form);
+    else queues.set(key, [form]);
+  }
+  if (queues.size === 0) return;
+  const used = new Map<string, number>();
+  for (const token of parseTokens(String(text ?? ""))) {
+    const key = nameKey(token.name);
+    const queue = queues.get(key);
+    if (!queue) continue;
+    const index = used.get(key) ?? 0;
+    if (index >= queue.length) continue;
+    used.set(key, index + 1);
+    store.set(storeKey(token.name, index), queue[index]);
   }
 }

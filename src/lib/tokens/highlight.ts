@@ -11,6 +11,7 @@
  */
 
 import { tokenSpans } from "./occurrences";
+import { normalizeTokenName } from "./format";
 
 export interface HighlightSegment {
   text: string;
@@ -22,22 +23,30 @@ export interface HighlightSegment {
  * Разбить черновик на куски «обычный текст / токен».
  *
  * `showValues` — поле показывает значения: токен заменяем его расшифровкой
- * через `restore`. Сумма текстов всегда равна видимому тексту поля.
+ * через `restore`. Третьим аргументом идут имя токена и номер его вхождения
+ * среди одноимённых: расшифровка может зависеть от места («вклада ВТБ» в одном
+ * месте и «вклад ВТБ» в другом), поэтому одной функции «токен → значение»
+ * недостаточно. Сумма текстов всегда равна видимому тексту поля.
  */
 export function highlightSegments(
   tokenText: string,
   showValues: boolean,
-  restore: (text: string) => string,
+  restore: (text: string, name: string, index: number) => string,
 ): HighlightSegment[] {
   const source = String(tokenText ?? "");
   const segments: HighlightSegment[] = [];
+  const counters = new Map<string, number>();
   let last = 0;
   for (const span of tokenSpans(source)) {
     if (span.start > last) {
       segments.push({ text: source.slice(last, span.start), token: false });
     }
     const raw = source.slice(span.start, span.end);
-    const text = showValues ? String(restore(raw) ?? "") : raw;
+    const name = normalizeTokenName(raw.slice(1, -1));
+    const key = name.toLocaleLowerCase();
+    const index = counters.get(key) ?? 0;
+    counters.set(key, index + 1);
+    const text = showValues ? String(restore(raw, name, index) ?? "") : raw;
     if (text) segments.push({ text, token: true });
     last = span.end;
   }
