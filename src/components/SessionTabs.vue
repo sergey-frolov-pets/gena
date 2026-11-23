@@ -131,7 +131,6 @@ watch([() => props.activeId, () => props.tabs], () => void nextTick(revealActive
   align-items: flex-end;
   gap: 2px;
   padding: 6px 8px 0;
-  margin-bottom: -6px;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
@@ -239,14 +238,6 @@ watch([() => props.activeId, () => props.tabs], () => void nextTick(revealActive
 
 /* Телефон: вкладка читается, крестик попадает под палец.
    Очень узкий экран отдаёт ширину ленте — заголовки короче. */
-/* На компьютере вкладка не заходит на ленту: отрицательный отступ нужен
-   только чтобы на телефоне активная вкладка сливалась с чатом. */
-@media (min-width: 721px) {
-  .chat-panel__tabs {
-    margin-bottom: 0;
-  }
-}
-
 @media (max-width: 720px) {
   .chat-panel__tab {
     min-height: 2.4rem;
