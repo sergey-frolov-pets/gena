@@ -813,6 +813,8 @@ const chatPick = ref<{
   end: number;
   left: number;
   top: number;
+  /** Красная подсветка: токен уже стоит. Жёлтая — только предложение заменить. */
+  tokenized: boolean;
 } | null>(null);
 
 const chatSpellings = computed(() => spellingsOf(chatPick.value?.name ?? ""));
@@ -830,8 +832,29 @@ function openChatMark(mark: HTMLElement, messageId: string, x?: number, y?: numb
     end,
     left: x ?? rect.left,
     top: y ?? rect.top,
+    tokenized: mark.classList.contains("md-token"),
   };
   return true;
+}
+
+/** Жёлтая подсветка в ленте: поставить токен вместо значения. */
+function applyChatToken(): void {
+  const pick = chatPick.value;
+  if (!pick || pick.tokenized) return;
+  const message = messages.value.find((item) => item.id === pick.messageId);
+  if (!message) {
+    chatPick.value = null;
+    return;
+  }
+  const slice = message.content.slice(pick.start, pick.end);
+  const token = formatToken(pick.name);
+  const next = message.content.slice(0, pick.start) + token + message.content.slice(pick.end);
+  const index = tokenIndexAt(next, pick.name, pick.start);
+  const key = `${pick.name.toLocaleLowerCase()}#${index}`;
+  const bag = { ...(messageForms.value[pick.messageId] ?? {}), [key]: slice };
+  messageForms.value = { ...messageForms.value, [pick.messageId]: bag };
+  void editMessage(pick.messageId, next);
+  chatPick.value = null;
 }
 
 /** Другое написание в этом месте сообщения. Токен остаётся, меняется видимый текст. */
@@ -4864,6 +4887,7 @@ function onRateChange(event: Event): void {
             <div class="chat-panel__pick-col">
               <div class="chat-panel__pick-head">
                 <button
+                  v-if="!fieldPick.tokenized"
                   type="button"
                   class="chat-panel__pick-bubble is-token"
                   :title="fieldPick.text"
@@ -4873,11 +4897,13 @@ function onRateChange(event: Event): void {
                 >
                   ⟦{{ fieldPick.name }}⟧
                 </button>
+                <span v-else class="chat-panel__pick-bubble is-token">⟦{{ fieldPick.name }}⟧</span>
                 <button
+                  v-if="fieldPick.tokenized"
                   type="button"
                   class="chat-panel__pick-close"
-                  v-tip="fieldPick.tokenized ? t('chat.tokens.untokenize') : t('chat.cancel')"
-                  :aria-label="fieldPick.tokenized ? t('chat.tokens.untokenize') : t('chat.cancel')"
+                  v-tip="t('chat.tokens.untokenize')"
+                  :aria-label="t('chat.tokens.untokenize')"
                   @click="guardBlur(); closeFieldPick()"
                 >
                   <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
@@ -4885,7 +4911,7 @@ function onRateChange(event: Event): void {
                   </svg>
                 </button>
               </div>
-              <span v-if="fieldSpellings.length > 0" class="chat-panel__pick-list">
+              <span v-if="fieldPick.tokenized && fieldSpellings.length > 0" class="chat-panel__pick-list">
                 <button
                   v-for="spelling in fieldSpellings"
                   :key="spelling"
@@ -5170,13 +5196,16 @@ function onRateChange(event: Event): void {
       <div class="chat-panel__pick-col">
         <div class="chat-panel__pick-head">
           <button
+            v-if="!chatPick.tokenized"
             type="button"
             class="chat-panel__pick-bubble is-token"
-            @click="applyChatSpelling(chatPick.name)"
+            @click="applyChatToken"
           >
             ⟦{{ chatPick.name }}⟧
           </button>
+          <span v-else class="chat-panel__pick-bubble is-token">⟦{{ chatPick.name }}⟧</span>
           <button
+            v-if="chatPick.tokenized"
             type="button"
             class="chat-panel__pick-close"
             v-tip="t('chat.tokens.untokenize')"
@@ -5188,7 +5217,7 @@ function onRateChange(event: Event): void {
             </svg>
           </button>
         </div>
-        <span v-if="chatSpellings.length > 0" class="chat-panel__pick-list">
+        <span v-if="chatPick.tokenized && chatSpellings.length > 0" class="chat-panel__pick-list">
           <button
             v-for="spelling in chatSpellings"
             :key="spelling"
