@@ -413,10 +413,7 @@ const canExport = computed(
     opacity: 1;
   }
   .chat-panel__message--user {
-    margin-inline-start: 1.75rem;
-  }
-  .chat-panel__message--assistant {
-    margin-inline-end: 1.75rem;
+    margin-inline-start: 1rem;
   }
 }
 </style>

@@ -657,9 +657,6 @@ onBeforeUnmount(() => {
     gap: 8px;
     padding: 6px 10px;
   }
-  .brand-sub {
-    display: none;
-  }
   .brand-name {
     font-size: 1rem;
   }

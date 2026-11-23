@@ -2069,8 +2069,8 @@ function guardBlur(): void {
 
 function syncCompact(matches: boolean): void {
   compact.value = matches;
-  // На телефоне поле прячется, но пустой диалог без него бесполезен.
-  if (!matches || (sessionsLoaded.value && !activeSessionId.value)) composerOpen.value = true;
+  // Пустой диалог без поля бесполезен на любой ширине.
+  if (sessionsLoaded.value && !activeSessionId.value) composerOpen.value = true;
 }
 
 // Новый диалог (в том числе после закрытия последнего) — поле ввода сразу.
@@ -2081,7 +2081,6 @@ watch([activeSessionId, sessionsLoaded], ([id, loaded]) => {
 });
 
 function openComposer(): void {
-  if (!compact.value) return;
   quickOpen.value = false;
   composerOpen.value = true;
   void nextTick(() => composerEl.value?.focus());
@@ -2089,14 +2088,11 @@ function openComposer(): void {
 
 /** Кнопка «Токены» в свёрнутом доке: включает режим (если надо) и открывает ввод. */
 function closeComposer(): void {
-  if (!compact.value) return;
   composerOpen.value = false;
   fieldPick.value = null;
 }
 
-/** Тап по полотну чата открывает ввод, но больше его не прячет.
- * Сворачивание — только явная кнопка «свернуть» в поле (или Escape):
- * случайное касание ленты не должно убирать поле из-под пальца. */
+/** Тап по полотну чата прячет открытый ввод и снова показывает его. */
 function onChatTap(event: MouseEvent): void {
   // Открытая панель стандартных сообщений: первый тап по полотну её сворачивает.
   if (quickOpen.value) {
@@ -2105,12 +2101,12 @@ function onChatTap(event: MouseEvent): void {
   }
   // Тап по ⟦токену⟧ — показать пару «токен ↔ значение», ввод не открываем.
   if (pickTokenAt(event.clientX, event.clientY)) return;
-  if (!compact.value) return;
   const target = event.target as HTMLElement | null;
   // Низ панели (док, панель токенов, плашки) — не «полотно чата».
   if (target && dockEl.value?.contains(target)) return;
   if (target?.closest("button, a, input, textarea, select, details, summary")) return;
-  if (!composerOpen.value) openComposer();
+  if (composerOpen.value) closeComposer();
+  else openComposer();
 }
 
 /**
@@ -4272,15 +4268,6 @@ function onRateChange(event: Event): void {
 
 <template>
   <section class="chat-panel" :class="{ 'is-tokens': isTokenSession(activeSession) }">
-    <button
-      type="button"
-      class="chat-panel__mode"
-      :class="{ 'is-on': isTokenSession(activeSession) }"
-      :aria-pressed="isTokenSession(activeSession)"
-      @click="toggleTokenMode"
-    >
-      {{ t("chat.mode") }}
-    </button>
     <div v-if="isTokenSession(activeSession)" class="chat-panel__watermark" aria-hidden="true">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
         <rect x="4" y="10" width="16" height="10" rx="2.4" />
@@ -4796,7 +4783,7 @@ function onRateChange(event: Event): void {
       />
 
       <div
-        v-if="compact && !composerOpen"
+        v-if="!composerOpen"
         class="chat-panel__open-row"
       >
         <span v-if="turnElapsed" class="chat-panel__turn is-dock" role="status">
@@ -4897,7 +4884,7 @@ function onRateChange(event: Event): void {
       </div>
 
       <form
-        v-if="!compact || composerOpen"
+        v-if="composerOpen"
         ref="composerForm"
         class="chat-panel__composer"
         :class="{ 'is-token-mode': isTokenSession(activeSession) }"
@@ -5170,7 +5157,6 @@ function onRateChange(event: Event): void {
           </div>
           <div class="chat-panel__composer-stack chat-panel__composer-stack--send">
             <button
-              v-if="compact"
               type="button"
               class="chat-panel__icon-btn chat-panel__collapse"
               v-tip="t('chat.collapseInput')"
@@ -5528,7 +5514,7 @@ function onRateChange(event: Event): void {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 0;
   /* Высоту отдаёт колонка .app: шапка, плашки и подвал занимают своё место,
      панель забирает остаток. Фиксированный вычет ломался, когда плашек не было
      или их было несколько. */
@@ -5629,7 +5615,7 @@ function onRateChange(event: Event): void {
 .chat-panel__messages {
   flex: 1 1 auto;
   min-height: 0;
-  padding: 8px 8px 0;
+  padding: 0;
   overflow-y: auto;
 }
 
@@ -6256,16 +6242,12 @@ function onRateChange(event: Event): void {
   .chat-panel {
     border-radius: 0;
     border-inline: 0;
-    gap: 0;
   }
   .chat-panel__toolbar {
     padding: 4px 6px;
   }
   .chat-panel__title-text {
     font-size: 0.95rem;
-  }
-  .chat-panel__messages {
-    padding: 8px 8px 0;
   }
   .chat-panel__dock {
     padding-bottom: calc(8px + env(safe-area-inset-bottom));
@@ -6871,30 +6853,6 @@ function onRateChange(event: Event): void {
   overflow-y: auto;
 }
 
-.chat-panel__mode {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  z-index: 25;
-  transform: translateY(-50%);
-  padding: 8px 10px 8px 8px;
-  border: 1px solid var(--border);
-  border-left: 0;
-  border-radius: 0 12px 12px 0;
-  background: color-mix(in srgb, var(--panel) 72%, transparent);
-  color: var(--muted);
-  font: inherit;
-  font-size: 0.78rem;
-  line-height: 1.2;
-  cursor: pointer;
-}
-
-.chat-panel__mode.is-on {
-  color: var(--text);
-  border-color: var(--tokens-edge, var(--accent));
-  background: color-mix(in srgb, var(--tokens-bg, var(--panel)) 80%, transparent);
-}
-
 .chat-panel__pick-bubble {
   max-width: min(240px, 70vw);
   overflow: hidden;
@@ -7394,9 +7352,6 @@ function onRateChange(event: Event): void {
 @media (min-width: 1100px) {
   .chat-panel__title-text {
     font-size: 1rem;
-  }
-  .chat-panel__messages {
-    padding-inline: clamp(16px, 5vw, 72px);
   }
 }
 
