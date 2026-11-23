@@ -2069,8 +2069,8 @@ function guardBlur(): void {
 
 function syncCompact(matches: boolean): void {
   compact.value = matches;
-  // На телефоне поле прячется, но пустой диалог без него бесполезен.
-  if (!matches || (sessionsLoaded.value && !activeSessionId.value)) composerOpen.value = true;
+  // Пустой диалог без поля бесполезен на любой ширине.
+  if (sessionsLoaded.value && !activeSessionId.value) composerOpen.value = true;
 }
 
 // Новый диалог (в том числе после закрытия последнего) — поле ввода сразу.
@@ -2081,7 +2081,6 @@ watch([activeSessionId, sessionsLoaded], ([id, loaded]) => {
 });
 
 function openComposer(): void {
-  if (!compact.value) return;
   quickOpen.value = false;
   composerOpen.value = true;
   void nextTick(() => composerEl.value?.focus());
@@ -2089,7 +2088,6 @@ function openComposer(): void {
 
 /** Кнопка «Токены» в свёрнутом доке: включает режим (если надо) и открывает ввод. */
 function closeComposer(): void {
-  if (!compact.value) return;
   composerOpen.value = false;
   fieldPick.value = null;
 }
@@ -2103,7 +2101,6 @@ function onChatTap(event: MouseEvent): void {
   }
   // Тап по ⟦токену⟧ — показать пару «токен ↔ значение», ввод не открываем.
   if (pickTokenAt(event.clientX, event.clientY)) return;
-  if (!compact.value) return;
   const target = event.target as HTMLElement | null;
   // Низ панели (док, панель токенов, плашки) — не «полотно чата».
   if (target && dockEl.value?.contains(target)) return;
@@ -4786,7 +4783,7 @@ function onRateChange(event: Event): void {
       />
 
       <div
-        v-if="compact && !composerOpen"
+        v-if="!composerOpen"
         class="chat-panel__open-row"
       >
         <span v-if="turnElapsed" class="chat-panel__turn is-dock" role="status">
@@ -4887,7 +4884,7 @@ function onRateChange(event: Event): void {
       </div>
 
       <form
-        v-if="!compact || composerOpen"
+        v-if="composerOpen"
         ref="composerForm"
         class="chat-panel__composer"
         :class="{ 'is-token-mode': isTokenSession(activeSession) }"
@@ -5160,7 +5157,6 @@ function onRateChange(event: Event): void {
           </div>
           <div class="chat-panel__composer-stack chat-panel__composer-stack--send">
             <button
-              v-if="compact"
               type="button"
               class="chat-panel__icon-btn chat-panel__collapse"
               v-tip="t('chat.collapseInput')"
