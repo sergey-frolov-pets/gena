@@ -131,7 +131,7 @@ import {
   replaceFieldPick,
   type FieldPick,
 } from "@/lib/tokens/field-pick";
-import { lookupForm, rememberForm, type FormStore } from "@/lib/tokens/forms";
+import { lookupForm, rememberForm, shiftForms, tokenIndexAt, type FormStore } from "@/lib/tokens/forms";
 import { measureCaret, placeBubble } from "@/lib/tokens/caret-point";
 import {
   findOccurrences,
@@ -141,6 +141,7 @@ import {
 } from "@/lib/tokens/occurrences";
 import { draftText, toDraftCaret, toVisibleCaret, visibleText } from "@/lib/tokens/display";
 import { tokenModeActive } from "@/lib/tokens/mode-intent";
+import { highlightSegments } from "@/lib/tokens/highlight";
 import { loadMorph } from "@/lib/tokens/morph/service";
 import { forAgent, historyForAgent, tokensReady } from "@/lib/tokens/outgoing";
 import { insertTokenAt } from "@/lib/tokens/insert";
@@ -319,6 +320,14 @@ function insertTokenName(name: string): void {
   const result = trigger
     ? applyTokenPick(draft.value, caret, name, trigger)
     : insertTokenAt(draft.value, caret, name);
+  // Ручной ⟦имя⟧ встал в середину текста: одноимённые справа стали на номер
+  // дальше, их запомненные формы тоже переезжают.
+  const tokenLength = formatToken(name).length;
+  shiftForms(
+    tokenForms,
+    name,
+    tokenIndexAt(result.text, name, Math.max(0, result.caret - tokenLength)),
+  );
   draft.value = result.text;
   tokenTrigger.value = null;
   tokenPickOpen.value = false;
@@ -1241,6 +1250,43 @@ const viewValues = computed<boolean>({
  * один и тот же черновик независимо от того, что человек читает на экране.
  */
 const displayValues = computed(() => isTokenSession(activeSession.value) && viewValues.value);
+
+/**
+ * Подложка поля ввода: какие слова в нём — токены.
+ *
+ * У textarea нельзя покрасить часть текста, поэтому под полем лежит слой с тем
+ * же шрифтом и переносами; он рисует фон под ⟦токенами⟧ (в режиме значений —
+ * под их расшифровкой). Без этого в поле всё выглядит одинаково, и человек
+ * не видит, где кончается текст и начинается защищённое значение.
+ */
+const highlightParts = computed(() =>
+  isTokenSession(activeSession.value)
+    ? highlightSegments(draft.value, displayValues.value, restoreValues)
+    : [],
+);
+/** Прокрутка поля: подложка едет вместе с текстом. */
+const marksScroll = ref({ left: 0, top: 0 });
+/**
+ * Ширина полосы прокрутки поля: у подложки своей полосы нет, и без этого
+ * запаса текст в ней переносится позже, чем в поле.
+ */
+const marksGutter = ref(0);
+
+/** Поле прокрутилось: подложку ставим на место и пересчитываем облачко. */
+function onComposerScroll(): void {
+  const el = composerEl.value;
+  marksScroll.value = { left: el?.scrollLeft ?? 0, top: el?.scrollTop ?? 0 };
+  measureMarksGutter();
+  onViewportChange();
+}
+
+/** Запомнить, сколько места съедает полоса прокрутки поля. */
+function measureMarksGutter(): void {
+  const el = composerEl.value;
+  if (!el) return;
+  const gutter = Math.max(0, el.offsetWidth - el.clientWidth);
+  if (gutter !== marksGutter.value) marksGutter.value = gutter;
+}
 
 /**
  * Текст, который сейчас лежит в поле ввода.
@@ -2215,6 +2261,8 @@ async function autoGrow(): Promise<void> {
     composerManualHeight.value ?? composerFieldHeight(lines, lineHeight, padding)
   }px`;
   if (wasMultiline) box?.classList.add("is-multiline");
+  // Высота изменилась — полоса прокрутки могла появиться или исчезнуть.
+  measureMarksGutter();
 }
 watch(draft, () => {
   saveDraftSoon();
@@ -3750,7 +3798,7 @@ function onRateChange(event: Event): void {
         <button
           type="button"
           class="chat-panel__tool"
-          v-if="isTokenSession(activeSession) && activeSession"
+          v-if="isTokenSession(activeSession)"
           v-tip="viewValues ? t('chat.viewTokens') : t('chat.viewData')"
           :aria-label="viewValues ? t('chat.viewTokens') : t('chat.viewData')"
           :aria-pressed="!viewValues"
@@ -4301,7 +4349,6 @@ function onRateChange(event: Event): void {
           </svg>
         </button>
         <button
-          v-if="activeSession"
           type="button"
           class="chat-panel__token-btn is-icon is-view"
           v-tip="viewValues ? t('chat.viewTokens') : t('chat.viewData')"
@@ -4423,6 +4470,27 @@ function onRateChange(event: Event): void {
             </div>
           </div>
           </div>
+          <div class="chat-panel__field">
+          <div
+            v-if="isTokenSession(activeSession)"
+            class="chat-panel__marks"
+            aria-hidden="true"
+          >
+            <div
+              class="chat-panel__marks-inner"
+              :style="{
+                transform: `translate(${-marksScroll.left}px, ${-marksScroll.top}px)`,
+                paddingRight: marksGutter ? `${marksGutter}px` : undefined,
+              }"
+            >
+              <span
+                v-for="(part, i) in highlightParts"
+                :key="i"
+                :class="{ 'is-token': part.token }"
+                >{{ part.text }}</span
+              >
+            </div>
+          </div>
           <textarea
             ref="composerEl"
             v-model="composerField"
@@ -4439,8 +4507,9 @@ function onRateChange(event: Event): void {
             @touchend="onComposerSelectSoon"
             @keyup="onComposerSelectSoon"
             @paste="onPaste"
-            @scroll="onViewportChange"
+            @scroll="onComposerScroll"
           />
+          </div>
           <div
             v-if="fieldPick"
             ref="fieldPickEl"
@@ -5261,9 +5330,44 @@ function onRateChange(event: Event): void {
   border-color: var(--danger);
 }
 
+.chat-panel__field {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  /* Высота — по полю, иначе подложка выше текста и подсветка съезжает. */
+  align-self: center;
+  min-width: 0;
+}
+
+/* Подложка поля: тот же шрифт и переносы, что у textarea, но текст прозрачный —
+   видно только фон под ⟦токенами⟧. Лежит под полем, тапы не перехватывает. */
+.chat-panel__marks {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  padding: 6px 0;
+  overflow: hidden;
+  color: transparent;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  user-select: none;
+}
+
+.chat-panel__marks .is-token {
+  border-radius: 4px;
+  background: var(--token-mark);
+  box-shadow: 0 0 0 2px var(--token-mark);
+}
+
 .chat-panel__input {
+  position: relative;
+  z-index: 1;
   flex: 1 1 auto;
   align-self: center;
+  width: 100%;
   min-width: 0;
   min-height: 32px;
   /* Высоту считает autoGrow() по замеру строк; field-sizing: content

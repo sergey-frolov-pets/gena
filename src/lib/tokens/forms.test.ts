@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { forgetForms, lookupForm, rememberForm, tokenIndexAt } from "./forms";
+import { forgetForms, lookupForm, rememberForm, shiftForms, tokenIndexAt } from "./forms";
 
 describe("tokenIndexAt", () => {
   it("считает только токены с тем же именем", () => {
@@ -67,6 +67,56 @@ describe("forgetForms", () => {
     rememberForm(store, text, "почта", text.indexOf("⟦почта"), "a@b.ru");
     forgetForms(store, "ВКЛАД");
     expect(lookupForm(store, "⟦вклад⟧", "вклад", 0)).toBeNull();
+    expect(lookupForm(store, "⟦почта⟧", "почта", 0)).toBe("a@b.ru");
+  });
+});
+
+describe("shiftForms", () => {
+  it("«Заменить все»: формы не съезжают, когда токены вставляли с конца", () => {
+    const store = new Map<string, string>();
+    // Человек нажал «Заменить все»: идём с последнего вхождения к первому.
+    let text = "перевёл ВТБ и ВТБ";
+    const hits: Array<{ start: number; end: number }> = [];
+    let from = 0;
+    for (;;) {
+      const at = text.indexOf("ВТБ", from);
+      if (at < 0) break;
+      hits.push({ start: at, end: at + 3 });
+      from = at + 3;
+    }
+    for (let i = hits.length - 1; i >= 0; i -= 1) {
+      const hit = hits[i];
+      rememberForm(
+        store,
+        text,
+        "вклад",
+        hit.start,
+        text.slice(hit.start, hit.end),
+      );
+      text = `${text.slice(0, hit.start)}⟦вклад⟧${text.slice(hit.end)}`;
+    }
+    expect(text).toBe("перевёл ⟦вклад⟧ и ⟦вклад⟧");
+    const first = text.indexOf("⟦");
+    const second = text.lastIndexOf("⟦");
+    expect(lookupForm(store, text, "вклад", first)).toBe("ВТБ");
+    expect(lookupForm(store, text, "вклад", second)).toBe("ВТБ");
+  });
+
+  it("вставка токена в начало сдвигает формы прежних вхождений", () => {
+    const store = new Map<string, string>();
+    // ⟦вклад⟧ уже стоит, его форма — под номером 0.
+    rememberForm(store, "⟦вклад⟧ и вклада ВТБ", "вклад", 0, "вклад ВТБ");
+    // Руками вставили ещё один ⟦вклад⟧ в самое начало: прежний стал вторым.
+    shiftForms(store, "вклад", 0);
+    const text = "⟦вклад⟧ ⟦вклад⟧ и вклада ВТБ";
+    const last = text.lastIndexOf("⟦");
+    expect(lookupForm(store, text, "вклад", last)).toBe("вклад ВТБ");
+  });
+
+  it("сдвиг не задевает другие имена", () => {
+    const store = new Map<string, string>();
+    rememberForm(store, "⟦почта⟧ и тут", "почта", 0, "a@b.ru");
+    shiftForms(store, "вклад", 0);
     expect(lookupForm(store, "⟦почта⟧", "почта", 0)).toBe("a@b.ru");
   });
 });
