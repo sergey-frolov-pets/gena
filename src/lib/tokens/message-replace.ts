@@ -42,3 +42,29 @@ export function replaceSelectionWithToken(
     replaced: true,
   };
 }
+
+/**
+ * Отменить токенизацию одного вхождения: вернуть значение на место токена.
+ *
+ * Меняем ровно первое вхождение `⟦name⟧` — остальные остаются токенами.
+ * Ценность сообщения при этом не раскрывается целиком: человек сам выбрал
+ * это место и попросил показать его текстом.
+ */
+export function replaceTokenWithValue(
+  text: string,
+  name: string,
+  value: string,
+): MessageReplaceResult {
+  const source = String(text ?? "");
+  const token = formatToken(String(name ?? "").trim());
+  const replacement = String(value ?? "");
+  if (!source || !replacement.trim() || token === "⟦⟧") {
+    return { text: source, replaced: false };
+  }
+  const at = source.indexOf(token);
+  if (at < 0) return { text: source, replaced: false };
+  return {
+    text: replaceSpan(source, at, at + token.length, replacement),
+    replaced: true,
+  };
+}

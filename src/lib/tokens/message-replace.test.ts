@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { replaceSelectionWithToken } from "./message-replace";
+import { replaceSelectionWithToken, replaceTokenWithValue } from "./message-replace";
 
 describe("replaceSelectionWithToken", () => {
   it("меняет первое вхождение значения на токен", () => {
@@ -42,5 +42,30 @@ describe("replaceSelectionWithToken", () => {
   it("пустые аргументы — без изменений", () => {
     expect(replaceSelectionWithToken("текст", "", "имя").replaced).toBe(false);
     expect(replaceSelectionWithToken("текст", "текст", "  ").replaced).toBe(false);
+  });
+});
+
+describe("replaceTokenWithValue", () => {
+  it("возвращает значение на место первого токена", () => {
+    const result = replaceTokenWithValue("счёт ⟦счёт⟧ открыт", "счёт", "4081 7810 1");
+    expect(result.replaced).toBe(true);
+    expect(result.text).toBe("счёт 4081 7810 1 открыт");
+  });
+
+  it("не трогает остальные вхождения того же токена", () => {
+    const result = replaceTokenWithValue("⟦имя⟧ и ⟦имя⟧", "имя", "Иван");
+    expect(result.text).toBe("Иван и ⟦имя⟧");
+  });
+
+  it("возвращает текст как есть, если токена нет", () => {
+    const result = replaceTokenWithValue("просто текст", "имя", "Иван");
+    expect(result.replaced).toBe(false);
+    expect(result.text).toBe("просто текст");
+  });
+
+  it("не подставляет пустое значение", () => {
+    const result = replaceTokenWithValue("⟦имя⟧", "имя", "  ");
+    expect(result.replaced).toBe(false);
+    expect(result.text).toBe("⟦имя⟧");
   });
 });

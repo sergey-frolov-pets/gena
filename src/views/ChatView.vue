@@ -126,7 +126,7 @@ import {
 } from "@/lib/tokens/registry";
 import { formatToken, parseTokens } from "@/lib/tokens/format";
 import { findSelectionEntry, replaceRange, suggestTokenNames } from "@/lib/tokens/selection";
-import { replaceSelectionWithToken } from "@/lib/tokens/message-replace";
+import { replaceSelectionWithToken, replaceTokenWithValue } from "@/lib/tokens/message-replace";
 import {
   findOccurrences,
   replaceAllInText,
@@ -530,7 +530,8 @@ function onFeedSelect(): void {
   const sel = window.getSelection?.();
   const text = sel?.toString().trim() ?? "";
   if (!sel || sel.rangeCount === 0 || text.length < 2 || text.length > 300) {
-    clearFeedSelection();
+    // Тап по токену сам открыл плашку — пустое выделение её не закрывает.
+    if (Date.now() >= feedTapUntil) clearFeedSelection();
     return;
   }
   const range = sel.getRangeAt(0);
@@ -558,6 +559,60 @@ let feedSelectTimer = 0;
 function onFeedSelectSoon(): void {
   window.clearTimeout(feedSelectTimer);
   feedSelectTimer = window.setTimeout(onFeedSelect, 120);
+}
+
+/** Тап по токену: до этого момента пустое выделение не закрывает плашку. */
+let feedTapUntil = 0;
+
+/**
+ * Токен под пальцем или курсором.
+ *
+ * На телефоне тап не создаёт выделения, поэтому ⟦имя⟧ в сообщении ищем по
+ * каретке в точке нажатия: попали внутрь ⟦…⟧ — открываем ту же плашку, что
+ * и при выделении.
+ */
+function tokenAtPoint(x: number, y: number): { messageId: string; text: string } | null {
+  const doc = document as Document & {
+    caretRangeFromPoint?: (x: number, y: number) => Range | null;
+    caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+  };
+  let node: Node | null = null;
+  let offset = 0;
+  const range = doc.caretRangeFromPoint?.(x, y);
+  if (range) {
+    node = range.startContainer;
+    offset = range.startOffset;
+  } else {
+    const pos = doc.caretPositionFromPoint?.(x, y);
+    if (pos) {
+      node = pos.offsetNode;
+      offset = pos.offset;
+    }
+  }
+  if (!node || node.nodeType !== Node.TEXT_NODE) return null;
+  const text = node.textContent ?? "";
+  if (!text.includes("⟦")) return null;
+  const open = text.lastIndexOf("⟦", Math.max(0, offset - 1));
+  if (open < 0) return null;
+  const close = text.indexOf("⟧", open + 1);
+  if (close < 0 || offset > close + 1) return null;
+  const host = node.parentElement?.closest?.("[data-message-id]") as HTMLElement | null;
+  const messageId = host?.dataset?.messageId ?? "";
+  if (!messageId) return null;
+  return { messageId, text: text.slice(open, close + 1) };
+}
+
+/** Тап по ⟦токену⟧ в ленте открывает плашку с парой «токен ↔ значение». */
+function pickTokenAt(x: number, y: number): boolean {
+  const picked = tokenAtPoint(x, y);
+  if (!picked) return false;
+  const known = findSelectionEntry(picked.text, tokenEntries.value);
+  if (!known) return false;
+  void ensureTokens();
+  feedTapUntil = Date.now() + 500;
+  feedSelection.value = picked;
+  feedName.value = known.name;
+  return true;
 }
 
 /* ── Вхождения значения: стрелки и «Заменить все» ─────────────────────── */
@@ -872,6 +927,30 @@ async function replaceSelectionInMessage(name?: string): Promise<void> {
   const nextStored = isTokenSession(session) ? replaceValues(replaced.text).text : replaced.text;
   if (await editMessage(message.id, nextStored)) {
     notice.value = t("chat.tokens.replaced", { count: 1 });
+  }
+}
+
+/**
+ * Отменить токенизацию одного вхождения: вернуть значение на место ⟦токена⟧.
+ *
+ * Меняем только этот токен в этом сообщении — остальные остаются скрытыми.
+ * Если сообщение в режиме токенов, отправка всё равно токенизирует текст
+ * заново, поэтому значение в переписке агенту не уходит.
+ */
+async function untokenizeSelectionInMessage(): Promise<void> {
+  const picked = feedSelection.value;
+  const match = feedMatch.value;
+  if (!picked || !match) return;
+  const message = messages.value.find((item) => item.id === picked.messageId);
+  if (!message) {
+    clearFeedSelection();
+    return;
+  }
+  const result = replaceTokenWithValue(message.content, match.name, match.value);
+  clearFeedSelection();
+  if (!result.replaced) return;
+  if (await editMessage(message.id, result.text)) {
+    notice.value = t("chat.tokens.untokenized");
   }
 }
 
@@ -1228,6 +1307,8 @@ function onChatTap(event: MouseEvent): void {
     quickOpen.value = false;
     return;
   }
+  // Тап по ⟦токену⟧ — показать пару «токен ↔ значение», ввод не открываем.
+  if (pickTokenAt(event.clientX, event.clientY)) return;
   if (!compact.value) return;
   const target = event.target as HTMLElement | null;
   // Низ панели (док, панель токенов, плашки) — не «полотно чата».
@@ -3662,10 +3743,26 @@ function onRateChange(event: Event): void {
           «{{ feedSelection.text }}»
         </span>
         <template v-if="feedMatch">
-          <span class="chat-panel__selection-target">⟦{{ feedMatch.name }}⟧</span>
-          <span v-if="feedAlreadyToken" class="chat-panel__selection-hint">
-            {{ t("chat.tokens.alreadyToken") }}
+          <span v-if="feedAlreadyToken" class="chat-panel__selection-target">
+            {{ feedMatch.value }}
           </span>
+          <span v-else class="chat-panel__selection-target">⟦{{ feedMatch.name }}⟧</span>
+          <template v-if="feedAlreadyToken">
+            <span class="chat-panel__selection-hint">
+              {{ t("chat.tokens.alreadyToken") }}
+            </span>
+            <button
+              type="button"
+              class="chat-panel__token-btn is-icon"
+              v-tip="t('chat.tokens.untokenize')"
+              :aria-label="t('chat.tokens.untokenize')"
+              @click="untokenizeSelectionInMessage"
+            >
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            </button>
+          </template>
           <button
             v-else
             type="button"
@@ -5365,8 +5462,8 @@ function onRateChange(event: Event): void {
   align-items: center;
   justify-content: center;
   pointer-events: none;
-  color: var(--accent);
-  opacity: 0.1;
+  color: var(--tokens-mark);
+  opacity: 1;
 }
 
 .chat-panel__watermark svg {
@@ -5402,9 +5499,11 @@ function onRateChange(event: Event): void {
   color: var(--danger);
 }
 
-/* Режим выключен: в панели одна заметная кнопка входа, а не пустая рамка. */
+/* Режим выключен: самой панели нет — только кнопки, без рамки и подложки. */
 .chat-panel__tokenbar.is-off {
-  border-color: var(--border);
+  padding: 0;
+  border-color: transparent;
+  background: none;
 }
 
 .chat-panel__token-toggle {
