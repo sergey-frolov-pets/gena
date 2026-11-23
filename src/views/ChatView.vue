@@ -127,8 +127,7 @@ import {
 } from "@/lib/tokens/registry";
 import { formatToken, isValidTokenName, parseTokens, tokenNameKey } from "@/lib/tokens/format";
 import { aliasByName, canRenameInDialog, upsertAlias } from "@/lib/tokens/dialog-alias";
-import { loadNameBases, suggestBaseNames } from "@/lib/tokens/name-bases";
-import { categoryBase, findSelectionEntry, replaceRange } from "@/lib/tokens/selection";
+import { findSelectionEntry, replaceRange } from "@/lib/tokens/selection";
 import { replaceSelectionWithToken, replaceTokenWithValue } from "@/lib/tokens/message-replace";
 import {
   describeFieldPick,
@@ -505,16 +504,6 @@ function clearSelection(): void {
   selectionConfirm.value = null;
 }
 
-/** Подсказки имени — только основы справочника, не слова из выделения. */
-const selectionSuggestions = computed(() => {
-  const range = selectionRange.value;
-  if (!range || selectionMatch.value) return [];
-  return suggestBaseNames(loadNameBases(), tokenNames.value, categoryBase(range.text)).filter(
-    (name, index, all) =>
-      all.findIndex((item) => item.toLocaleLowerCase() === name.toLocaleLowerCase()) === index,
-  );
-});
-
 /** Токены, которые уже стоят в этом диалоге: ими можно закрыть другое слово. */
 const dialogTokenNames = computed(() => {
   const id = activeSessionId.value;
@@ -635,11 +624,8 @@ function onComposerSelect(): void {
   selectionRange.value = { start, end, text };
   if (known) {
     selectionName.value = known.name;
-  } else if (selectionSource.value !== text || !selectionName.value.trim()) {
-    // Имя не берём из выделенных слов: только основа справочника
-    // («1 200 ₽» → «сумма1», иначе «имя1»).
-    selectionName.value =
-      suggestBaseNames(loadNameBases(), tokenNames.value, categoryBase(text), 1)[0] ?? "";
+  } else if (selectionSource.value !== text) {
+    selectionName.value = "";
   }
   selectionSource.value = text;
   selectionConfirm.value = null;
@@ -1093,16 +1079,6 @@ async function applyFeedDialogName(): Promise<void> {
   await replaceSelectionInMessage(name);
 }
 
-/** Подсказки имени для фрагмента из ленты. */
-const feedSuggestions = computed(() => {
-  const picked = feedSelection.value;
-  if (!picked || feedMatch.value) return [];
-  return suggestBaseNames(loadNameBases(), tokenNames.value, categoryBase(picked.text)).filter(
-    (name, index, all) =>
-      all.findIndex((item) => item.toLocaleLowerCase() === name.toLocaleLowerCase()) === index,
-  );
-});
-
 function clearFeedSelection(): void {
   feedSelection.value = null;
   feedName.value = "";
@@ -1139,9 +1115,7 @@ function onFeedSelect(): void {
   feedSelection.value = { messageId, text };
   if (changed) {
     const known = findSelectionEntry(text, declinedEntries.value);
-    feedName.value = known
-      ? known.name
-      : (suggestBaseNames(loadNameBases(), tokenNames.value, categoryBase(text), 1)[0] ?? "");
+    feedName.value = known ? known.name : "";
   }
 }
 
@@ -4746,23 +4720,12 @@ function onRateChange(event: Event): void {
               <path d="M12 5v14M5 12h14" />
             </svg>
           </button>
-          <span v-if="feedSuggestions.length > 0" class="chat-panel__selection-suggest">
+          <span v-if="tokenNames.length > 0" class="chat-panel__selection-suggest">
             <button
-              v-for="name in feedSuggestions"
+              v-for="name in tokenNames"
               :key="name"
               type="button"
               class="chat-panel__selection-sug"
-              @click="feedName = name"
-            >
-              ⟦{{ name }}⟧
-            </button>
-          </span>
-          <span v-if="dialogTokenNames.length > 0" class="chat-panel__selection-suggest">
-            <button
-              v-for="name in dialogTokenNames"
-              :key="'feed-used-' + name"
-              type="button"
-              class="chat-panel__selection-sug is-used"
               @click="feedName = name"
             >
               ⟦{{ name }}⟧
@@ -5365,23 +5328,12 @@ function onRateChange(event: Event): void {
                 <path d="M12 5v14M5 12h14" />
               </svg>
             </button>
-            <span v-if="selectionSuggestions.length > 0" class="chat-panel__selection-suggest">
+            <span v-if="tokenNames.length > 0" class="chat-panel__selection-suggest">
               <button
-                v-for="name in selectionSuggestions"
+                v-for="name in tokenNames"
                 :key="name"
                 type="button"
                 class="chat-panel__selection-sug"
-                @click="selectionName = name"
-              >
-                ⟦{{ name }}⟧
-              </button>
-            </span>
-            <span v-if="dialogTokenNames.length > 0" class="chat-panel__selection-suggest">
-              <button
-                v-for="name in dialogTokenNames"
-                :key="'used-' + name"
-                type="button"
-                class="chat-panel__selection-sug is-used"
                 @click="selectionName = name"
               >
                 ⟦{{ name }}⟧
