@@ -192,6 +192,9 @@ export function visibleOffsetForDraft(
   const pieces = visiblePieces(source, true, formFor);
   for (const piece of pieces) {
     if (at < piece.draftStart || at > piece.draftEnd) continue;
+    // Конец куска — конец показанной формы. Иначе каретка конца токена
+    // остаётся на его начале, и выделение захватывает текст следующей строки.
+    if (at === piece.draftEnd) return piece.visibleEnd;
     if (piece.token) return piece.visibleStart;
     return piece.visibleStart + (at - piece.draftStart);
   }
