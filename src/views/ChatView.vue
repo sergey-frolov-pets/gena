@@ -5467,6 +5467,45 @@ function onRateChange(event: Event): void {
   border-color: var(--tokens-edge);
 }
 
+/* Кнопки панели токенов — того же размера, что кнопки шапки чата
+   (.chat-panel__tool: 32x32, на телефоне 36x36), иначе панель выглядит мельче. */
+.chat-panel__tokenbar .chat-panel__token-btn {
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 10px;
+  font-size: 0.82rem;
+}
+
+.chat-panel__tokenbar .chat-panel__token-btn.is-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+}
+
+.chat-panel__tokenbar .chat-panel__token-toggle {
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 10px;
+  font-size: 0.82rem;
+}
+
+@media (max-width: 720px) {
+  .chat-panel__tokenbar .chat-panel__token-btn {
+    min-height: 36px;
+    padding: 0 11px;
+  }
+
+  .chat-panel__tokenbar .chat-panel__token-btn.is-icon {
+    width: 36px;
+    height: 36px;
+  }
+
+  .chat-panel__tokenbar .chat-panel__token-toggle {
+    min-height: 36px;
+    padding: 0 11px;
+  }
+}
+
 .chat-panel__token-btn:hover,
 .chat-panel__token-btn:focus-visible {
   border-color: var(--accent);
