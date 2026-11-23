@@ -331,20 +331,22 @@ function onComposerInput(event: Event): void {
   if (selectionRange.value) clearSelection();
   if (occurrenceTotal.value > 0) finishOccurrences();
   const el = event.target as HTMLTextAreaElement | null;
-  const typed = el?.value ?? draft.value;
+  const typed = composerField.value || el?.value || "";
   const visibleCaret = el && el.selectionStart !== null ? el.selectionStart : typed.length;
+  // Черновик = токены. Поле при этом не переписываем: всё, что набрал человек,
+  // остаётся как есть, каретка никуда не прыгает.
+  const nextDraft = draftText(typed, displayValues.value);
+  if (nextDraft !== draft.value) {
+    draftFromField = true;
+    draft.value = nextDraft;
+    // Страховка: если наблюдатель не сработал, флаг не должен залипнуть.
+    void nextTick(() => {
+      draftFromField = false;
+    });
+  }
   const caret = toDraftOffset(typed, visibleCaret);
   tokenTrigger.value = findTokenTrigger(draft.value, caret);
   if (tokenTrigger.value) void ensureTokens();
-  if (!displayValues.value) return;
-  // Поле показывает значения: черновик перекодирован в токены, длины разошлись —
-  // возвращаем каретку на то же место видимого текста.
-  void nextTick(() => {
-    const area = composerEl.value;
-    if (!area || area.value === typed) return;
-    const pos = Math.min(toVisibleOffset(draft.value, caret), area.value.length);
-    area.setSelectionRange(pos, pos);
-  });
 }
 
 /** Открыть выезжающую таблицу соответствий прямо в чате. */
@@ -1038,12 +1040,26 @@ const viewValues = computed<boolean>({
  */
 const displayValues = computed(() => isTokenSession(activeSession.value) && viewValues.value);
 
-const composerText = computed<string>({
-  get: () => visibleText(draft.value, displayValues.value),
-  set: (value) => {
-    draft.value = draftText(value, displayValues.value);
-  },
-});
+/**
+ * Текст, который сейчас лежит в поле ввода.
+ *
+ * Поле привязано к этому ref, а не к черновику напрямую. В режиме значений
+ * черновик хранит токены, а человек правит обычный текст: если перерисовывать
+ * поле из черновика на каждый символ, перекодировка возвращала бы каноническое
+ * написание значения — набранная буква пропадала, а каретка уезжала в конец.
+ * Поэтому во время набора поле показывает ровно то, что набрано, а черновик
+ * обновляется следом (токены на диске, значения на экране).
+ */
+const composerField = ref("");
+
+/** Черновик изменился из самого поля — текст поля переписывать не нужно. */
+let draftFromField = false;
+
+/** Показать в поле актуальное представление черновика (значения или токены). */
+function syncComposerField(): void {
+  const next = visibleText(draft.value, displayValues.value);
+  if (next !== composerField.value) composerField.value = next;
+}
 
 /** Смещение в видимом тексте поля → смещение в черновике (там всегда токены). */
 function toDraftOffset(visible: string, offset: number): number {
@@ -1999,6 +2015,18 @@ async function autoGrow(): Promise<void> {
 }
 watch(draft, () => {
   saveDraftSoon();
+  if (draftFromField) {
+    // Источник — само поле: набранный текст важнее канонического написания.
+    draftFromField = false;
+  } else {
+    syncComposerField();
+  }
+  void autoGrow();
+}, { flush: "pre" });
+
+// Переключили «значения ⇄ токены» — поле показывает то же, что и лента.
+watch(displayValues, () => {
+  syncComposerField();
   void autoGrow();
 });
 
@@ -4174,7 +4202,7 @@ function onRateChange(event: Event): void {
           </div>
           <textarea
             ref="composerEl"
-            v-model="composerText"
+            v-model="composerField"
             class="chat-panel__input"
             rows="1"
             enterkeyhint="enter"
@@ -5423,8 +5451,18 @@ function onRateChange(event: Event): void {
   height: auto;
 }
 
+/* Панель кнопок токенов над полем — прозрачная: под ней видна лента,
+   сплошным остаётся только само поле ввода. */
 .chat-panel.is-tokens .chat-panel__dock.is-overlay {
-  background: var(--tokens-bg);
+  background: transparent;
+  border-top-color: transparent;
+  box-shadow: none;
+  /* Пустые места панели пропускают тапы к ленте — срабатывают только кнопки. */
+  pointer-events: none;
+}
+
+.chat-panel.is-tokens .chat-panel__dock.is-overlay > * {
+  pointer-events: auto;
 }
 
 .chat-panel__tokenbar {
