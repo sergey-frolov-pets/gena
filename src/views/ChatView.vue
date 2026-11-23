@@ -635,12 +635,6 @@ const tokenForms: FormStore = new Map<string, string>();
  * Тогда вторая сторона — значение: тап по нему снимает токенизацию.
  * Во всех остальных случаях под пальцем значение и вторая сторона — токен.
  */
-const fieldPickShowsToken = computed(() => {
-  const pick = fieldPick.value;
-  if (!pick) return false;
-  return pick.tokenized && !displayValues.value;
-});
-
 /** Значение токена в его исходной форме — то, что было в тексте до замены. */
 const fieldPickOriginal = computed(() => {
   const pick = fieldPick.value;
@@ -4867,48 +4861,42 @@ function onRateChange(event: Event): void {
             role="group"
             :aria-label="t('chat.tokens.selection')"
           >
-            <span v-if="fieldSpellings.length > 0" class="chat-panel__pick-list">
-              <button
-                v-for="spelling in fieldSpellings"
-                :key="spelling"
-                type="button"
-                class="chat-panel__pick-bubble"
-                @click="guardBlur(); applyFieldSpelling(spelling)"
-              >
-                {{ spelling }}
-              </button>
-            </span>
-            <button
-              type="button"
-              class="chat-panel__pick-bubble"
-              :class="{ 'is-token': !fieldPickShowsToken }"
-              :title="fieldPick.text"
-              v-tip="
-                fieldPickShowsToken
-                  ? t('chat.tokens.untokenize')
-                  : t('chat.tokens.replaceSelection')
-              "
-              :aria-label="
-                fieldPickShowsToken
-                  ? t('chat.tokens.untokenize')
-                  : t('chat.tokens.replaceSelection')
-              "
-              @click="guardBlur(); applyFieldPick(fieldPickShowsToken ? 'value' : 'token')"
-            >
-              <template v-if="fieldPickShowsToken">{{ fieldPickOriginal }}</template>
-              <template v-else>⟦{{ fieldPick.name }}⟧</template>
-            </button>
-            <button
-              type="button"
-              class="chat-panel__pick-close"
-              v-tip="fieldPick.tokenized ? t('chat.tokens.untokenize') : t('chat.cancel')"
-              :aria-label="fieldPick.tokenized ? t('chat.tokens.untokenize') : t('chat.cancel')"
-              @click="guardBlur(); closeFieldPick()"
-            >
-              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-                <path d="M6 6l12 12M18 6L6 18" />
-              </svg>
-            </button>
+            <div class="chat-panel__pick-col">
+              <div class="chat-panel__pick-head">
+                <button
+                  type="button"
+                  class="chat-panel__pick-bubble is-token"
+                  :title="fieldPick.text"
+                  v-tip="t('chat.tokens.replaceSelection')"
+                  :aria-label="t('chat.tokens.replaceSelection')"
+                  @click="guardBlur(); applyFieldPick('token')"
+                >
+                  ⟦{{ fieldPick.name }}⟧
+                </button>
+                <button
+                  type="button"
+                  class="chat-panel__pick-close"
+                  v-tip="fieldPick.tokenized ? t('chat.tokens.untokenize') : t('chat.cancel')"
+                  :aria-label="fieldPick.tokenized ? t('chat.tokens.untokenize') : t('chat.cancel')"
+                  @click="guardBlur(); closeFieldPick()"
+                >
+                  <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                    <path d="M6 6l12 12M18 6L6 18" />
+                  </svg>
+                </button>
+              </div>
+              <span v-if="fieldSpellings.length > 0" class="chat-panel__pick-list">
+                <button
+                  v-for="spelling in fieldSpellings"
+                  :key="spelling"
+                  type="button"
+                  class="chat-panel__pick-bubble"
+                  @click="guardBlur(); applyFieldSpelling(spelling)"
+                >
+                  {{ spelling }}
+                </button>
+              </span>
+            </div>
           </div>
           <div class="chat-panel__composer-stack">
             <button
@@ -5179,35 +5167,39 @@ function onRateChange(event: Event): void {
       role="group"
       :aria-label="t('chat.tokens.selection')"
     >
-      <span v-if="chatSpellings.length > 0" class="chat-panel__pick-list">
-        <button
-          v-for="spelling in chatSpellings"
-          :key="spelling"
-          type="button"
-          class="chat-panel__pick-bubble"
-          @click="applyChatSpelling(spelling)"
-        >
-          {{ spelling }}
-        </button>
-      </span>
-      <button
-        type="button"
-        class="chat-panel__pick-bubble is-token"
-        @click="applyChatSpelling(chatPick.name)"
-      >
-        ⟦{{ chatPick.name }}⟧
-      </button>
-      <button
-        type="button"
-        class="chat-panel__pick-close"
-        v-tip="t('chat.tokens.untokenize')"
-        :aria-label="t('chat.tokens.untokenize')"
-        @click="dismissChatPick"
-      >
-        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-          <path d="M6 6l12 12M18 6L6 18" />
-        </svg>
-      </button>
+      <div class="chat-panel__pick-col">
+        <div class="chat-panel__pick-head">
+          <button
+            type="button"
+            class="chat-panel__pick-bubble is-token"
+            @click="applyChatSpelling(chatPick.name)"
+          >
+            ⟦{{ chatPick.name }}⟧
+          </button>
+          <button
+            type="button"
+            class="chat-panel__pick-close"
+            v-tip="t('chat.tokens.untokenize')"
+            :aria-label="t('chat.tokens.untokenize')"
+            @click="dismissChatPick"
+          >
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+        <span v-if="chatSpellings.length > 0" class="chat-panel__pick-list">
+          <button
+            v-for="spelling in chatSpellings"
+            :key="spelling"
+            type="button"
+            class="chat-panel__pick-bubble"
+            @click="applyChatSpelling(spelling)"
+          >
+            {{ spelling }}
+          </button>
+        </span>
+      </div>
     </div>
 
     <div
@@ -6509,9 +6501,24 @@ function onRateChange(event: Event): void {
   transform: translateY(-100%);
 }
 
+.chat-panel__pick-col {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  min-width: 0;
+}
+
+.chat-panel__pick-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .chat-panel__pick-list {
   display: flex;
   flex-direction: column;
+  align-items: stretch;
   gap: 3px;
   max-height: 160px;
   overflow-y: auto;
