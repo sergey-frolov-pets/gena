@@ -664,7 +664,7 @@ onBeforeUnmount(() => {
     padding: 8px 2px;
     font-size: 0.92rem;
   }
-  .content {
+  .content:not(.content--flush) {
     padding: 12px 12px 16px;
   }
   .menu {
@@ -708,7 +708,7 @@ onBeforeUnmount(() => {
   .topbar {
     padding: 10px 20px;
   }
-  .content {
+  .content:not(.content--flush) {
     max-width: 1080px;
     padding: 28px 32px;
   }
