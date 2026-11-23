@@ -128,15 +128,22 @@ import { findSelectionEntry, replaceRange, suggestTokenNames } from "@/lib/token
 import { replaceSelectionWithToken, replaceTokenWithValue } from "@/lib/tokens/message-replace";
 import {
   describeFieldPick,
+  listForms,
   replaceFieldPick,
   type FieldPick,
 } from "@/lib/tokens/field-pick";
 import {
   applyForms,
+  assignForms,
   formAt,
   formLookup,
+  formsOf,
+  keepForms,
+  keptForms,
   lookupForm,
+  preferForms,
   rememberForm,
+  setForm,
   shiftForms,
   tokenIndexAt,
   type FormStore,
@@ -149,11 +156,11 @@ import {
   stepIndex,
 } from "@/lib/tokens/occurrences";
 import { draftText, toDraftCaret, toVisibleCaret, visibleText } from "@/lib/tokens/display";
-import { restoreValuesWithCase } from "@/lib/tokens/context-case";
+import { contextForms, restoreValuesWithCase } from "@/lib/tokens/context-case";
 import { tokenModeActive } from "@/lib/tokens/mode-intent";
 import { highlightSegments } from "@/lib/tokens/highlight";
 import { findOfferSpans } from "@/lib/tokens/substitute";
-import { withDeclensions } from "@/lib/tokens/morph/service";
+import { declensionsFor, withDeclensions } from "@/lib/tokens/morph/service";
 import { loadMorph } from "@/lib/tokens/morph/service";
 import { forAgent, historyForAgent, tokensReady } from "@/lib/tokens/outgoing";
 import { insertTokenAt } from "@/lib/tokens/insert";
@@ -543,15 +550,15 @@ const fieldPickEl = ref<HTMLElement | null>(null);
 const tokenForms: FormStore = new Map<string, string>();
 
 /**
- * В поле на этом месте виден сам токен ⟦имя⟧ (а не значение).
- *
- * Тогда вторая сторона — значение: тап по нему снимает токенизацию.
- * Во всех остальных случаях под пальцем значение и вторая сторона — токен.
+ * Все формы записи под пальцем: канон, свои варианты и падежи словаря.
+ * Текущая подсвечивается, по клику встаёт именно она.
  */
-const fieldPickShowsToken = computed(() => {
+const fieldPickForms = computed(() => {
   const pick = fieldPick.value;
-  if (!pick) return false;
-  return pick.tokenized && !displayValues.value;
+  if (!pick) return [];
+  const entry = tokenEntryByName(pick.name);
+  const value = entry?.value ?? pick.value;
+  return listForms(value, entry?.variants ?? [], declensionsFor(value));
 });
 
 /** Значение токена в его исходной форме — то, что было в тексте до замены. */
@@ -643,6 +650,33 @@ async function placeFieldPick(): Promise<void> {
  * Заменяя значение на токен, запоминаем исходную форму: снятие токенизации
  * вернёт ровно её, а не каноническое написание из справочника.
  */
+/** Поставить выбранную форму этому вхождению, соседей не трогая. */
+function applyChosenForm(form: string): void {
+  const pick = fieldPick.value;
+  const chosen = form.trim();
+  if (!pick || !chosen) return;
+  fieldPick.value = null;
+  fieldPickAnchor.value = null;
+  if (pick.tokenized) {
+    setForm(tokenForms, draft.value, pick.name, pick.start, chosen);
+    syncComposerField();
+    return;
+  }
+  // Открытое значение становится токеном, но на экране остаётся выбранная форма.
+  rememberForm(tokenForms, draft.value, pick.name, pick.start, chosen);
+  const result = replaceFieldPick(draft.value, pick, "token", chosen);
+  if (!result.changed) return;
+  draft.value = result.text;
+  void nextTick(() => {
+    const area = composerEl.value;
+    if (!area) return;
+    const pos = toVisibleOffset(draft.value, result.caret);
+    area.focus();
+    area.setSelectionRange(pos, pos);
+    void autoGrow();
+  });
+}
+
 function applyFieldPick(target: "token" | "value"): void {
   const pick = fieldPick.value;
   if (!pick) return;
@@ -1735,6 +1769,11 @@ interface ComposerPayload {
   text: string;
   images: PreparedImage[];
   docs: PreparedDocument[];
+  /**
+   * Исходные формы токенов по порядку вхождений.
+   * Только в памяти: в IndexedDB у очереди этого поля нет.
+   */
+  forms?: string[];
 }
 
 /** Реплика, ждущая ответа агента. */
@@ -1928,6 +1967,8 @@ interface LiftedMessage {
   message: Message;
   /** Что было в поле до переноса — вернём при отмене. */
   draftBefore: string;
+  /** Формы черновика до переноса — у отмены они тоже свои. */
+  draftForms: string[];
 }
 const lifted = ref<LiftedMessage | null>(null);
 /**
@@ -2734,12 +2775,20 @@ watch(
   { immediate: true },
 );
 
+/** Положить в поле текст с токенами и вернуть каждому вхождению свою форму. */
+function showTokenText(text: string, saved?: readonly string[] | null): void {
+  assignForms(tokenForms, text, preferForms(saved, contextForms(text)));
+  draft.value = text;
+}
+
 /** Забрать содержимое композера в полезную нагрузку (поле очищается). */
 function takeComposer(): ComposerPayload | null {
   const text = draft.value.trim();
   const images = pendingImages.value;
   const docs = pendingDocs.value;
   if (!text && images.length === 0 && docs.length === 0) return null;
+  // Формы снимаем до очистки поля: номера вхождений считаются по этому тексту.
+  const forms = formsOf(tokenForms, text);
   draft.value = "";
   tokenTrigger.value = null;
   pendingImages.value = [];
@@ -2750,7 +2799,7 @@ function takeComposer(): ComposerPayload | null {
   writeText(draftKey(activeSessionId.value), "");
   closeComposer();
   void autoGrow();
-  return { text, images, docs };
+  return { text, images, docs, forms };
 }
 
 /** Заголовок нового диалога — первая строка реплики. */
@@ -2853,7 +2902,7 @@ async function sendNow(): Promise<void> {
   try {
     const sent = await dispatch(payload, true, undefined, replace);
     // Не ушло (нет ключа, лимит) — текст возвращаем в поле, реплика ждёт отмены.
-    if (!sent && replace) draft.value = replace.content;
+    if (!sent && replace) showTokenText(replace.content, keptForms(replace.id));
   } catch (e) {
     error.value = describeError(e, t);
   }
@@ -2933,7 +2982,15 @@ async function dispatch(
     payload.docs.map((doc) => ({ ...doc, text: forAgent(doc.text) })),
   );
   if (persist) {
-    await appendMessage(session.id, "user", storedContent(text, session), undefined, attachments);
+    const stored = await appendMessage(
+      session.id,
+      "user",
+      storedContent(text, session),
+      undefined,
+      attachments,
+    );
+    // Реплику заберут обратно в поле — формы вхождений должны дождаться.
+    if (payload.forms && payload.forms.length > 0) keepForms(stored.id, payload.forms);
   }
   // Прежняя реплика из поля ввода больше не нужна: в контекст пойдёт новая.
   if (replace) {
@@ -2988,7 +3045,7 @@ async function editQueued(id: string): Promise<void> {
   ) {
     await loadMessages(item.sessionId);
   }
-  draft.value = item.text;
+  showTokenText(item.text, item.forms);
   pendingImages.value = [...pendingImages.value, ...item.images];
   pendingDocs.value = [...pendingDocs.value, ...item.docs];
   void autoGrow();
@@ -3418,8 +3475,9 @@ function startEdit(m: Message): void {
   const previous = lifted.value;
   // Второй перенос без отмены: первая реплика возвращается в ленту.
   const draftBefore = previous ? previous.draftBefore : draft.value;
-  lifted.value = { message: m, draftBefore };
-  draft.value = m.content;
+  const draftForms = previous ? previous.draftForms : formsOf(tokenForms, draft.value);
+  lifted.value = { message: m, draftBefore, draftForms };
+  showTokenText(m.content, keptForms(m.id));
   error.value = "";
   notice.value = "";
   if (compact.value) composerOpen.value = true;
@@ -3434,7 +3492,7 @@ function cancelLift(): void {
   const current = lifted.value;
   if (!current) return;
   lifted.value = null;
-  draft.value = current.draftBefore;
+  showTokenText(current.draftBefore, current.draftForms);
   void autoGrow();
 }
 
@@ -3448,7 +3506,7 @@ async function dropLifted(): Promise<void> {
 
 async function retry(): Promise<void> {
   if (busy.value || !lastText.value) return;
-  draft.value = lastText.value;
+  showTokenText(lastText.value, null);
   await send();
 }
 
@@ -4528,28 +4586,24 @@ function onRateChange(event: Event): void {
                 : undefined
             "
             role="group"
-            :aria-label="t('chat.tokens.selection')"
+            :aria-label="t('chat.tokens.forms')"
           >
-            <button
-              type="button"
-              class="chat-panel__pick-bubble"
-              :class="{ 'is-token': !fieldPickShowsToken }"
-              :title="fieldPick.text"
-              v-tip="
-                fieldPickShowsToken
-                  ? t('chat.tokens.untokenize')
-                  : t('chat.tokens.replaceSelection')
-              "
-              :aria-label="
-                fieldPickShowsToken
-                  ? t('chat.tokens.untokenize')
-                  : t('chat.tokens.replaceSelection')
-              "
-              @click="guardBlur(); applyFieldPick(fieldPickShowsToken ? 'value' : 'token')"
-            >
-              <template v-if="fieldPickShowsToken">{{ fieldPickOriginal }}</template>
-              <template v-else>⟦{{ fieldPick.name }}⟧</template>
-            </button>
+            <div class="chat-panel__pick-forms" role="listbox" :aria-label="t('chat.tokens.forms')">
+              <button
+                v-for="form in fieldPickForms"
+                :key="form"
+                type="button"
+                class="chat-panel__pick-form"
+                role="option"
+                :aria-selected="form.toLocaleLowerCase() === fieldPickOriginal.toLocaleLowerCase()"
+                :class="{
+                  'is-on': form.toLocaleLowerCase() === fieldPickOriginal.toLocaleLowerCase(),
+                }"
+                @click="guardBlur(); applyChosenForm(form)"
+              >
+                {{ form }}
+              </button>
+            </div>
             <button
               type="button"
               class="chat-panel__pick-close"
@@ -6066,11 +6120,51 @@ function onRateChange(event: Event): void {
   position: absolute;
   z-index: 6;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 4px;
   max-width: calc(100% - 8px);
   /* Пустое место вокруг облачка не мешает тапам по полю. */
   pointer-events: none;
+}
+
+.chat-panel__pick-forms {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 180px;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+}
+
+.chat-panel__pick-form {
+  max-width: min(240px, 70vw);
+  overflow: hidden;
+  padding: 3px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  text-align: start;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.chat-panel__pick-form.is-on {
+  background: var(--panel-2);
+  color: var(--accent);
+}
+
+.chat-panel__pick-form:hover,
+.chat-panel__pick-form:focus-visible {
+  background: var(--panel-2);
 }
 
 /* Пока место не посчитано, облачко не мелькает в углу поля. */

@@ -1,6 +1,22 @@
 import { describe, expect, it } from "vitest";
 
-import { forgetForms, formAt, formLookup, lookupForm, rememberForm, shiftForms, tokenIndexAt, applyForms, type FormStore } from "./forms";
+import {
+  forgetForms,
+  formAt,
+  formLookup,
+  lookupForm,
+  rememberForm,
+  setForm,
+  shiftForms,
+  tokenIndexAt,
+  applyForms,
+  assignForms,
+  formsOf,
+  keepForms,
+  keptForms,
+  preferForms,
+  type FormStore,
+} from "./forms";
 
 describe("tokenIndexAt", () => {
   it("считает только токены с тем же именем", () => {
@@ -150,5 +166,54 @@ describe("applyForms: формы из перекодировки поля", () =
     const lookup = formLookup(store);
     expect(lookup("вклад", 0)).toBe("вклада ВТБ");
     expect(lookup("вклад", 1)).toBeNull();
+  });
+});
+
+describe("setForm", () => {
+  it("меняет форму вхождения и не сдвигает следующую", () => {
+    const store: FormStore = new Map();
+    const text = "⟦я⟧ и ⟦я⟧";
+    assignForms(store, text, ["Сергея", "Сергею"]);
+    setForm(store, text, "я", 0, "мной");
+    expect(formsOf(store, text)).toEqual(["мной", "Сергею"]);
+  });
+});
+
+describe("перенос форм в другой текст", () => {
+  it("снимает формы по порядку токенов и кладёт их в новый текст", () => {
+    const store: FormStore = new Map();
+    const source = "⟦я⟧ видит ⟦я⟧";
+    assignForms(store, source, ["Сергея", "Сергею"]);
+    expect(formsOf(store, source)).toEqual(["Сергея", "Сергею"]);
+
+    const next: FormStore = new Map();
+    assignForms(next, "для ⟦я⟧ и к ⟦я⟧", formsOf(store, source));
+    expect(formAt(next, "я", 0)).toBe("Сергея");
+    expect(formAt(next, "я", 1)).toBe("Сергею");
+  });
+
+  it("стирает чужие формы тех же имён", () => {
+    const store: FormStore = new Map();
+    assignForms(store, "⟦я⟧ ⟦я⟧", ["Сергея", "Сергею"]);
+    assignForms(store, "⟦я⟧", ["меня"]);
+    expect(formsOf(store, "⟦я⟧ ⟦я⟧")).toEqual(["меня", ""]);
+  });
+
+  it("предпочитает сохранённую форму угаданной", () => {
+    expect(preferForms(["Сергея", ""], ["Сергей", "Сергею"])).toEqual([
+      "Сергея",
+      "Сергею",
+    ]);
+    expect(preferForms(["только одна"], ["Сергей", "Сергею"])).toEqual([
+      "Сергей",
+      "Сергею",
+    ]);
+  });
+
+  it("помнит формы отправленной реплики по id", () => {
+    keepForms("msg-1", ["Сергея", "Сергею"]);
+    expect(keptForms("msg-1")).toEqual(["Сергея", "Сергею"]);
+    keepForms("msg-1", ["", ""]);
+    expect(keptForms("msg-1")).toBeNull();
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   describeFieldPick,
+  listForms,
   replaceFieldPick,
   tokenAtCaret,
   valueAtCaret,
@@ -12,6 +13,16 @@ const entries = [
   { name: "фио", value: "Иван Петров" },
   { name: "город", value: "Москва" },
 ];
+
+describe("listForms", () => {
+  it("собирает канон, варианты и падежи без повторов", () => {
+    expect(listForms("вклад ВТБ", ["вклада ВТБ", "Вклад ВТБ"], ["вкладу ВТБ", "вклада втб"])).toEqual([
+      "вклад ВТБ",
+      "вклада ВТБ",
+      "вкладу ВТБ",
+    ]);
+  });
+});
 
 describe("tokenAtCaret", () => {
   it("находит токен под кареткой", () => {

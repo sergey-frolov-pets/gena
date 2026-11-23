@@ -89,6 +89,24 @@ export function rememberForm(
   store.set(storeKey(name, index), value);
 }
 
+/**
+ * Сменить форму уже стоящего токена, не сдвигая соседние номера.
+ *
+ * `rememberForm` рассчитан на вставку нового ⟦имя⟧. Если токен уже в тексте,
+ * тот же сдвиг утащил бы форму следующего вхождения на номер вперёд.
+ */
+export function setForm(
+  store: FormStore,
+  text: string,
+  name: string,
+  at: number,
+  form: string,
+): void {
+  const value = String(form ?? "");
+  if (!value.trim()) return;
+  store.set(storeKey(name, tokenIndexAt(text, name, at)), value);
+}
+
 /** Форма, с которой этот токен был вставлен (если знаем). */
 export function lookupForm(
   store: FormStore,
@@ -158,4 +176,85 @@ export function applyForms(
     used.set(key, index + 1);
     store.set(storeKey(token.name, index), queue[index]);
   }
+}
+
+/**
+ * Формы токенов текста по порядку вхождений.
+ *
+ * Пустая строка — форму этого вхождения ещё не запоминали. Длина массива
+ * равна числу токенов, чтобы «дырка» посередине не сдвигала соседние формы.
+ */
+export function formsOf(store: FormStore, text: string): string[] {
+  const used = new Map<string, number>();
+  const forms: string[] = [];
+  for (const token of parseTokens(String(text ?? ""))) {
+    const key = nameKey(token.name);
+    const index = used.get(key) ?? 0;
+    used.set(key, index + 1);
+    forms.push(formAt(store, token.name, index) ?? "");
+  }
+  return forms;
+}
+
+/**
+ * Записать формы вхождений заново.
+ *
+ * Прежние номера этих имён стираются: текст перенесли из другого места,
+ * и формы прошлого черновика не должны прилипнуть к новым вхождениям.
+ * `forms` — по одному значению на токен, в порядке текста.
+ */
+export function assignForms(store: FormStore, text: string, forms: readonly string[]): void {
+  const tokens = parseTokens(String(text ?? ""));
+  const names = new Set(tokens.map((token) => nameKey(token.name)));
+  for (const key of [...store.keys()]) {
+    const hash = key.lastIndexOf("#");
+    if (hash < 0) continue;
+    if (names.has(key.slice(0, hash))) store.delete(key);
+  }
+  const used = new Map<string, number>();
+  tokens.forEach((token, position) => {
+    const key = nameKey(token.name);
+    const index = used.get(key) ?? 0;
+    used.set(key, index + 1);
+    const form = String(forms[position] ?? "");
+    if (!form.trim()) return;
+    store.set(storeKey(token.name, index), form);
+  });
+}
+
+/**
+ * Запомненная форма важнее угаданной по предлогу.
+ *
+ * Длины должны совпасть с числом токенов: иначе это формы другого текста,
+ * и подставлять их нельзя.
+ */
+export function preferForms(
+  saved: readonly string[] | null | undefined,
+  fallback: readonly string[],
+): string[] {
+  if (!saved || saved.length !== fallback.length) return [...fallback];
+  return fallback.map((form, index) => {
+    const kept = String(saved[index] ?? "").trim();
+    return kept || form;
+  });
+}
+
+/** Исходные формы отправленной реплики: id сообщения → формы по порядку токенов. */
+const keptById = new Map<string, string[]>();
+
+/** Запомнить формы реплики, пока экран открыт. На диск значения не пишем. */
+export function keepForms(id: string, forms: readonly string[]): void {
+  const key = String(id ?? "");
+  if (!key) return;
+  if (!forms.some((form) => String(form ?? "").trim())) {
+    keptById.delete(key);
+    return;
+  }
+  keptById.set(key, forms.map((form) => String(form ?? "")));
+}
+
+/** Формы, запомненные при отправке этой реплики. */
+export function keptForms(id: string): string[] | null {
+  const forms = keptById.get(String(id ?? ""));
+  return forms ? [...forms] : null;
 }
