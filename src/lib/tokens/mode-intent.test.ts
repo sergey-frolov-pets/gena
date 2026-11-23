@@ -9,10 +9,9 @@ describe("tokenModeActive", () => {
     expect(tokenModeActive({ tokenMode: false }, true)).toBe(false);
   });
 
-  it("защиту нельзя снять, если есть хотя бы одна пара значение–токен", () => {
-    expect(tokenModeCanTurnOff(0)).toBe(true);
-    expect(tokenModeCanTurnOff(1)).toBe(false);
-    expect(tokenModeCanTurnOff(3)).toBe(false);
+  it("защиту нельзя снять, только если в диалоге уже есть связь", () => {
+    expect(tokenModeCanTurnOff([])).toBe(true);
+    expect(tokenModeCanTurnOff(["вклад"])).toBe(false);
   });
 
   it("без сессии (новый диалог) решает намерение", () => {

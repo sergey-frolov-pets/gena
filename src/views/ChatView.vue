@@ -306,11 +306,11 @@ async function toggleTokenMode(): Promise<void> {
   const next = !isTokenSession(session);
   tokenSwitching.value = true;
   try {
-    // Снятие защиты смотрит справочник заранее: при хотя бы одной паре
-    // режим не выключается, человеку показывают причину.
+    // Снятие защиты смотрит только этот диалог: чужой справочник не мешает,
+    // пока здесь нет ни одной связи «значение — токен».
     if (!next) {
       await ensureTokens();
-      if (!tokenModeCanTurnOff(tokenEntries.value.length)) {
+      if (!tokenModeCanTurnOff(dialogTokenLinks())) {
         tokenLockOpen.value = true;
         return;
       }
@@ -555,6 +555,30 @@ function dialogTokenLookup(name: string): string | undefined {
   if (direct !== undefined) return direct;
   const alias = aliasByName(dialogAliases.value, name);
   return alias ? tokenLookup(alias.source) : undefined;
+}
+
+/**
+ * Связи этого диалога: токен справочника уже стоит в тексте
+ * или для записи задано имя только этого диалога.
+ * Справочник другого диалога защиту здесь не держит.
+ */
+function dialogTokenLinks(): string[] {
+  const dict = new Set(tokenNames.value.map((name) => name.toLocaleLowerCase()));
+  const seen = new Set<string>();
+  const links: string[] = [];
+  for (const alias of dialogAliases.value) {
+    const key = alias.source.toLocaleLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    links.push(alias.name);
+  }
+  for (const name of dialogTokenNames.value) {
+    const key = name.toLocaleLowerCase();
+    if (!dict.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    links.push(name);
+  }
+  return links;
 }
 
 /** Жёлтое значение можно назвать иначе, только если этого токена ещё нет в диалоге. */

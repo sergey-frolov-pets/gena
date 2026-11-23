@@ -24,9 +24,10 @@ export function tokenModeActive(
 }
 
 /**
- * Снять защиту можно, только пока в справочнике нет ни одной пары
- * «значение — токен». Иначе история снова сохранила бы настоящие значения.
+ * Снять защиту можно, пока в этом диалоге нет ни одной связи
+ * «значение — токен». Записи справочника сами по себе не держат режим:
+ * они могли появиться в другом диалоге.
  */
-export function tokenModeCanTurnOff(entryCount: number): boolean {
-  return entryCount <= 0;
+export function tokenModeCanTurnOff(linkedNames: readonly string[]): boolean {
+  return linkedNames.length === 0;
 }
