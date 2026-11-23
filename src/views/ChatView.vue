@@ -6031,6 +6031,9 @@ function onRateChange(event: Event): void {
    полупрозрачный замок — видно, что диалог защищённый. */
 .chat-panel.is-tokens {
   isolation: isolate;
+  /* Все кнопки, облачка и подсветки внутри панели берут --accent.
+     В этом режиме он тёплый, чтобы не спорить с красным фоном. */
+  --accent: var(--tokens-accent);
   border-color: var(--tokens-edge);
   background-color: var(--tokens-bg);
   background-image: linear-gradient(180deg, var(--tokens-tint), transparent 62%);
@@ -6289,7 +6292,7 @@ function onRateChange(event: Event): void {
   padding: 3px 9px;
   border: 1px solid var(--accent);
   border-radius: 999px;
-  background: var(--panel);
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
   color: var(--accent);
   font: inherit;
