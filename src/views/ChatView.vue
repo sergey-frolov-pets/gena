@@ -2010,7 +2010,10 @@ function setComposerManualHeight(px: number): void {
   if (el) el.style.height = `${composerManualHeight.value}px`;
 }
 
-/** Тянем за ручку внизу поля: тач и мышь одинаково, через pointer events. */
+/**
+ * Тянем за ручку на верхней границе поля: вверх — поле выше, вниз — ниже.
+ * Тач и мышь одинаково, через pointer events.
+ */
 function onComposerGripDown(event: PointerEvent): void {
   const el = composerEl.value;
   if (!el) return;
@@ -2023,7 +2026,8 @@ function onComposerGripDown(event: PointerEvent): void {
   } catch {
     // Старый WebView без захвата указателя: хватит слушателей на window.
   }
-  const move = (e: PointerEvent) => setComposerManualHeight(startHeight + (e.clientY - startY));
+  // Ручка сверху: движение вверх (clientY меньше стартового) увеличивает поле.
+  const move = (e: PointerEvent) => setComposerManualHeight(startHeight + (startY - e.clientY));
   const stop = () => {
     window.removeEventListener("pointermove", move);
     window.removeEventListener("pointerup", stop);
@@ -4816,17 +4820,18 @@ function onRateChange(event: Event): void {
   background: var(--panel-2);
 }
 
-/* Ручка ручного растяжения поля: тянем вверх/вниз, двойной клик — сброс. */
+/* Ручка ручного растяжения поля на его верхней границе: тянем вверх — выше,
+   вниз — ниже, двойной клик — сброс. */
 .chat-panel__grip {
   position: absolute;
   left: 50%;
-  bottom: 0;
+  top: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   width: 42px;
   height: 8px;
-  transform: translate(-50%, 50%);
+  transform: translate(-50%, -50%);
   color: var(--muted);
   opacity: 0.55;
   cursor: ns-resize;
