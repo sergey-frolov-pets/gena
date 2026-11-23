@@ -1074,12 +1074,22 @@ function openComposer(): void {
   void nextTick(() => composerEl.value?.focus());
 }
 
+/** Кнопка «Токены» в свёрнутом доке: включает режим (если надо) и открывает ввод. */
+function openTokenMode(): void {
+  if (!isTokenSession(activeSession.value)) void toggleTokenMode();
+  if (composerOpen.value) return;
+  composerOpen.value = true;
+  void nextTick(() => composerEl.value?.focus());
+}
+
 function closeComposer(): void {
   if (!compact.value) return;
   composerOpen.value = false;
 }
 
-/** Тап по полотну чата открывает ввод, повторный — прячет его. Кнопки и ссылки не перехватываем. */
+/** Тап по полотну чата открывает ввод, но больше его не прячет.
+ * Сворачивание — только явная кнопка «свернуть» в поле (или Escape):
+ * случайное касание ленты не должно убирать поле из-под пальца. */
 function onChatTap(event: MouseEvent): void {
   // Открытая панель стандартных сообщений: первый тап по полотну её сворачивает.
   if (quickOpen.value) {
@@ -1088,15 +1098,10 @@ function onChatTap(event: MouseEvent): void {
   }
   if (!compact.value) return;
   const target = event.target as HTMLElement | null;
-  // Низ панели (док, панель токенов, плашки) — не «полотно чата»: тап по нему
-  // не должен прятать ввод, иначе кнопки исчезают под пальцем.
+  // Низ панели (док, панель токенов, плашки) — не «полотно чата».
   if (target && dockEl.value?.contains(target)) return;
   if (target?.closest("button, a, input, textarea, select, details, summary")) return;
-  if (composerOpen.value) {
-    closeComposer();
-    return;
-  }
-  openComposer();
+  if (!composerOpen.value) openComposer();
 }
 
 /**
@@ -3575,12 +3580,13 @@ function onRateChange(event: Event): void {
           </svg>
         </button>
         <button
-          v-if="isTokenSession(activeSession)"
           type="button"
           class="chat-panel__quick-trigger is-token"
+          :class="{ 'is-on': isTokenSession(activeSession) }"
           v-tip="t('chat.tokenMode')"
           :aria-label="t('chat.tokenMode')"
-          @click="composerOpen = true"
+          :aria-pressed="isTokenSession(activeSession)"
+          @click="openTokenMode"
         >
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="4" y="10" width="16" height="10" rx="2" />
@@ -3637,11 +3643,26 @@ function onRateChange(event: Event): void {
       </p>
 
       <div
-        v-if="isTokenSession(activeSession)"
         class="chat-panel__tokenbar"
+        :class="{ 'is-off': !isTokenSession(activeSession) }"
         role="group"
         :aria-label="t('chat.tokens.bar')"
       >
+        <button
+          v-if="!isTokenSession(activeSession)"
+          type="button"
+          class="chat-panel__token-toggle"
+          v-tip="t('chat.tokenMode')"
+          :aria-label="t('chat.tokenMode')"
+          @click="toggleTokenMode"
+        >
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3l7 3v6c0 4.2-2.9 7.4-7 9-4.1-1.6-7-4.8-7-9V6z" />
+            <path d="M9 12l2 2 4-4" />
+          </svg>
+          <span>{{ t("chat.tokensShort") }}</span>
+        </button>
+        <template v-if="isTokenSession(activeSession)">
         <span class="chat-panel__tokenbar-lock" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="4" y="10" width="16" height="10" rx="2" />
@@ -3677,7 +3698,7 @@ function onRateChange(event: Event): void {
         <button
           v-if="activeSession"
           type="button"
-          class="chat-panel__token-btn is-icon"
+          class="chat-panel__token-btn is-view"
           v-tip="viewValues ? t('chat.viewTokens') : t('chat.viewData')"
           :aria-label="viewValues ? t('chat.viewTokens') : t('chat.viewData')"
           :aria-pressed="!viewValues"
@@ -3688,6 +3709,7 @@ function onRateChange(event: Event): void {
             <circle cx="12" cy="12" r="2.6" />
             <path v-if="viewValues" d="M4 4l16 16" />
           </svg>
+          <span>{{ viewValues ? t("chat.viewData") : t("chat.viewTokens") }}</span>
         </button>
         <button
           type="button"
@@ -3702,6 +3724,7 @@ function onRateChange(event: Event): void {
             <path d="m17 8 4 4-4 4" />
           </svg>
         </button>
+        </template>
       </div>
 
       <div
@@ -3884,6 +3907,18 @@ function onRateChange(event: Event): void {
             </button>
           </div>
           <div class="chat-panel__composer-stack chat-panel__composer-stack--send">
+            <button
+              v-if="compact"
+              type="button"
+              class="chat-panel__icon-btn chat-panel__collapse"
+              v-tip="t('chat.collapseInput')"
+              :aria-label="t('chat.collapseInput')"
+              @click="guardBlur(); closeComposer()"
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </button>
             <button
               v-if="composerMultiline"
               type="button"
@@ -5156,6 +5191,40 @@ function onRateChange(event: Event): void {
   flex: 0 0 auto;
   padding: 0 2px;
   color: var(--danger);
+}
+
+/* Режим выключен: в панели одна заметная кнопка входа, а не пустая рамка. */
+.chat-panel__tokenbar.is-off {
+  border-color: var(--border);
+}
+
+.chat-panel__token-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.chat-panel__token-toggle:hover,
+.chat-panel__token-toggle:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Переключатель «данные ⇄ токены»: иконка + подпись, чтобы не искать глаз. */
+.chat-panel__token-btn.is-view {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .chat-panel__token-btn {
