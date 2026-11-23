@@ -127,6 +127,11 @@ import { formatToken } from "@/lib/tokens/format";
 import { findSelectionEntry, replaceRange, suggestTokenNames } from "@/lib/tokens/selection";
 import { replaceSelectionWithToken, replaceTokenWithValue } from "@/lib/tokens/message-replace";
 import {
+  describeFieldPick,
+  replaceFieldPick,
+  type FieldPick,
+} from "@/lib/tokens/field-pick";
+import {
   findOccurrences,
   replaceAllInText,
   replaceSpan,
@@ -329,6 +334,7 @@ function insertTokenName(name: string): void {
 function onComposerInput(event: Event): void {
   // Выделение сдвинулось — плашка под полем больше не про этот фрагмент.
   if (selectionRange.value) clearSelection();
+  if (fieldPick.value) fieldPick.value = null;
   if (occurrenceTotal.value > 0) finishOccurrences();
   const el = event.target as HTMLTextAreaElement | null;
   const typed = composerField.value || el?.value || "";
@@ -443,8 +449,12 @@ function onComposerSelect(): void {
   if (endVisible <= startVisible) {
     // Выделения нет — закрываем серию только если плашка и была про серию.
     if (occurrenceTotal.value === 0) clearSelection();
+    // Тап по полю без выделения: что под пальцем — токен или значение?
+    void pickComposerFragment();
     return;
   }
+  // Выделение есть — плашка про него, таповая плашка больше не нужна.
+  fieldPick.value = null;
   const start = toDraftOffset(el.value, startVisible);
   const end = toDraftOffset(el.value, endVisible);
   const text = draft.value.slice(start, end).trim();
@@ -487,6 +497,79 @@ let selectionTimer = 0;
 function onComposerSelectSoon(): void {
   window.clearTimeout(selectionTimer);
   selectionTimer = window.setTimeout(onComposerSelect, 120);
+}
+
+/* ── Тап по полю: токен ⇄ значение прямо в поле ввода ─────────────────── */
+
+/**
+ * Что нашли под пальцем в поле ввода.
+ *
+ * На телефоне тап не создаёт выделения, поэтому плашка выделения молчит.
+ * Ткнул в ⟦имя⟧ или в сумму — показываем над полем вторую сторону и крестик:
+ * «отменить токенизацию» для токена, «свернуть» для значения.
+ */
+const fieldPick = ref<FieldPick | null>(null);
+/** Номер попытки: пока справочник дочитывался, каретка уже ушла. */
+let fieldPickSeq = 0;
+
+/** Значение под пальцем видно в поле, а в черновике стоит токен. */
+const fieldPickShowsValue = computed(() => displayValues.value);
+
+/** Ищем фрагмент по каретке в точке тапа. */
+async function pickComposerFragment(): Promise<void> {
+  const seq = ++fieldPickSeq;
+  const el = composerEl.value;
+  if (!el) {
+    fieldPick.value = null;
+    return;
+  }
+  if (tokenEntries.value.length === 0) {
+    await ensureTokens();
+    if (seq !== fieldPickSeq) return;
+  }
+  await nextTick();
+  if (seq !== fieldPickSeq) return;
+  const area = composerEl.value;
+  if (!area) return;
+  const start = area.selectionStart ?? 0;
+  const end = area.selectionEnd ?? 0;
+  if (end > start) {
+    fieldPick.value = null;
+    return;
+  }
+  const caret = toDraftOffset(area.value, start);
+  fieldPick.value = describeFieldPick(draft.value, caret, tokenEntries.value);
+}
+
+/** Поставить в поле вторую сторону: токен вместо значения или наоборот. */
+function applyFieldPick(target: "token" | "value"): void {
+  const pick = fieldPick.value;
+  if (!pick) return;
+  const result = replaceFieldPick(draft.value, pick, target);
+  fieldPick.value = null;
+  if (!result.changed) return;
+  draft.value = result.text;
+  void nextTick(() => {
+    const area = composerEl.value;
+    if (!area) return;
+    const pos = toVisibleOffset(draft.value, result.caret);
+    area.focus();
+    area.setSelectionRange(pos, pos);
+    void autoGrow();
+  });
+}
+
+/**
+ * Крестик: у токена — отмена токенизации (возвращаем значение),
+ * у значения — просто закрыть плашку.
+ */
+function closeFieldPick(): void {
+  const pick = fieldPick.value;
+  if (pick && pick.tokenized && pick.value.trim()) {
+    applyFieldPick("value");
+    return;
+  }
+  fieldPick.value = null;
 }
 
 /** Перетаскивание выделения мышью/пальцем: поле ввода или лента сообщений. */
@@ -1360,6 +1443,7 @@ function openTokenMode(): void {
 function closeComposer(): void {
   if (!compact.value) return;
   composerOpen.value = false;
+  fieldPick.value = null;
 }
 
 /** Тап по полотну чата открывает ввод, но больше его не прячет.
@@ -2020,6 +2104,10 @@ watch(draft, () => {
     draftFromField = false;
   } else {
     syncComposerField();
+    // Черновик переписали программно (отправка, вставка токена) — плашка тапа
+    // про старый фрагмент, её место больше не там.
+    const pick = fieldPick.value;
+    if (pick && draft.value.slice(pick.start, pick.end) !== pick.text) fieldPick.value = null;
   }
   void autoGrow();
 }, { flush: "pre" });
@@ -4124,6 +4212,48 @@ function onRateChange(event: Event): void {
         </button>
       </div>
 
+      <div
+        v-if="fieldPick && (!compact || composerOpen)"
+        class="chat-panel__pick"
+        role="group"
+        :aria-label="t('chat.tokens.selection')"
+      >
+        <span class="chat-panel__pick-text" :title="fieldPick.text">«{{ fieldPick.text }}»</span>
+        <template v-if="fieldPickShowsValue">
+          <button
+            type="button"
+            class="chat-panel__pick-side is-token"
+            v-tip="t('chat.tokens.replaceSelection')"
+            :aria-label="t('chat.tokens.replaceSelection')"
+            @click="guardBlur(); applyFieldPick('token')"
+          >
+            ⟦{{ fieldPick.name }}⟧
+          </button>
+        </template>
+        <template v-else>
+          <button
+            type="button"
+            class="chat-panel__pick-side is-value"
+            v-tip="t('chat.tokens.untokenize')"
+            :aria-label="t('chat.tokens.untokenize')"
+            @click="guardBlur(); applyFieldPick('value')"
+          >
+            {{ fieldPick.value }}
+          </button>
+        </template>
+        <button
+          type="button"
+          class="chat-panel__pick-close"
+          :v-tip="fieldPick.tokenized ? t('chat.tokens.untokenize') : t('chat.cancel')"
+          :aria-label="fieldPick.tokenized ? t('chat.tokens.untokenize') : t('chat.cancel')"
+          @click="guardBlur(); closeFieldPick()"
+        >
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+      </div>
+
       <form
         v-if="!compact || composerOpen"
         ref="composerForm"
@@ -5646,6 +5776,75 @@ function onRateChange(event: Event): void {
   border: 1px solid var(--border);
   border-radius: 9px;
   background: var(--panel-2);
+}
+
+/* Плашка тапа по полю ввода: вторая сторона фрагмента + крестик.
+   Живёт над полем, а не под ним: палец ставит каретку снизу, плашку видно. */
+.chat-panel__pick {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 8px 4px;
+  padding: 3px 5px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel-2);
+}
+
+.chat-panel__pick-text {
+  max-width: 38%;
+  overflow: hidden;
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-panel__pick-side {
+  max-width: 46%;
+  overflow: hidden;
+  padding: 2px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.chat-panel__pick-side.is-token {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.chat-panel__pick-side:hover,
+.chat-panel__pick-side:focus-visible {
+  background: var(--panel);
+}
+
+.chat-panel__pick-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  margin-inline-start: auto;
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.chat-panel__pick-close:hover {
+  border-color: var(--border);
+  color: var(--text);
 }
 
 /* Плашка выделения в ленте: между лентой и полем ввода, не поверх него. */
