@@ -377,10 +377,17 @@ const canExport = computed(
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-/* Широкий экран: обе стороны ленты стоят слева. Своя реплика остаётся
+/* Широкий монитор: обе стороны ленты стоят слева. Своя реплика остаётся
    подкрашенной (её видно по фону и подписи), но выравнивание — как у ответов:
-   глазам не приходится перескакивать с края на край по широкой панели. */
-@media (min-width: 721px) {
+   глазам не приходится перескакивать с края на край по широкой панели.
+   На телефоне и планшете реплики остаются по разным сторонам. */
+@media (min-width: 1100px) {
+  .chat-panel__message {
+    max-width: min(100%, 42rem);
+  }
+  .chat-panel__content {
+    font-size: 0.95rem;
+  }
   .chat-panel__message--user {
     align-self: flex-start;
     margin-inline-start: 0.75rem;
@@ -391,11 +398,25 @@ const canExport = computed(
 }
 
 @media (max-width: 720px) {
+  .chat-panel__message {
+    max-width: min(100%, 34rem);
+    padding: 6px 10px;
+  }
+  .chat-panel__content {
+    font-size: 0.95rem;
+    line-height: 1.5;
+  }
+  .chat-panel__role {
+    font-size: 0.72rem;
+  }
   .chat-panel__message-actions {
     opacity: 1;
   }
   .chat-panel__message--user {
-    margin-inline-start: 1rem;
+    margin-inline-start: 1.75rem;
+  }
+  .chat-panel__message--assistant {
+    margin-inline-end: 1.75rem;
   }
 }
 </style>

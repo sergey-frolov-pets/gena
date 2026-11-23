@@ -195,6 +195,19 @@ async function copyPrompt(): Promise<void> {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 720px) {
+  .about h1 {
+    font-size: 1.25rem;
+  }
+  .about h2 {
+    font-size: 1rem;
+  }
+  .about__cards li {
+    padding: 12px;
+  }
 }
 
 .about__cards a {

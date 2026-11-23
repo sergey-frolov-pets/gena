@@ -609,6 +609,40 @@ async function runConfirmedCleanup(): Promise<void> {
   padding: 8px 0;
   border-bottom: 1px solid var(--border);
 }
+.check {
+  min-width: 0;
+}
+.check > span {
+  min-width: 0;
+}
+@media (max-width: 720px) {
+  .toolbar {
+    flex-wrap: wrap;
+  }
+  .list li {
+    align-items: flex-start;
+    gap: 8px;
+    padding: 12px 0;
+  }
+  .check {
+    flex: 1 1 auto;
+    align-items: flex-start;
+  }
+  .row-actions {
+    margin-top: 2px;
+  }
+  .list .link {
+    min-height: 36px;
+    padding: 6px 8px;
+  }
+  .card {
+    padding: 12px;
+  }
+  .agent-chip {
+    min-height: 36px;
+    font-size: 0.86rem;
+  }
+}
 .list .link {
   flex: 0 0 auto;
   background: none;
