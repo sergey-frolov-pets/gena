@@ -498,12 +498,9 @@ function clearSelection(): void {
 const selectionSuggestions = computed(() => {
   const range = selectionRange.value;
   if (!range || selectionMatch.value) return [];
-  const taken = selectionName.value.trim().toLocaleLowerCase();
-  return suggestBaseNames(loadNameBases(), tokenNames.value, categoryBase(range.text), 6).filter(
-    (name, index, all) => {
-      const key = name.toLocaleLowerCase();
-      return key !== taken && all.findIndex((item) => item.toLocaleLowerCase() === key) === index;
-    },
+  return suggestBaseNames(loadNameBases(), tokenNames.value, categoryBase(range.text)).filter(
+    (name, index, all) =>
+      all.findIndex((item) => item.toLocaleLowerCase() === name.toLocaleLowerCase()) === index,
   );
 });
 
@@ -1089,12 +1086,9 @@ async function applyFeedDialogName(): Promise<void> {
 const feedSuggestions = computed(() => {
   const picked = feedSelection.value;
   if (!picked || feedMatch.value) return [];
-  const taken = feedName.value.trim().toLocaleLowerCase();
-  return suggestBaseNames(loadNameBases(), tokenNames.value, categoryBase(picked.text), 6).filter(
-    (name, index, all) => {
-      const key = name.toLocaleLowerCase();
-      return key !== taken && all.findIndex((item) => item.toLocaleLowerCase() === key) === index;
-    },
+  return suggestBaseNames(loadNameBases(), tokenNames.value, categoryBase(picked.text)).filter(
+    (name, index, all) =>
+      all.findIndex((item) => item.toLocaleLowerCase() === name.toLocaleLowerCase()) === index,
   );
 });
 
@@ -6747,7 +6741,7 @@ function onRateChange(event: Event): void {
   left: 0;
   right: 0;
   bottom: calc(100% + 4px);
-  max-height: 140px;
+  max-height: min(46vh, 320px);
   overflow-y: auto;
   display: flex;
   flex-wrap: wrap;
@@ -6910,7 +6904,7 @@ function onRateChange(event: Event): void {
   bottom: calc(100% + 4px);
   margin: 0;
   background: var(--panel);
-  max-height: 92px;
+  max-height: min(46vh, 320px);
   overflow-y: auto;
 }
 

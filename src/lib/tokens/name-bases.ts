@@ -84,7 +84,7 @@ export function suggestBaseNames(
   bases: readonly string[],
   taken: readonly string[],
   prefer = "",
-  limit = 6,
+  limit = MAX_BASES,
 ): string[] {
   const list = sanitizeNameBases(bases);
   const pref = prefer.trim().toLocaleLowerCase();
