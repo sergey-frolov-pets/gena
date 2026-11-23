@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { valuesToTokens, buildNeedles, countValueHits } from "./substitute";
+import { valuesToTokens, buildNeedles, countValueHits, findOfferSpans } from "./substitute";
 
 const entries = [
   {
@@ -96,5 +96,15 @@ describe("tokens/substitute: регистр — свойство записи, �
     // «Счёт» и «счёта» — написания записи; «счёт» в нижнем регистре — уже не она.
     expect(valuesToTokens("Счёт, счёта и счёт", entry).text).toBe("⟦счёт⟧, ⟦счёт⟧ и счёт");
     expect(valuesToTokens("Счёт и счёта", entry).hits).toBe(2);
+  });
+});
+
+describe("findOfferSpans", () => {
+  it("помечает падеж и не трогает уже стоящий токен", () => {
+    const text = "открытие вклада ВТБ и ⟦вклад ВТБ⟧";
+    const spans = findOfferSpans(text, entries);
+    expect(spans).toEqual([
+      { start: text.indexOf("вклада ВТБ"), end: text.indexOf("вклада ВТБ") + "вклада ВТБ".length, name: "вклад ВТБ" },
+    ]);
   });
 });

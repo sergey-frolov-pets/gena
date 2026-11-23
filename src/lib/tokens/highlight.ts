@@ -16,6 +16,8 @@ export interface HighlightSegment {
   text: string;
   /** Слово — токен (в режиме значений — его расшифровка на месте токена). */
   token: boolean;
+  /** Значение справочника ещё открытым текстом: его можно заменить или отклонить. */
+  offer?: boolean;
 }
 
 /**
@@ -28,17 +30,30 @@ export function highlightSegments(
   tokenText: string,
   showValues: boolean,
   restore: (text: string) => string,
+  offers: readonly { start: number; end: number }[] = [],
 ): HighlightSegment[] {
   const source = String(tokenText ?? "");
+  const tokens = tokenSpans(source);
+  const marks: { start: number; end: number; token: boolean }[] = [];
+  for (const span of tokens) marks.push({ start: span.start, end: span.end, token: true });
+  for (const span of offers) {
+    if (span.end <= span.start) continue;
+    if (tokens.some((token) => span.start < token.end && span.end > token.start)) continue;
+    marks.push({ start: span.start, end: span.end, token: false });
+  }
+  marks.sort((a, b) => a.start - b.start || Number(b.token) - Number(a.token));
   const segments: HighlightSegment[] = [];
   let last = 0;
-  for (const span of tokenSpans(source)) {
+  for (const span of marks) {
+    if (span.start < last) continue;
     if (span.start > last) {
       segments.push({ text: source.slice(last, span.start), token: false });
     }
     const raw = source.slice(span.start, span.end);
-    const text = showValues ? String(restore(raw) ?? "") : raw;
-    if (text) segments.push({ text, token: true });
+    const text = span.token && showValues ? String(restore(raw) ?? "") : raw;
+    if (text) {
+      segments.push(span.token ? { text, token: true } : { text, token: false, offer: true });
+    }
     last = span.end;
   }
   if (last < source.length) {

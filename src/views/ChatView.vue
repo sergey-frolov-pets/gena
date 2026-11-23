@@ -142,6 +142,8 @@ import {
 import { draftText, toDraftCaret, toVisibleCaret, visibleText } from "@/lib/tokens/display";
 import { tokenModeActive } from "@/lib/tokens/mode-intent";
 import { highlightSegments } from "@/lib/tokens/highlight";
+import { findOfferSpans } from "@/lib/tokens/substitute";
+import { withDeclensions } from "@/lib/tokens/morph/service";
 import { loadMorph } from "@/lib/tokens/morph/service";
 import { forAgent, historyForAgent, tokensReady } from "@/lib/tokens/outgoing";
 import { insertTokenAt } from "@/lib/tokens/insert";
@@ -298,17 +300,6 @@ const tokenPickVisible = computed(
   () => tokenPickNames.value.length > 0 && (tokenTrigger.value !== null || tokenPickOpen.value),
 );
 
-function toggleTokenPick(): void {
-  // Пустой справочник — не тупик: сразу открываем таблицу соответствий,
-  // где запись добавляется вручную, а не показываем «сначала заполните».
-  if (tokenEntries.value.length === 0) {
-    tokenPickOpen.value = false;
-    tokenSheetOpen.value = true;
-    return;
-  }
-  tokenPickOpen.value = !tokenPickOpen.value;
-}
-
 /** Вставить канон `⟦имя⟧` в позицию курсора и вернуть фокус в поле. */
 function insertTokenName(name: string): void {
   const el = composerEl.value;
@@ -411,7 +402,7 @@ const selectionConfirm = ref<TokenEntry | null>(null);
 const selectionMatch = computed(() => {
   const range = selectionRange.value;
   if (!range) return null;
-  return findSelectionEntry(range.text, tokenEntries.value);
+  return findSelectionEntry(range.text, declinedEntries.value);
 });
 
 /** Выделен ровно канонический токен этой записи — заменять нечего. */
@@ -474,7 +465,7 @@ function onComposerSelect(): void {
     return;
   }
   void ensureTokens();
-  const known = findSelectionEntry(text, tokenEntries.value);
+  const known = findSelectionEntry(text, declinedEntries.value);
   selectionRange.value = { start, end, text };
   if (known) {
     selectionName.value = known.name;
@@ -578,7 +569,12 @@ async function pickComposerFragment(): Promise<void> {
     return;
   }
   const caret = toDraftOffset(area.value, start);
-  fieldPick.value = describeFieldPick(draft.value, caret, tokenEntries.value);
+  const pick = describeFieldPick(draft.value, caret, declinedEntries.value);
+  if (pick && !pick.tokenized && refusedOffers.value.includes(offerKey(pick.text))) {
+    fieldPick.value = null;
+    return;
+  }
+  fieldPick.value = pick;
 }
 
 /**
@@ -666,6 +662,12 @@ function closeFieldPick(): void {
     applyFieldPick("value");
     return;
   }
+  if (pick && !pick.tokenized) {
+    const key = offerKey(pick.text);
+    if (key && !refusedOffers.value.includes(key)) {
+      refusedOffers.value = [...refusedOffers.value, key];
+    }
+  }
   fieldPick.value = null;
   fieldPickAnchor.value = null;
 }
@@ -697,7 +699,7 @@ const feedName = ref("");
 const feedMatch = computed(() => {
   const picked = feedSelection.value;
   if (!picked) return null;
-  return findSelectionEntry(picked.text, tokenEntries.value);
+  return findSelectionEntry(picked.text, declinedEntries.value);
 });
 
 /** Выделен ровно канонический токен — заменять в сообщении нечего. */
@@ -748,7 +750,7 @@ function onFeedSelect(): void {
     feedSelection.value?.messageId !== messageId || feedSelection.value?.text !== text;
   feedSelection.value = { messageId, text };
   if (changed) {
-    const known = findSelectionEntry(text, tokenEntries.value);
+    const known = findSelectionEntry(text, declinedEntries.value);
     feedName.value = known ? known.name : (suggestTokenNames(text, tokenNames.value, 1)[0] ?? "");
   }
 }
@@ -806,7 +808,7 @@ function tokenAtPoint(x: number, y: number): { messageId: string; text: string }
 function pickTokenAt(x: number, y: number): boolean {
   const picked = tokenAtPoint(x, y);
   if (!picked) return false;
-  const known = findSelectionEntry(picked.text, tokenEntries.value);
+  const known = findSelectionEntry(picked.text, declinedEntries.value);
   if (!known) return false;
   void ensureTokens();
   feedTapUntil = Date.now() + 500;
@@ -1215,11 +1217,6 @@ function cancelTokenSend(): void {
   pendingTokenSend.value = false;
 }
 
-async function leaveTokenMode(): Promise<void> {
-  tokenPickOpen.value = false;
-  await toggleTokenMode();
-}
-
 /** Сколько вызовов сделано сегодня у выбранного агента. */
 const usedToday = ref(0);
 /** Последний отправленный текст — для кнопки «Повторить». */
@@ -1259,9 +1256,30 @@ const displayValues = computed(() => isTokenSession(activeSession.value) && view
  * под их расшифровкой). Без этого в поле всё выглядит одинаково, и человек
  * не видит, где кончается текст и начинается защищённое значение.
  */
+/** Записи с падежами: облачко и подсветка видят те же формы, что и отправка. */
+const declinedEntries = computed(() => withDeclensions(tokenEntries.value));
+
+/**
+ * Отказ от замены: эту написанную форму больше не подсвечиваем и не предлагаем,
+ * пока открыт экран. Другие формы той же записи остаются.
+ */
+const refusedOffers = ref<string[]>([]);
+
+function offerKey(text: string): string {
+  return text.trim().toLocaleLowerCase();
+}
+
+const offerSpans = computed(() => {
+  if (!isTokenSession(activeSession.value)) return [];
+  const refused = new Set(refusedOffers.value);
+  return findOfferSpans(draft.value, declinedEntries.value).filter(
+    (span) => !refused.has(offerKey(draft.value.slice(span.start, span.end))),
+  );
+});
+
 const highlightParts = computed(() =>
   isTokenSession(activeSession.value)
-    ? highlightSegments(draft.value, displayValues.value, restoreValues)
+    ? highlightSegments(draft.value, displayValues.value, restoreValues, offerSpans.value)
     : [],
 );
 /** Прокрутка поля: подложка едет вместе с текстом. */
@@ -3811,6 +3829,19 @@ function onRateChange(event: Event): void {
           </svg>
         </button>
         <button
+          v-if="isTokenSession(activeSession)"
+          type="button"
+          class="chat-panel__tool"
+          v-tip="t('chat.tokens.matches')"
+          :aria-label="t('chat.tokens.matches')"
+          @click="openDictionary"
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="4" y="4" width="16" height="16" rx="2" />
+            <path d="M4 9h16M9 9v11" />
+          </svg>
+        </button>
+        <button
           type="button"
           class="chat-panel__tool"
           :class="{ 'is-on': isTokenSession(activeSession) }"
@@ -4095,6 +4126,14 @@ function onRateChange(event: Event): void {
       </div>
     </div>
 
+        <div
+          ref="dockEl"
+          class="chat-panel__dock"
+          :class="{
+            'is-overlay': compact && composerOpen,
+            'is-float': compact && !composerOpen,
+          }"
+        >
       <div
         v-if="feedSelection"
         class="chat-panel__selection is-feed"
@@ -4183,14 +4222,6 @@ function onRateChange(event: Event): void {
         </button>
       </div>
 
-        <div
-          ref="dockEl"
-          class="chat-panel__dock"
-          :class="{
-            'is-overlay': compact && composerOpen,
-            'is-float': compact && !composerOpen,
-          }"
-        >
       <p v-if="!online" class="chat-panel__warning" role="alert">{{ t("chat.offline") }}</p>
       <p v-if="dictationListening" class="chat-panel__recording" role="status" aria-live="polite">
         <span class="chat-panel__recording-dot" aria-hidden="true" />
@@ -4311,73 +4342,6 @@ function onRateChange(event: Event): void {
       </p>
 
       <div
-        v-if="isTokenSession(activeSession)"
-        class="chat-panel__tokenbar"
-        role="group"
-        :aria-label="t('chat.tokens.bar')"
-      >
-        <span class="chat-panel__tokenbar-lock" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="4" y="10" width="16" height="10" rx="2" />
-            <path d="M8 10V7a4 4 0 0 1 8 0v3" />
-          </svg>
-        </span>
-        <button
-          type="button"
-          class="chat-panel__token-btn is-icon"
-          v-tip="t('chat.tokens.matches')"
-          :aria-label="t('chat.tokens.matches')"
-          @click="openDictionary"
-        >
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <rect x="4" y="4" width="16" height="16" rx="2" />
-            <path d="M4 9h16M9 9v11" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          class="chat-panel__token-btn is-icon"
-          data-token-trigger
-          v-tip="t('chat.tokens.insert')"
-          :aria-label="t('chat.tokens.insert')"
-          :aria-expanded="tokenPickOpen"
-          @click="toggleTokenPick"
-        >
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M9 4H5v16h4" />
-            <path d="M15 4h4v16h-4" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          class="chat-panel__token-btn is-icon is-view"
-          v-tip="viewValues ? t('chat.viewTokens') : t('chat.viewData')"
-          :aria-label="viewValues ? t('chat.viewTokens') : t('chat.viewData')"
-          :aria-pressed="!viewValues"
-          @click="viewValues = !viewValues"
-        >
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z" />
-            <circle cx="12" cy="12" r="2.6" />
-            <path v-if="viewValues" d="M4 4l16 16" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          class="chat-panel__token-btn is-icon is-exit"
-          v-tip="t('chat.tokens.exit')"
-          :aria-label="t('chat.tokens.exit')"
-          @click="leaveTokenMode"
-        >
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M9 4H5v16h4" />
-            <path d="M12 12h9" />
-            <path d="m17 8 4 4-4 4" />
-          </svg>
-        </button>
-      </div>
-
-      <div
         v-if="tokenPickVisible"
         class="chat-panel__token-pick"
         role="group"
@@ -4486,7 +4450,7 @@ function onRateChange(event: Event): void {
               <span
                 v-for="(part, i) in highlightParts"
                 :key="i"
-                :class="{ 'is-token': part.token }"
+                :class="{ 'is-token': part.token, 'is-offer': part.offer }"
                 >{{ part.text }}</span
               >
             </div>
@@ -4546,7 +4510,7 @@ function onRateChange(event: Event): void {
             <button
               type="button"
               class="chat-panel__pick-close"
-              :v-tip="fieldPick.tokenized ? t('chat.tokens.untokenize') : t('chat.cancel')"
+              v-tip="fieldPick.tokenized ? t('chat.tokens.untokenize') : t('chat.cancel')"
               :aria-label="fieldPick.tokenized ? t('chat.tokens.untokenize') : t('chat.cancel')"
               @click="guardBlur(); closeFieldPick()"
             >
@@ -5168,6 +5132,7 @@ function onRateChange(event: Event): void {
 }
 
 .chat-panel__composer {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -5360,6 +5325,13 @@ function onRateChange(event: Event): void {
   border-radius: 4px;
   background: var(--token-mark);
   box-shadow: 0 0 0 2px var(--token-mark);
+}
+
+/* Ещё не заменённая форма справочника: другой цвет, тап решает судьбу. */
+.chat-panel__marks .is-offer {
+  border-radius: 4px;
+  background: var(--token-offer);
+  box-shadow: 0 0 0 2px var(--token-offer);
 }
 
 .chat-panel__input {
@@ -6009,8 +5981,13 @@ function onRateChange(event: Event): void {
   gap: 4px;
 }
 
-/* Плашка действий с выделением — снизу поля, не всплывает у текста. */
+/* Плашка действий с выделением — над полем, не двигает его. */
 .chat-panel__selection {
+  position: absolute;
+  z-index: 6;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 4px);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -6097,8 +6074,11 @@ function onRateChange(event: Event): void {
 
 /* Плашка выделения в ленте: между лентой и полем ввода, не поверх него. */
 .chat-panel__selection.is-feed {
-  flex: 0 0 auto;
-  margin: 0 8px 6px;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 4px);
+  margin: 0;
   background: var(--panel);
   max-height: 92px;
   overflow-y: auto;
