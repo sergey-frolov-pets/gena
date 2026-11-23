@@ -4272,15 +4272,6 @@ function onRateChange(event: Event): void {
 
 <template>
   <section class="chat-panel" :class="{ 'is-tokens': isTokenSession(activeSession) }">
-    <button
-      type="button"
-      class="chat-panel__mode"
-      :class="{ 'is-on': isTokenSession(activeSession) }"
-      :aria-pressed="isTokenSession(activeSession)"
-      @click="toggleTokenMode"
-    >
-      {{ t("chat.mode") }}
-    </button>
     <div v-if="isTokenSession(activeSession)" class="chat-panel__watermark" aria-hidden="true">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
         <rect x="4" y="10" width="16" height="10" rx="2.4" />
@@ -6869,30 +6860,6 @@ function onRateChange(event: Event): void {
   gap: 3px;
   max-height: min(160px, 32dvh);
   overflow-y: auto;
-}
-
-.chat-panel__mode {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  z-index: 25;
-  transform: translateY(-50%);
-  padding: 8px 10px 8px 8px;
-  border: 1px solid var(--border);
-  border-left: 0;
-  border-radius: 0 12px 12px 0;
-  background: color-mix(in srgb, var(--panel) 72%, transparent);
-  color: var(--muted);
-  font: inherit;
-  font-size: 0.78rem;
-  line-height: 1.2;
-  cursor: pointer;
-}
-
-.chat-panel__mode.is-on {
-  color: var(--text);
-  border-color: var(--tokens-edge, var(--accent));
-  background: color-mix(in srgb, var(--tokens-bg, var(--panel)) 80%, transparent);
 }
 
 .chat-panel__pick-bubble {
