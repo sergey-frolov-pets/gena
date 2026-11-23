@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { tokenModeActive } from "./mode-intent";
+import { tokenModeActive, tokenModeCanTurnOff } from "./mode-intent";
 
 describe("tokenModeActive", () => {
   it("у открытого диалога решает флаг записи", () => {
@@ -7,6 +7,12 @@ describe("tokenModeActive", () => {
     expect(tokenModeActive({ tokenMode: true }, true)).toBe(true);
     expect(tokenModeActive({}, true)).toBe(false);
     expect(tokenModeActive({ tokenMode: false }, true)).toBe(false);
+  });
+
+  it("защиту нельзя снять, если есть хотя бы одна пара значение–токен", () => {
+    expect(tokenModeCanTurnOff(0)).toBe(true);
+    expect(tokenModeCanTurnOff(1)).toBe(false);
+    expect(tokenModeCanTurnOff(3)).toBe(false);
   });
 
   it("без сессии (новый диалог) решает намерение", () => {

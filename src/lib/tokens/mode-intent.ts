@@ -22,3 +22,11 @@ export function tokenModeActive(
 ): boolean {
   return session ? session.tokenMode === true : pending;
 }
+
+/**
+ * Снять защиту можно, только пока в справочнике нет ни одной пары
+ * «значение — токен». Иначе история снова сохранила бы настоящие значения.
+ */
+export function tokenModeCanTurnOff(entryCount: number): boolean {
+  return entryCount <= 0;
+}
