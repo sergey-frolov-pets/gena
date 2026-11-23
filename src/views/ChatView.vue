@@ -6803,6 +6803,11 @@ function onRateChange(event: Event): void {
   border: 1px solid var(--border);
   border-radius: 9px;
   background: var(--panel-2);
+  /* Длинное нажатие не должно выделять подписи и звать системное «Копировать»:
+     из-за этого имена токенов рвутся посередине ручками выделения. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 /* Облачко тапа по полю ввода: вторая сторона слова (токен или исходное
@@ -6969,15 +6974,25 @@ function onRateChange(event: Event): void {
 }
 
 .chat-panel__selection-sug {
+  flex: 0 0 auto;
   padding: 1px 6px;
   border: 1px dashed color-mix(in srgb, var(--accent) 45%, var(--border));
   border-radius: 999px;
-  background: none;
+  background: var(--panel);
   color: var(--accent);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.72rem;
   line-height: 1.4;
+  white-space: nowrap;
   cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.chat-panel__selection input,
+.chat-panel__selection textarea {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .chat-panel__selection-sug:hover,
