@@ -127,8 +127,8 @@ import {
 } from "@/lib/tokens/registry";
 import { formatToken, isValidTokenName, parseTokens, tokenNameKey } from "@/lib/tokens/format";
 import { aliasByName, canRenameInDialog, upsertAlias } from "@/lib/tokens/dialog-alias";
+import { findSelectionEntry, replaceRange } from "@/lib/tokens/selection";
 import { loadNameBases, suggestBaseNames } from "@/lib/tokens/name-bases";
-import { categoryBase, findSelectionEntry, replaceRange } from "@/lib/tokens/selection";
 import { replaceSelectionWithToken, replaceTokenWithValue } from "@/lib/tokens/message-replace";
 import {
   describeFieldPick,
@@ -505,16 +505,6 @@ function clearSelection(): void {
   selectionConfirm.value = null;
 }
 
-/** Подсказки имени — только основы справочника, не слова из выделения. */
-const selectionSuggestions = computed(() => {
-  const range = selectionRange.value;
-  if (!range || selectionMatch.value) return [];
-  return suggestBaseNames(loadNameBases(), tokenNames.value, categoryBase(range.text)).filter(
-    (name, index, all) =>
-      all.findIndex((item) => item.toLocaleLowerCase() === name.toLocaleLowerCase()) === index,
-  );
-});
-
 /** Токены, которые уже стоят в этом диалоге: ими можно закрыть другое слово. */
 const dialogTokenNames = computed(() => {
   const id = activeSessionId.value;
@@ -531,6 +521,25 @@ const dialogTokenNames = computed(() => {
     }
   }
   return names;
+});
+
+/**
+ * Что предложить в плашке: записи справочника как есть и основы
+ * («имя», «компания») со следующим свободным номером. Одинаковые имена
+ * не повторяются. Случайные токены из текста, которых нет ни там, ни там,
+ * не предлагаются.
+ */
+const nameSuggestions = computed(() => {
+  const numbered = suggestBaseNames(loadNameBases(), [...tokenNames.value, ...dialogTokenNames.value]);
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const name of [...tokenNames.value, ...numbered]) {
+    const key = name.toLocaleLowerCase();
+    if (!name || seen.has(key)) continue;
+    seen.add(key);
+    result.push(name);
+  }
+  return result;
 });
 
 /** Имена, заданные только в этом диалоге: справочник их не знает. */
@@ -635,11 +644,8 @@ function onComposerSelect(): void {
   selectionRange.value = { start, end, text };
   if (known) {
     selectionName.value = known.name;
-  } else if (selectionSource.value !== text || !selectionName.value.trim()) {
-    // Имя не берём из выделенных слов: только основа справочника
-    // («1 200 ₽» → «сумма1», иначе «имя1»).
-    selectionName.value =
-      suggestBaseNames(loadNameBases(), tokenNames.value, categoryBase(text), 1)[0] ?? "";
+  } else if (selectionSource.value !== text) {
+    selectionName.value = "";
   }
   selectionSource.value = text;
   selectionConfirm.value = null;
@@ -1093,16 +1099,6 @@ async function applyFeedDialogName(): Promise<void> {
   await replaceSelectionInMessage(name);
 }
 
-/** Подсказки имени для фрагмента из ленты. */
-const feedSuggestions = computed(() => {
-  const picked = feedSelection.value;
-  if (!picked || feedMatch.value) return [];
-  return suggestBaseNames(loadNameBases(), tokenNames.value, categoryBase(picked.text)).filter(
-    (name, index, all) =>
-      all.findIndex((item) => item.toLocaleLowerCase() === name.toLocaleLowerCase()) === index,
-  );
-});
-
 function clearFeedSelection(): void {
   feedSelection.value = null;
   feedName.value = "";
@@ -1139,9 +1135,7 @@ function onFeedSelect(): void {
   feedSelection.value = { messageId, text };
   if (changed) {
     const known = findSelectionEntry(text, declinedEntries.value);
-    feedName.value = known
-      ? known.name
-      : (suggestBaseNames(loadNameBases(), tokenNames.value, categoryBase(text), 1)[0] ?? "");
+    feedName.value = known ? known.name : "";
   }
 }
 
@@ -4746,23 +4740,12 @@ function onRateChange(event: Event): void {
               <path d="M12 5v14M5 12h14" />
             </svg>
           </button>
-          <span v-if="feedSuggestions.length > 0" class="chat-panel__selection-suggest">
+          <span v-if="nameSuggestions.length > 0" class="chat-panel__selection-suggest">
             <button
-              v-for="name in feedSuggestions"
+              v-for="name in nameSuggestions"
               :key="name"
               type="button"
               class="chat-panel__selection-sug"
-              @click="feedName = name"
-            >
-              ⟦{{ name }}⟧
-            </button>
-          </span>
-          <span v-if="dialogTokenNames.length > 0" class="chat-panel__selection-suggest">
-            <button
-              v-for="name in dialogTokenNames"
-              :key="'feed-used-' + name"
-              type="button"
-              class="chat-panel__selection-sug is-used"
               @click="feedName = name"
             >
               ⟦{{ name }}⟧
@@ -5365,23 +5348,12 @@ function onRateChange(event: Event): void {
                 <path d="M12 5v14M5 12h14" />
               </svg>
             </button>
-            <span v-if="selectionSuggestions.length > 0" class="chat-panel__selection-suggest">
+            <span v-if="nameSuggestions.length > 0" class="chat-panel__selection-suggest">
               <button
-                v-for="name in selectionSuggestions"
+                v-for="name in nameSuggestions"
                 :key="name"
                 type="button"
                 class="chat-panel__selection-sug"
-                @click="selectionName = name"
-              >
-                ⟦{{ name }}⟧
-              </button>
-            </span>
-            <span v-if="dialogTokenNames.length > 0" class="chat-panel__selection-suggest">
-              <button
-                v-for="name in dialogTokenNames"
-                :key="'used-' + name"
-                type="button"
-                class="chat-panel__selection-sug is-used"
                 @click="selectionName = name"
               >
                 ⟦{{ name }}⟧
@@ -6803,6 +6775,11 @@ function onRateChange(event: Event): void {
   border: 1px solid var(--border);
   border-radius: 9px;
   background: var(--panel-2);
+  /* Длинное нажатие не должно выделять подписи и звать системное «Копировать»:
+     из-за этого имена токенов рвутся посередине ручками выделения. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 /* Облачко тапа по полю ввода: вторая сторона слова (токен или исходное
@@ -6969,15 +6946,25 @@ function onRateChange(event: Event): void {
 }
 
 .chat-panel__selection-sug {
+  flex: 0 0 auto;
   padding: 1px 6px;
   border: 1px dashed color-mix(in srgb, var(--accent) 45%, var(--border));
   border-radius: 999px;
-  background: none;
+  background: var(--panel);
   color: var(--accent);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.72rem;
   line-height: 1.4;
+  white-space: nowrap;
   cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.chat-panel__selection input,
+.chat-panel__selection textarea {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .chat-panel__selection-sug:hover,
