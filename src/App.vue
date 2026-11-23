@@ -399,9 +399,13 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .app {
-  min-height: 100vh;
+  /* --app-vvh учитывает клавиатуру: обычный 100vh её не видит. */
+  height: var(--app-vvh, 100dvh);
+  max-height: var(--app-vvh, 100dvh);
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .topbar {
@@ -576,7 +580,9 @@ onBeforeUnmount(() => {
 }
 
 .content {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
   padding: 20px;
   max-width: 960px;
   width: 100%;
@@ -589,15 +595,13 @@ onBeforeUnmount(() => {
   flex-direction: column;
   padding: 0;
   max-width: none;
+  overflow: hidden;
 }
 
 .content--flush :deep(.chat-panel) {
   flex: 1 1 auto;
   width: 100%;
   min-height: 0;
-  /* Панель не выходит за область контента: иначе при плашке обновления или в
-     ландшафте она «лишнюю» высоту отбирала у строк над лентой (резались вкладки). */
-  max-height: 100%;
   border: 0;
   border-radius: 0;
 }
@@ -645,32 +649,74 @@ onBeforeUnmount(() => {
   background: #e5484d;
 }
 
-/* Телефон: хедер остаётся одной строкой — уменьшаем отступы и иконки. */
-@media (max-width: 480px) {
+/* Телефон и узкий планшет: шапка одной строкой, кнопки под палец,
+   подпись бренда уступает место кнопке «назад». */
+@media (max-width: 720px) {
   .topbar {
-    --icon-btn-size: 30px;
-    gap: 6px;
-    padding: 8px 10px;
-  }
-  .brand {
-    gap: 6px;
-  }
-  .brand-icon {
-    width: 26px;
-    height: 26px;
-  }
-  .brand-name {
-    font-size: 0.9rem;
+    --icon-btn-size: 40px;
+    gap: 8px;
+    padding: 6px 10px;
   }
   .brand-sub {
-    font-size: 0.6rem;
+    display: none;
   }
-  .topbar nav {
-    gap: 4px;
+  .brand-name {
+    font-size: 1rem;
   }
-  .topbar :deep(.theme-btn),
-  .topbar :deep(.install-btn) {
-    padding: 4px;
+  .back-btn {
+    padding: 8px 2px;
+    font-size: 0.92rem;
+  }
+  .content {
+    padding: 12px 12px 16px;
+  }
+  .menu {
+    inset-inline-end: 8px;
+    width: min(18rem, calc(100vw - 16px));
+    max-height: min(70dvh, 32rem);
+    overflow: auto;
+  }
+  .menu > button,
+  .menu :deep(.menu-line) {
+    min-height: 44px;
+  }
+  .update-bar {
+    justify-content: space-between;
+    padding: 8px 12px;
+    font-size: 0.9rem;
+    text-align: start;
+  }
+  .voice-sheet__panel {
+    padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  }
+  .voice-sheet__voices button,
+  .voice-sheet__chips button,
+  .voice-sheet__preview {
+    min-height: 44px;
+  }
+}
+
+@media (min-width: 721px) {
+  .voice-sheet {
+    align-items: center;
+    padding: 24px;
+  }
+  .voice-sheet__panel {
+    border-radius: 16px;
+    box-shadow: 0 16px 48px rgb(0 0 0 / 28%);
+  }
+}
+
+@media (min-width: 1100px) {
+  .topbar {
+    padding: 10px 20px;
+  }
+  .content {
+    max-width: 1080px;
+    padding: 28px 32px;
+  }
+  .brand-name {
+    font-size: 1.05rem;
   }
 }
 

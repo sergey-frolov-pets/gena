@@ -60,7 +60,7 @@ const VERSION = "0.1.108";
   align-items: center;
   gap: 6px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1;
 }
 
@@ -78,7 +78,7 @@ const VERSION = "0.1.108";
 .app-footer__links a {
   color: var(--muted);
   text-decoration: none;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1;
 }
 
@@ -95,8 +95,18 @@ const VERSION = "0.1.108";
 
 .app-footer__version {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1;
+}
+
+@media (max-width: 420px) {
+  .app-footer {
+    gap: 6px;
+    padding-inline: 8px;
+  }
+  .app-footer__links {
+    gap: 8px;
+  }
 }
 
 .app-footer__donate {

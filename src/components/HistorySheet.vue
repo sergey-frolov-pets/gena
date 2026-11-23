@@ -269,7 +269,7 @@ function agentNameOf(id: string): string {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  width: min(86vw, 360px);
+  width: min(92vw, 22rem);
   padding: 10px;
   border-inline-start: 1px solid var(--border);
   background: var(--panel);
@@ -424,6 +424,22 @@ function agentNameOf(id: string): string {
 @media (hover: none) {
   .chat-panel__session-actions {
     opacity: 1;
+  }
+}
+
+@media (min-width: 721px) {
+  .chat-panel__sheet {
+    width: min(26rem, 42vw);
+  }
+}
+
+@media (max-width: 720px) {
+  .chat-panel__sheet {
+    padding: 12px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+  .chat-panel__session .chat-panel__action {
+    width: 36px;
+    height: 36px;
   }
 }
 

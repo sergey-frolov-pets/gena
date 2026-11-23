@@ -237,22 +237,33 @@ watch([() => props.activeId, () => props.tabs], () => void nextTick(revealActive
   color: var(--danger);
 }
 
-/* Телефон: вкладки ещё уже — больше диалогов влезает в полоску. */
+/* Телефон: вкладка читается, крестик попадает под палец.
+   Очень узкий экран отдаёт ширину ленте — заголовки короче. */
 @media (max-width: 720px) {
   .chat-panel__tab {
-    min-height: 2.05rem;
-    max-width: 8rem;
+    min-height: 2.4rem;
+    max-width: 10rem;
   }
   .chat-panel__tab-open {
-    min-height: 2.05rem;
-    max-width: 6.3rem;
-    padding: 0 2px 0 7px;
-    font-size: 0.74rem;
+    min-height: 2.4rem;
+    max-width: 8.2rem;
+    padding: 0 4px 0 8px;
+    font-size: 0.84rem;
   }
   .chat-panel__tab-close {
-    width: 18px;
-    height: 18px;
+    width: 28px;
+    height: 28px;
     margin-inline-end: 2px;
+  }
+}
+
+@media (max-width: 380px) {
+  .chat-panel__tab {
+    max-width: 7.2rem;
+  }
+  .chat-panel__tab-open {
+    max-width: 5.6rem;
+    font-size: 0.8rem;
   }
 }
 

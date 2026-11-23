@@ -1789,7 +1789,7 @@ function pendingTurnFor(sessionId: string): PendingTurn | null {
 /* ── Окно ввода на телефоне: по тапу, поверх чата ─────────────────────── */
 
 const compact = ref(
-  typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches,
+  typeof window !== "undefined" && window.matchMedia("(max-width: 720px)").matches,
 );
 const composerOpen = ref(!compact.value);
 const composerForm = ref<HTMLFormElement | null>(null);
@@ -3956,7 +3956,7 @@ onMounted(() => {
   window.addEventListener("resize", syncViewport);
   window.addEventListener("resize", onViewportChange);
   // Телефон: ввод открывается тапом по чату, а не занимает экран постоянно.
-  compactQuery = window.matchMedia("(max-width: 640px)");
+  compactQuery = window.matchMedia("(max-width: 720px)");
   syncCompact(compactQuery.matches);
   compactQuery.addEventListener("change", onCompactChange);
   window.addEventListener("online", onOnline);
@@ -5281,7 +5281,11 @@ function onRateChange(event: Event): void {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  height: calc(var(--app-vvh, 100vh) - 132px);
+  /* Высоту отдаёт колонка .app: шапка, плашки и подвал занимают своё место,
+     панель забирает остаток. Фиксированный вычет ломался, когда плашек не было
+     или их было несколько. */
+  flex: 1 1 auto;
+  height: auto;
   min-height: 0;
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -5828,9 +5832,26 @@ function onRateChange(event: Event): void {
   text-overflow: ellipsis;
 }
 
-@media (max-width: 480px) {
+@media (max-width: 720px) {
+  .chat-panel__marks,
+  .chat-panel__input {
+    font-size: 1rem;
+  }
   .chat-panel__input::placeholder {
-    font-size: 0.62rem;
+    font-size: 0.84rem;
+    line-height: 1.4;
+  }
+  .chat-panel__icon-btn {
+    width: 40px;
+    height: 40px;
+  }
+  .chat-panel__send {
+    width: 44px;
+    height: 44px;
+  }
+  .chat-panel__send.is-stop {
+    width: 36px;
+    height: 36px;
   }
 }
 
@@ -5985,12 +6006,18 @@ function onRateChange(event: Event): void {
 
 @media (max-width: 720px) {
   .chat-panel {
-    height: calc(var(--app-vvh, 100vh) - 118px);
     border-radius: 0;
     border-inline: 0;
+    gap: 0;
+  }
+  .chat-panel__toolbar {
+    padding: 4px 6px;
+  }
+  .chat-panel__title-text {
+    font-size: 0.95rem;
   }
   .chat-panel__messages {
-    padding: 6px 6px 0;
+    padding: 8px 8px 0;
   }
   .chat-panel__dock {
     padding-bottom: calc(8px + env(safe-area-inset-bottom));
@@ -6371,7 +6398,7 @@ function onRateChange(event: Event): void {
 }
 
 /* Кнопки панели токенов — того же размера, что кнопки шапки чата
-   (.chat-panel__tool: 32x32, на телефоне 36x36), иначе панель выглядит мельче. */
+   (.chat-panel__tool: 32×32, на телефоне 40×40). */
 .chat-panel__tokenbar .chat-panel__token-btn {
   min-height: 32px;
   padding: 0 10px;
@@ -6394,18 +6421,20 @@ function onRateChange(event: Event): void {
 
 @media (max-width: 720px) {
   .chat-panel__tokenbar .chat-panel__token-btn {
-    min-height: 36px;
-    padding: 0 11px;
+    min-height: 40px;
+    padding: 0 12px;
+    font-size: 0.88rem;
   }
 
   .chat-panel__tokenbar .chat-panel__token-btn.is-icon {
-    width: 36px;
-    height: 36px;
+    width: 40px;
+    height: 40px;
   }
 
   .chat-panel__tokenbar .chat-panel__token-toggle {
-    min-height: 36px;
-    padding: 0 11px;
+    min-height: 40px;
+    padding: 0 12px;
+    font-size: 0.88rem;
   }
 }
 
@@ -6997,8 +7026,28 @@ function onRateChange(event: Event): void {
 
 @media (max-width: 720px) {
   .chat-panel__tool {
-    width: 36px;
-    height: 36px;
+    width: 40px;
+    height: 40px;
+  }
+  .chat-panel__tool.is-text {
+    min-height: 40px;
+    font-size: 0.88rem;
+  }
+  .chat-panel__action {
+    width: 32px;
+    height: 32px;
+  }
+  .chat-panel__muted {
+    font-size: 0.9rem;
+  }
+}
+
+@media (min-width: 1100px) {
+  .chat-panel__title-text {
+    font-size: 1rem;
+  }
+  .chat-panel__messages {
+    padding-inline: clamp(16px, 5vw, 72px);
   }
 }
 

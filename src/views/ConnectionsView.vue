@@ -1075,6 +1075,17 @@ function addMixRoute(): void {
   .pair {
     grid-template-columns: minmax(0, 1fr);
   }
+  .card {
+    padding: 12px;
+  }
+  .card h3,
+  .block-title {
+    font-size: 1.05rem;
+  }
+  .actions button,
+  .key-row button {
+    min-height: 40px;
+  }
 }
 .actions {
   display: flex;

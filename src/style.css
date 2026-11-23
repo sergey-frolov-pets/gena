@@ -175,10 +175,16 @@ label {
   transform: translateY(0);
 }
 
-@media (max-width: 640px) {
+@media (max-width: 720px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
   .tip-layer {
-    font-size: 11px;
-    padding: 4px 8px;
+    font-size: 13px;
+    padding: 6px 10px;
+    max-width: min(80vw, 280px);
   }
 }
 
