@@ -9,8 +9,9 @@
  */
 
 import { formatToken } from "./format";
-import { findOccurrences, replaceSpan, tokenSpans } from "./occurrences";
+import { replaceSpan, tokenSpans } from "./occurrences";
 import { normalizeFragment } from "./selection";
+import { findOfferSpans } from "./substitute";
 
 export interface PickEntry {
   name: string;
@@ -63,19 +64,12 @@ export function valueAtCaret<T extends PickEntry>(
 ): { start: number; end: number; entry: T } | null {
   const source = String(text ?? "");
   const at = Math.min(Math.max(Math.trunc(caret) || 0, 0), source.length);
-  let best: { start: number; end: number; entry: T } | null = null;
-  for (const entry of entries) {
-    const forms = [entry.value, ...(entry.variants ?? [])];
-    for (const form of forms) {
-      for (const hit of findOccurrences(source, form)) {
-        if (at < hit.start || at > hit.end) continue;
-        if (!best || hit.end - hit.start > best.end - best.start) {
-          best = { start: hit.start, end: hit.end, entry };
-        }
-      }
-    }
-  }
-  return best;
+  const hit = findOfferSpans(source, entries).find((span) => at >= span.start && at <= span.end);
+  if (!hit) return null;
+  const key = normalizeFragment(hit.name);
+  const entry = entries.find((item) => normalizeFragment(item.name) === key);
+  if (!entry) return null;
+  return { start: hit.start, end: hit.end, entry };
 }
 
 /**

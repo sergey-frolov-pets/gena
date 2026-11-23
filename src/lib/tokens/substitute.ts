@@ -159,3 +159,59 @@ export function valuesToTokens(
 export function countValueHits(text: string, entries: TokenSource[]): number {
   return valuesToTokens(text, entries).hits;
 }
+
+export interface OfferSpan {
+  start: number;
+  end: number;
+  name: string;
+}
+
+/**
+ * Места, где значение справочника ещё написано открытым текстом.
+ *
+ * Те же иголки, что и при отправке: значение, варианты и падежи, если их
+ * уже дописали в `variants`. Готовый ⟦токен⟧ не предлагаем заново.
+ * Координаты — в исходной строке, без переписывания скобок.
+ */
+export function findOfferSpans(text: string, entries: readonly TokenSource[]): OfferSpan[] {
+  const source = String(text ?? "");
+  if (!source) return [];
+  const needles = buildNeedles(entries as TokenSource[]);
+  if (needles.length === 0) return [];
+  const spans = parseTokens(source).map((token) => [token.start, token.end] as const);
+  const lower = source.toLowerCase();
+  const sameLength = lower.length === source.length;
+  const found: OfferSpan[] = [];
+  let i = 0;
+  let spanIndex = 0;
+  while (i < source.length) {
+    const span = spans[spanIndex];
+    if (span && i >= span[0] && i < span[1]) {
+      i = span[1];
+      spanIndex += 1;
+      continue;
+    }
+    let replaced = false;
+    if (isFreeStart(source, i)) {
+      for (const needle of needles) {
+        const end = i + needle.raw.length;
+        if (end > source.length) continue;
+        if (spans.some((item) => i < item[1] && end > item[0])) continue;
+        const slice = source.slice(i, end);
+        if (needle.caseSensitive) {
+          if (slice !== needle.raw) continue;
+        } else {
+          const chunk = sameLength ? lower.slice(i, end) : slice.toLowerCase();
+          if (chunk !== needle.needle) continue;
+        }
+        if (!isFreeEnd(source, end)) continue;
+        found.push({ start: i, end, name: needle.name });
+        i = end;
+        replaced = true;
+        break;
+      }
+    }
+    if (!replaced) i += 1;
+  }
+  return found;
+}

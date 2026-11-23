@@ -45,4 +45,18 @@ describe("highlightSegments", () => {
   it("пустой текст — пустой список", () => {
     expect(highlightSegments("", false, restore)).toEqual([]);
   });
+
+  it("открытое значение подсвечивается отдельно от токена", () => {
+    const text = "перевёл вклад ВТБ вчера";
+    const start = text.indexOf("вклад ВТБ");
+    const parts = highlightSegments(text, false, restore, [
+      { start, end: start + "вклад ВТБ".length },
+    ]);
+    expect(parts).toEqual([
+      { text: "перевёл ", token: false },
+      { text: "вклад ВТБ", token: false, offer: true },
+      { text: " вчера", token: false },
+    ]);
+    expect(segmentsText(parts)).toBe(text);
+  });
 });
