@@ -522,6 +522,23 @@ const dialogTokenNames = computed(() => {
   return names;
 });
 
+/**
+ * Что предложить в плашке: записи справочника и токены, которые уже стоят
+ * в этом диалоге. Сгенерированных основ («имя1», «компания2») здесь нет.
+ * Имена диалога, которых нет в справочнике, идут следом.
+ */
+const nameSuggestions = computed(() => {
+  const seen = new Set(tokenNames.value.map((name) => name.toLocaleLowerCase()));
+  const extra = dialogTokenNames.value.filter((name) => !seen.has(name.toLocaleLowerCase()));
+  return [...tokenNames.value, ...extra];
+});
+
+/** Имя есть в справочнике — иначе это токен только этого диалога. */
+function suggestionFromDictionary(name: string): boolean {
+  const key = name.toLocaleLowerCase();
+  return tokenNames.value.some((item) => item.toLocaleLowerCase() === key);
+}
+
 /** Имена, заданные только в этом диалоге: справочник их не знает. */
 const pendingAliases = ref<{ name: string; source: string }[]>([]);
 
@@ -4720,12 +4737,13 @@ function onRateChange(event: Event): void {
               <path d="M12 5v14M5 12h14" />
             </svg>
           </button>
-          <span v-if="tokenNames.length > 0" class="chat-panel__selection-suggest">
+          <span v-if="nameSuggestions.length > 0" class="chat-panel__selection-suggest">
             <button
-              v-for="name in tokenNames"
+              v-for="name in nameSuggestions"
               :key="name"
               type="button"
               class="chat-panel__selection-sug"
+              :class="{ 'is-used': !suggestionFromDictionary(name) }"
               @click="feedName = name"
             >
               ⟦{{ name }}⟧
@@ -5328,12 +5346,13 @@ function onRateChange(event: Event): void {
                 <path d="M12 5v14M5 12h14" />
               </svg>
             </button>
-            <span v-if="tokenNames.length > 0" class="chat-panel__selection-suggest">
+            <span v-if="nameSuggestions.length > 0" class="chat-panel__selection-suggest">
               <button
-                v-for="name in tokenNames"
+                v-for="name in nameSuggestions"
                 :key="name"
                 type="button"
                 class="chat-panel__selection-sug"
+                :class="{ 'is-used': !suggestionFromDictionary(name) }"
                 @click="selectionName = name"
               >
                 ⟦{{ name }}⟧
