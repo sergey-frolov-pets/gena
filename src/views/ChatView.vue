@@ -98,6 +98,7 @@ import { answerElapsed, formatClock, formatDuration } from "@/lib/time";
 import { capabilitiesOf } from "@/lib/transports";
 import { isBusySession as isSessionBusy, liveSessionCount, pickRunnable } from "@/lib/turn-queue";
 import { useSessionTabs } from "@/composables/useSessionTabs";
+import { tabAfterClose } from "@/turn/tabs";
 import { useLiveTurns } from "@/composables/useLiveTurns";
 import {
   AGENT_STORAGE_KEY,
@@ -2576,6 +2577,24 @@ function onTabClick(id: string): void {
   void openSession(id);
 }
 
+/**
+ * Крестик на вкладке. Если закрыт открытый диалог — сразу открываем соседний:
+ * справа, у крайней справа — слева. Последняя вкладка даёт чистый новый диалог.
+ * Закрытие чужой вкладки текущий диалог не трогает.
+ */
+function closeChatTab(id: string): void {
+  const ids = recentTabs.value.map((session) => session.id);
+  const wasOpen = id === activeSessionId.value;
+  forgetTab(id);
+  if (!wasOpen) return;
+  const next = tabAfterClose(ids, id);
+  if (next) {
+    void openSession(next);
+    return;
+  }
+  newSession();
+}
+
 /** Диалог, у которого подтверждаем удаление. */
 const confirmDeleteId = ref("");
 /** Ответ, который подтверждаем перегенерировать вместе с хвостом. */
@@ -4421,7 +4440,7 @@ function onRateChange(event: Event): void {
       :active-id="activeSessionId"
       :busy-ids="busySessionIds"
       @open="onTabClick"
-      @close="forgetTab"
+      @close="closeChatTab"
       @title="showTitle"
     />
 

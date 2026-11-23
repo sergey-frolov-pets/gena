@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { closeTab, openTab, readIdList, visibleTabs, writeIdList, type IdListStore } from "./tabs";
+import {
+  closeTab,
+  openTab,
+  readIdList,
+  tabAfterClose,
+  visibleTabs,
+  writeIdList,
+  type IdListStore,
+} from "./tabs";
 
 function store(initial: Record<string, string> = {}): IdListStore & { writes: string[] } {
   const map = new Map(Object.entries(initial));
@@ -81,6 +89,26 @@ describe("closeTab", () => {
   it("повторное закрытие не дублирует id", () => {
     const next = closeTab({ tabIds: ["a"], hiddenIds: ["a"] }, "a");
     expect(next.hiddenIds).toEqual(["a"]);
+  });
+});
+
+describe("tabAfterClose", () => {
+  it("открывает вкладку справа", () => {
+    expect(tabAfterClose(["a", "b", "c"], "b")).toBe("c");
+    expect(tabAfterClose(["a", "b", "c"], "a")).toBe("b");
+  });
+
+  it("у крайней справа берёт левую", () => {
+    expect(tabAfterClose(["a", "b", "c"], "c")).toBe("b");
+  });
+
+  it("последняя вкладка — сигнал создать новый диалог", () => {
+    expect(tabAfterClose(["a"], "a")).toBeNull();
+    expect(tabAfterClose([], "a")).toBeNull();
+  });
+
+  it("неизвестная вкладка оставляет первую из полоски", () => {
+    expect(tabAfterClose(["a", "b"], "gone")).toBe("a");
   });
 });
 

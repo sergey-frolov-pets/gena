@@ -64,6 +64,18 @@ export function closeTab(lists: TabLists, id: string): TabLists {
 }
 
 /**
+ * Какую вкладку открыть после закрытия `closedId`.
+ * Порядок — как в полоске слева направо. Правый сосед, если его нет — левый.
+ * `null` значит, что полоска опустела и нужен новый диалог.
+ * Неизвестная вкладка не двигает выбор: остаётся первая из оставшихся.
+ */
+export function tabAfterClose(ids: readonly string[], closedId: string): string | null {
+  const index = ids.indexOf(closedId);
+  if (index < 0) return ids[0] ?? null;
+  return ids[index + 1] ?? ids[index - 1] ?? null;
+}
+
+/**
  * Что видно в полоске: сначала открытые вкладки, затем активный диалог,
  * дальше свежие по времени. Закрытая вкладка сама не возвращается.
  */
