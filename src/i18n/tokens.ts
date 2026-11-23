@@ -66,6 +66,9 @@ const en = {
   "chat.tokenModeOn": "Session stores tokens; values are substituted by the dictionary.",
   "chat.tokenModeOff": "Session stores plain text again.",
   "chat.tokenModeEmpty": "The dictionary is empty — add a match in the table or from a selection.",
+  "chat.tokenModeLockedTitle": "Protection stays on",
+  "chat.tokenModeLocked":
+    "This chat has at least one value–token pair. Protection cannot be turned off while that pair exists: otherwise the history would store the real values.",
   "chat.tokenModeNoEntries":
     "Token mode is on. The dictionary is empty for now — select text in the input field and press “Make token”, or add a match in the table.",
   "chat.tokenGuard":
@@ -199,6 +202,9 @@ const ru = {
   "chat.tokenModeOn": "Диалог хранит токены; значения подставляет справочник.",
   "chat.tokenModeOff": "Диалог снова хранит обычный текст.",
   "chat.tokenModeEmpty": "Справочник пуст — добавьте соответствие в таблице или выделением в поле ввода.",
+  "chat.tokenModeLockedTitle": "Защиту нельзя снять",
+  "chat.tokenModeLocked":
+    "В этом диалоге указана хотя бы одна пара «значение — токен». Пока она есть, защищённый режим нельзя выключить: иначе в историю попадут настоящие значения.",
   "chat.tokenModeNoEntries":
     "Режим токенов включён. Справочник пока пуст — выделите текст в поле ввода и нажмите «Сделать токеном» или добавьте соответствие в таблице.",
   "chat.tokenGuard":
@@ -312,6 +318,9 @@ const de = {
   "tokens.transfer.apply": "Anwenden",
   "chat.tokenMode": "Token-Modus",
   "chat.tokenModeEmpty": "Das Wörterbuch ist leer — zuerst Einträge anlegen.",
+  "chat.tokenModeLockedTitle": "Schutz bleibt an",
+  "chat.tokenModeLocked":
+    "In diesem Chat gibt es mindestens ein Paar aus Wert und Token. Den Schutz kann man nicht abschalten, solange dieses Paar besteht: sonst stünden die echten Werte in der Historie.",
   "chat.viewTokens": "Tokens zeigen",
   "chat.viewData": "Werte zeigen",
   "chat.tokensShort": "Tokens",
@@ -421,6 +430,9 @@ const es = {
   "tokens.transfer.apply": "Aplicar",
   "chat.tokenMode": "Modo token",
   "chat.tokenModeEmpty": "El diccionario está vacío: añade entradas primero.",
+  "chat.tokenModeLockedTitle": "La protección sigue activa",
+  "chat.tokenModeLocked":
+    "Este chat tiene al menos un par valor–token. No se puede quitar la protección mientras exista ese par: si no, el historial guardaría los valores reales.",
   "chat.viewTokens": "Mostrar tokens",
   "chat.viewData": "Mostrar valores",
   "chat.tokensShort": "Tokens",
@@ -530,6 +542,9 @@ const pt = {
   "tokens.transfer.apply": "Aplicar",
   "chat.tokenMode": "Modo token",
   "chat.tokenModeEmpty": "O dicionário está vazio — adicione entradas primeiro.",
+  "chat.tokenModeLockedTitle": "A proteção continua ligada",
+  "chat.tokenModeLocked":
+    "Este chat tem pelo menos um par valor–token. A proteção não pode ser desligada enquanto esse par existir: caso contrário, o histórico guardaria os valores reais.",
   "chat.viewTokens": "Mostrar tokens",
   "chat.viewData": "Mostrar valores",
   "chat.tokensShort": "Tokens",
@@ -637,6 +652,9 @@ const zh = {
   "tokens.transfer.apply": "应用",
   "chat.tokenMode": "令牌模式",
   "chat.tokenModeEmpty": "词典为空，请先添加条目。",
+  "chat.tokenModeLockedTitle": "保护保持开启",
+  "chat.tokenModeLocked":
+    "此对话至少有一对「值—令牌」。只要这对还在，就不能关闭保护，否则历史记录会保存真实的值。",
   "chat.viewTokens": "显示令牌",
   "chat.viewData": "显示值",
   "chat.tokensShort": "令牌",
@@ -743,6 +761,9 @@ const ja = {
   "tokens.transfer.apply": "適用",
   "chat.tokenMode": "トークンモード",
   "chat.tokenModeEmpty": "辞書が空です。先に項目を追加してください。",
+  "chat.tokenModeLockedTitle": "保護はオフにできません",
+  "chat.tokenModeLocked":
+    "このチャットには値とトークンの組が少なくとも一つあります。その組があるあいだは保護を解除できません。解除すると履歴に実際の値が保存されます。",
   "chat.viewTokens": "トークンを表示",
   "chat.viewData": "値を表示",
   "chat.tokensShort": "トークン",
@@ -851,6 +872,9 @@ const hi = {
   "tokens.transfer.apply": "लागू करें",
   "chat.tokenMode": "टोकन मोड",
   "chat.tokenModeEmpty": "शब्दकोश खाली है — पहले प्रविष्टियाँ जोड़ें।",
+  "chat.tokenModeLockedTitle": "सुरक्षा चालू रहेगी",
+  "chat.tokenModeLocked":
+    "इस चैट में कम से कम एक मान–टोकन जोड़ी है। जब तक वह जोड़ी है, सुरक्षा बंद नहीं की जा सकती: अन्यथा इतिहास में असली मान लिख जाएँगे।",
   "chat.viewTokens": "टोकन दिखाएँ",
   "chat.viewData": "मान दिखाएँ",
   "chat.tokensShort": "टोकन",
@@ -959,6 +983,9 @@ const ar = {
   "tokens.transfer.apply": "تطبيق",
   "chat.tokenMode": "وضع الرموز",
   "chat.tokenModeEmpty": "القاموس فارغ — أضف إدخالات أولًا.",
+  "chat.tokenModeLockedTitle": "تبقى الحماية مفعّلة",
+  "chat.tokenModeLocked":
+    "في هذه المحادثة زوج واحد على الأقل من القيمة والرمز. لا يمكن إيقاف الحماية ما دام هذا الزوج موجودًا، وإلا حُفظت القيم الحقيقية في السجل.",
   "chat.viewTokens": "إظهار الرموز",
   "chat.viewData": "إظهار القيم",
   "chat.tokensShort": "الرموز",

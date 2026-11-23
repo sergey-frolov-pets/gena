@@ -165,7 +165,7 @@ import {
   visibleText,
 } from "@/lib/tokens/display";
 import { contextForms, restoreValuesWithCase } from "@/lib/tokens/context-case";
-import { tokenModeActive } from "@/lib/tokens/mode-intent";
+import { tokenModeActive, tokenModeCanTurnOff } from "@/lib/tokens/mode-intent";
 import { highlightSegments, markChatHtml } from "@/lib/tokens/highlight";
 import { findOfferSpans } from "@/lib/tokens/substitute";
 import { withDeclensions } from "@/lib/tokens/morph/service";
@@ -295,6 +295,9 @@ function markedContent(text: string, messageId: string): string {
 /** Переключение уже идёт: второй клик не должен запускать его заново. */
 const tokenSwitching = ref(false);
 
+/** Объяснение, почему защиту этого диалога снять нельзя. */
+const tokenLockOpen = ref(false);
+
 async function toggleTokenMode(): Promise<void> {
   if (busy.value || tokenSwitching.value) return;
   error.value = "";
@@ -302,16 +305,23 @@ async function toggleTokenMode(): Promise<void> {
   const session = activeSession.value;
   const next = !isTokenSession(session);
   tokenSwitching.value = true;
-  // Справочник нужен только для текста уведомления («пуст» или нет).
-  // Грузим его параллельно: флаг режима ставится сразу, без ожидания IndexedDB.
-  const tokensReady = ensureTokens();
-  const noticeFor = () =>
-    showNotice(
-      next
-        ? t(tokenEntries.value.length > 0 ? "chat.tokenModeOn" : "chat.tokenModeNoEntries")
-        : t("chat.tokenModeOff"),
-    );
   try {
+    // Снятие защиты смотрит справочник заранее: при хотя бы одной паре
+    // режим не выключается, человеку показывают причину.
+    if (!next) {
+      await ensureTokens();
+      if (!tokenModeCanTurnOff(tokenEntries.value.length)) {
+        tokenLockOpen.value = true;
+        return;
+      }
+    }
+    const tokensReady = ensureTokens();
+    const noticeFor = () =>
+      showNotice(
+        next
+          ? t(tokenEntries.value.length > 0 ? "chat.tokenModeOn" : "chat.tokenModeNoEntries")
+          : t("chat.tokenModeOff"),
+      );
     if (!session) {
       pendingTokenMode.value = next;
       await tokensReady;
@@ -4282,7 +4292,7 @@ function onRateChange(event: Event): void {
 <template>
   <section class="chat-panel" :class="{ 'is-tokens': isTokenSession(activeSession) }">
     <div v-if="isTokenSession(activeSession)" class="chat-panel__watermark" aria-hidden="true">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+      <svg v-for="n in 3" :key="n" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
         <rect x="4" y="10" width="16" height="10" rx="2.4" />
         <path d="M8 10V7a4 4 0 0 1 8 0v3" />
         <circle cx="12" cy="15" r="1.4" />
@@ -5475,6 +5485,14 @@ function onRateChange(event: Event): void {
       @close="titleShown = ''"
     />
 
+    <TextModal
+      :open="tokenLockOpen"
+      :title="t('chat.tokenModeLockedTitle')"
+      :text="t('chat.tokenModeLocked')"
+      :close-label="t('chat.close')"
+      @close="tokenLockOpen = false"
+    />
+
     <ConfirmModal
       :open="selectionConfirm !== null"
       :title="t('chat.tokens.replaceTitle')"
@@ -6514,17 +6532,32 @@ function onRateChange(event: Event): void {
   position: absolute;
   inset: 0;
   z-index: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   pointer-events: none;
   color: var(--tokens-mark);
-  opacity: 0.28;
+  opacity: 0.42;
 }
 
 .chat-panel__watermark svg {
-  width: min(22%, 120px);
+  position: absolute;
+  width: min(46%, 280px);
   height: auto;
+}
+
+.chat-panel__watermark svg:nth-child(1) {
+  top: 12%;
+  left: 6%;
+}
+
+.chat-panel__watermark svg:nth-child(2) {
+  top: 38%;
+  right: 4%;
+  width: min(58%, 360px);
+}
+
+.chat-panel__watermark svg:nth-child(3) {
+  bottom: 6%;
+  left: 22%;
+  width: min(40%, 240px);
 }
 
 :deep(.md-token),
