@@ -6534,7 +6534,7 @@ function onRateChange(event: Event): void {
   z-index: 0;
   pointer-events: none;
   color: var(--tokens-mark);
-  opacity: 0.42;
+  opacity: 0.16;
 }
 
 .chat-panel__watermark svg {
