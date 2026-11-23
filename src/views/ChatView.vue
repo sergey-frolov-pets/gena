@@ -119,12 +119,11 @@ import {
   saveToken,
   tokenEntries,
   tokenEntryByName,
-  tokenLookup,
   tokensLoaded,
   TokenError,
   type TokenEntry,
 } from "@/lib/tokens/registry";
-import { formatToken, parseTokens } from "@/lib/tokens/format";
+import { formatToken } from "@/lib/tokens/format";
 import { findSelectionEntry, replaceRange, suggestTokenNames } from "@/lib/tokens/selection";
 import { replaceSelectionWithToken, replaceTokenWithValue } from "@/lib/tokens/message-replace";
 import {
@@ -133,6 +132,7 @@ import {
   replaceSpan,
   stepIndex,
 } from "@/lib/tokens/occurrences";
+import { draftText, toDraftCaret, toVisibleCaret, visibleText } from "@/lib/tokens/display";
 import { tokenModeActive } from "@/lib/tokens/mode-intent";
 import { loadMorph } from "@/lib/tokens/morph/service";
 import { forAgent, historyForAgent, tokensReady } from "@/lib/tokens/outgoing";
@@ -304,7 +304,10 @@ function toggleTokenPick(): void {
 /** Вставить канон `⟦имя⟧` в позицию курсора и вернуть фокус в поле. */
 function insertTokenName(name: string): void {
   const el = composerEl.value;
-  const caret = el && el.selectionStart !== null ? el.selectionStart : draft.value.length;
+  const caret =
+    el && el.selectionStart !== null
+      ? toDraftOffset(el.value, el.selectionStart)
+      : draft.value.length;
   const trigger = tokenTrigger.value;
   const result = trigger
     ? applyTokenPick(draft.value, caret, name, trigger)
@@ -316,8 +319,9 @@ function insertTokenName(name: string): void {
   void nextTick(() => {
     const area = composerEl.value;
     if (!area) return;
+    const pos = toVisibleOffset(draft.value, result.caret);
     area.focus();
-    area.setSelectionRange(result.caret, result.caret);
+    area.setSelectionRange(pos, pos);
   });
 }
 
@@ -327,9 +331,20 @@ function onComposerInput(event: Event): void {
   if (selectionRange.value) clearSelection();
   if (occurrenceTotal.value > 0) finishOccurrences();
   const el = event.target as HTMLTextAreaElement | null;
-  const caret = el && el.selectionStart !== null ? el.selectionStart : draft.value.length;
+  const typed = el?.value ?? draft.value;
+  const visibleCaret = el && el.selectionStart !== null ? el.selectionStart : typed.length;
+  const caret = toDraftOffset(typed, visibleCaret);
   tokenTrigger.value = findTokenTrigger(draft.value, caret);
   if (tokenTrigger.value) void ensureTokens();
+  if (!displayValues.value) return;
+  // Поле показывает значения: черновик перекодирован в токены, длины разошлись —
+  // возвращаем каретку на то же место видимого текста.
+  void nextTick(() => {
+    const area = composerEl.value;
+    if (!area || area.value === typed) return;
+    const pos = Math.min(toVisibleOffset(draft.value, caret), area.value.length);
+    area.setSelectionRange(pos, pos);
+  });
 }
 
 /** Открыть выезжающую таблицу соответствий прямо в чате. */
@@ -421,13 +436,15 @@ function onComposerSelect(): void {
     finishOccurrences();
     return;
   }
-  const start = el.selectionStart ?? 0;
-  const end = el.selectionEnd ?? 0;
-  if (end <= start) {
+  const startVisible = el.selectionStart ?? 0;
+  const endVisible = el.selectionEnd ?? 0;
+  if (endVisible <= startVisible) {
     // Выделения нет — закрываем серию только если плашка и была про серию.
     if (occurrenceTotal.value === 0) clearSelection();
     return;
   }
+  const start = toDraftOffset(el.value, startVisible);
+  const end = toDraftOffset(el.value, endVisible);
   const text = draft.value.slice(start, end).trim();
   if (text.length < 2) {
     clearSelection();
@@ -718,7 +735,10 @@ async function highlightOccurrence(): Promise<void> {
     if (!area) return;
     occurrencePicking = true;
     area.focus();
-    area.setSelectionRange(target.start, target.end);
+    area.setSelectionRange(
+      toVisibleOffset(draft.value, target.start),
+      toVisibleOffset(draft.value, target.end),
+    );
     window.setTimeout(() => {
       occurrencePicking = false;
     }, 260);
@@ -867,8 +887,9 @@ async function applySelectionToken(name: string): Promise<void> {
   await nextTick();
   const area = composerEl.value;
   if (area) {
+    const pos = toVisibleOffset(draft.value, result.caret);
     area.focus();
-    area.setSelectionRange(result.caret, result.caret);
+    area.setSelectionRange(pos, pos);
   }
   // Остальные вхождения того же значения — сразу под рукой.
   startOccurrences(needle, name);
@@ -1006,6 +1027,33 @@ const viewValues = computed<boolean>({
     void setSessionTokenView(id, value ? "values" : "tokens");
   },
 });
+
+/**
+ * Поле ввода показывает то же, что и лента: значения или токены.
+ *
+ * Черновик при этом всегда хранит токены: он уходит в localStorage, в очередь
+ * реплик и в историю — значениям там не место. Перекодируем на входе и выходе
+ * поля, поэтому все операции с текстом (замены, вхождения, ⟦подсказки⟧) видят
+ * один и тот же черновик независимо от того, что человек читает на экране.
+ */
+const displayValues = computed(() => isTokenSession(activeSession.value) && viewValues.value);
+
+const composerText = computed<string>({
+  get: () => visibleText(draft.value, displayValues.value),
+  set: (value) => {
+    draft.value = draftText(value, displayValues.value);
+  },
+});
+
+/** Смещение в видимом тексте поля → смещение в черновике (там всегда токены). */
+function toDraftOffset(visible: string, offset: number): number {
+  return toDraftCaret(visible, offset, displayValues.value);
+}
+
+/** Смещение в черновике → смещение в видимом тексте поля. */
+function toVisibleOffset(tokenText: string, offset: number): number {
+  return toVisibleCaret(tokenText, offset, displayValues.value);
+}
 /* ── Ходы по диалогам: у каждой сессии свой ход и своя очередь ─────────── */
 
 const {
@@ -1841,18 +1889,6 @@ const outgoingDraft = computed(() =>
     ? replaceValues(draft.value)
     : { text: draft.value, hits: 0 },
 );
-
-/** Уникальные имена токенов в том виде, в каком их получит агент. */
-const outgoingTokens = computed(() => {
-  if (!isTokenSession(activeSession.value)) return [];
-  return [...new Set(parseTokens(outgoingDraft.value.text).map((token) => token.name))];
-});
-
-/** Подсказка к чипу: значение, если человек как раз смотрит значения. */
-function tokenChipTitle(name: string): string {
-  const value = viewValues.value ? tokenLookup(name) : undefined;
-  return value ? `${value} → ⟦${name}⟧` : `⟦${name}⟧`;
-}
 
 const canSend = computed(
   () =>
@@ -4012,7 +4048,7 @@ function onRateChange(event: Event): void {
         <button
           v-if="activeSession"
           type="button"
-          class="chat-panel__token-btn is-view"
+          class="chat-panel__token-btn is-icon is-view"
           v-tip="viewValues ? t('chat.viewTokens') : t('chat.viewData')"
           :aria-label="viewValues ? t('chat.viewTokens') : t('chat.viewData')"
           :aria-pressed="!viewValues"
@@ -4023,7 +4059,6 @@ function onRateChange(event: Event): void {
             <circle cx="12" cy="12" r="2.6" />
             <path v-if="viewValues" d="M4 4l16 16" />
           </svg>
-          <span>{{ viewValues ? t("chat.viewData") : t("chat.viewTokens") }}</span>
         </button>
         <button
           type="button"
@@ -4080,41 +4115,6 @@ function onRateChange(event: Event): void {
           @change="onFilesPicked"
         />
         <div
-          v-if="isTokenSession(activeSession)"
-          class="chat-panel__token-draft"
-          role="status"
-          :aria-label="t('chat.tokens.outgoing')"
-        >
-          <span class="chat-panel__token-draft-label">{{ t("chat.tokens.outgoing") }}</span>
-          <button
-            v-for="name in outgoingTokens"
-            :key="name"
-            type="button"
-            class="chat-panel__token-chip"
-            :title="tokenChipTitle(name)"
-            @click="openDictionary"
-          >
-            ⟦{{ name }}⟧
-          </button>
-          <span v-if="outgoingTokens.length === 0" class="chat-panel__token-draft-empty">
-            {{ t("chat.tokens.outgoingEmpty") }}
-          </span>
-          <span v-else-if="outgoingDraft.hits > 0" class="chat-panel__token-draft-hits">
-            {{ t("chat.tokens.outgoingHits", { count: outgoingDraft.hits }) }}
-          </span>
-          <button
-            type="button"
-            class="chat-panel__token-draft-add is-icon"
-            v-tip="t('chat.tokens.matches')"
-            :aria-label="t('chat.tokens.matches')"
-            @click="openDictionary"
-          >
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-          </button>
-        </div>
-        <div
           class="chat-panel__composer-box"
           :class="{ 'is-recording': dictationListening, 'is-multiline': composerMultiline }"
         >
@@ -4170,7 +4170,7 @@ function onRateChange(event: Event): void {
           </div>
           <textarea
             ref="composerEl"
-            v-model="draft"
+            v-model="composerText"
             class="chat-panel__input"
             rows="1"
             enterkeyhint="enter"
@@ -4857,77 +4857,6 @@ function onRateChange(event: Event): void {
   border-color: var(--accent);
 }
 
-/* Строка «что уйдёт агенту»: чипы токенов и счётчик автозамен. */
-.chat-panel__token-draft {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 6px;
-  border: 1px dashed color-mix(in srgb, var(--accent) 38%, var(--border));
-  border-radius: 10px;
-}
-
-.chat-panel__token-draft-label {
-  font-size: 0.72rem;
-  color: var(--muted);
-}
-
-.chat-panel__token-chip {
-  padding: 2px 6px;
-  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
-  border-radius: 999px;
-  background: var(--panel);
-  color: var(--accent);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.74rem;
-  line-height: 1.2;
-  overflow-wrap: anywhere;
-  cursor: pointer;
-}
-
-.chat-panel__token-chip:hover,
-.chat-panel__token-chip:focus-visible {
-  border-color: var(--accent);
-}
-
-.chat-panel__token-draft-empty {
-  font-size: 0.72rem;
-  color: var(--muted);
-}
-
-.chat-panel__token-draft-hits {
-  font-size: 0.72rem;
-  color: var(--ok);
-}
-
-.chat-panel__token-draft-add {
-  margin-inline-start: auto;
-  padding: 2px 7px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--panel);
-  color: var(--muted);
-  font: inherit;
-  font-size: 0.72rem;
-  cursor: pointer;
-}
-
-.chat-panel__token-draft-add.is-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 20px;
-  padding: 0;
-}
-
-.chat-panel__token-draft-add:hover,
-.chat-panel__token-draft-add:focus-visible {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
 /* Скрепка и агент в один ряд, пока поле в одну строку. */
 .chat-panel__composer-lead {
   display: flex;
@@ -5499,9 +5428,9 @@ function onRateChange(event: Event): void {
   align-items: center;
   gap: 2px;
   padding: 2px 4px;
-  border: 1px solid var(--tokens-edge);
+  border: 1px solid transparent;
   border-radius: 10px;
-  background: var(--panel-2);
+  background: transparent;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -5542,15 +5471,6 @@ function onRateChange(event: Event): void {
 .chat-panel__token-toggle:focus-visible {
   border-color: var(--accent);
   color: var(--accent);
-}
-
-/* Переключатель «данные ⇄ токены»: иконка + подпись, чтобы не искать глаз. */
-.chat-panel__token-btn.is-view {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  flex: 0 0 auto;
-  white-space: nowrap;
 }
 
 .chat-panel__token-btn {
