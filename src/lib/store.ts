@@ -28,6 +28,7 @@ import {
 import { openAgentKey, sealAgentKey } from "@/crypto/agent-key-cipher";
 import { clearSnapshot } from "@/storage/snapshot";
 import { replaceValues, restoreValues } from "@/lib/tokens/registry";
+import { expandDialogAliases, upsertAlias } from "@/lib/tokens/dialog-alias";
 import { normalizeTags } from "@/lib/session-tags";
 import { newId } from "@/lib/id";
 
@@ -256,7 +257,10 @@ export async function setSessionTokenMode(
   for (const message of stored) {
     if (message.kind && message.kind !== "text") continue;
     if (!message.content) continue;
-    const content = enabled ? replaceValues(message.content).text : restoreValues(message.content);
+    const plain = enabled
+      ? message.content
+      : expandDialogAliases(message.content, session.tokenAliases ?? []);
+    const content = enabled ? replaceValues(plain).text : restoreValues(plain);
     if (content === message.content) continue;
     const updated: Message = { ...message, content };
     await putMessage(updated);
@@ -284,6 +288,21 @@ export async function setSessionTokenView(
   await loadSessions();
 }
 
+/** Имя токена только в этом диалоге. Запись справочника не меняется. */
+export async function setSessionTokenAlias(
+  sessionId: string,
+  name: string,
+  source: string,
+): Promise<void> {
+  const session = sessions.value.find((s) => s.id === sessionId);
+  if (!session) return;
+  const next = upsertAlias(session.tokenAliases ?? [], name, source);
+  if (next.length > 0) session.tokenAliases = next;
+  else delete session.tokenAliases;
+  await putSession(toRaw(session));
+  await loadSessions();
+}
+
 /** Человек подтвердил в диалоге, что агенту уходят только токены. */
 export async function ackTokenSend(sessionId: string): Promise<void> {
   const session = sessions.value.find((s) => s.id === sessionId);
@@ -307,6 +326,7 @@ export async function duplicateSession(sessionId: string): Promise<Session | nul
     messageCount: source.messageCount,
     pinned: false,
     ...(source.tokenMode ? { tokenMode: true } : {}),
+    ...(source.tokenAliases?.length ? { tokenAliases: source.tokenAliases.map((item) => ({ ...item })) } : {}),
     ...(source.tags ? { tags: [...source.tags] } : {}),
   };
   await putSession(copy);

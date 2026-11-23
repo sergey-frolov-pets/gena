@@ -122,6 +122,11 @@ export interface Session {
    * Дальше отправка идёт без повторного вопроса.
    */
   tokenSendAck?: boolean;
+  /**
+   * Имена токенов только этого диалога: `name` видно в тексте, `source` —
+   * запись справочника. Справочник не переименовывается.
+   */
+  tokenAliases?: { name: string; source: string }[];
 }
 
 /**
