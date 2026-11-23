@@ -158,7 +158,6 @@ import {
   draftOffsetForVisible,
   draftText,
   toDraftCaret,
-  toVisibleCaret,
   visibleOffsetForDraft,
   visibleText,
 } from "@/lib/tokens/display";
@@ -553,18 +552,27 @@ function onComposerSelect(): void {
   const to = draftOffsetForVisible(draft.value, endVisible, displayValues.value, formLookup(tokenForms));
   const lo = Math.min(from, to);
   const hi = Math.max(from, to);
-  let covered = describeFieldPick(draft.value, lo, declinedEntries.value);
-  if (!covered && lo > 0) covered = describeFieldPick(draft.value, lo - 1, declinedEntries.value);
-  if (covered && lo >= covered.start && hi <= covered.end) {
+  // Края из пробелов и перевода строки не входят в фрагмент: иначе выделение
+  // имени захватывает строку ниже и подсветка садится не на имя.
+  const rawSlice = draft.value.slice(lo, hi);
+  const lead = rawSlice.length - rawSlice.trimStart().length;
+  const trail = rawSlice.length - rawSlice.trimEnd().length;
+  const start = lo + lead;
+  const end = hi - trail;
+  const text = draft.value.slice(start, end);
+  let covered = describeFieldPick(draft.value, start, declinedEntries.value);
+  if (!covered && start > 0) covered = describeFieldPick(draft.value, start - 1, declinedEntries.value);
+  // Облачко — только когда выделено ровно подсвеченное слово.
+  // Кусок имени внутри длинного блока не раздуваем до текста ниже: иначе
+  // выделение снимается и править имя нельзя.
+  const coveredText = covered ? draft.value.slice(covered.start, covered.end).trim() : "";
+  if (covered && text === coveredText) {
     fieldPick.value = covered;
     clearSelection();
     return;
   }
-  // Выделение шире подсветки — плашка с именем, облачко не нужно.
+  // Выделение уже или шире подсветки — плашка с именем, облачко не нужно.
   fieldPick.value = null;
-  const start = toDraftOffset(el.value, startVisible);
-  const end = toDraftOffset(el.value, endVisible);
-  const text = draft.value.slice(start, end).trim();
   if (text.length < 2) {
     clearSelection();
     return;
@@ -1179,8 +1187,8 @@ async function highlightOccurrence(): Promise<void> {
     occurrencePicking = true;
     area.focus();
     area.setSelectionRange(
-      toVisibleOffset(draft.value, target.start),
-      toVisibleOffset(draft.value, target.end),
+      visibleOffsetForDraft(draft.value, target.start, displayValues.value, formLookup(tokenForms)),
+      visibleOffsetForDraft(draft.value, target.end, displayValues.value, formLookup(tokenForms)),
     );
     window.setTimeout(() => {
       occurrencePicking = false;
@@ -1655,7 +1663,10 @@ function toDraftOffset(visible: string, offset: number): number {
 
 /** Смещение в черновике → смещение в видимом тексте поля. */
 function toVisibleOffset(tokenText: string, offset: number): number {
-  return toVisibleCaret(tokenText, offset, displayValues.value);
+  if (!displayValues.value) return offset;
+  // Каретка по показанной форме, а не по канону справочника: канон длиннее
+  // формы, и каретка уезжает на текст следующей строки.
+  return visibleOffsetForDraft(tokenText, offset, true, formLookup(tokenForms));
 }
 /* ── Ходы по диалогам: у каждой сессии свой ход и своя очередь ─────────── */
 

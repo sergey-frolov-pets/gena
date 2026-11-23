@@ -117,6 +117,15 @@ describe("исходные формы в поле", () => {
     expect(visibleOffsetForDraft(draft, start, true, forms)).toBe(shown.indexOf("вклада"));
   });
 
+  it("конец токена приходится на конец формы, а не на текст следующей строки", () => {
+    const forms = () => "Орлов";
+    const draft = "⟦имя⟧\nдиректор";
+    const shown = visibleText(draft, true, forms);
+    const end = draft.indexOf("⟧") + 1;
+    expect(visibleOffsetForDraft(draft, end, true, forms)).toBe("Орлов".length);
+    expect(shown[visibleOffsetForDraft(draft, end, true, forms)]).toBe("\n");
+  });
+
   it("в режиме токенов форм не собирает", () => {
     const hits: Array<{ name: string; form: string }> = [];
     draftText("⟦вклад ВТБ⟧", false, (hit) => hits.push(hit));
