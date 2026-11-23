@@ -120,16 +120,20 @@ export function describeFieldPick<T extends PickEntry>(
  * Заменить найденный фрагмент на его вторую сторону.
  *
  * `token` — поставить ⟦имя⟧ вместо значения, `value` — вернуть значение
- * (отмена токенизации одного вхождения). Возвращает и позицию каретки,
- * чтобы поле не прыгало в конец.
+ * (отмена токенизации одного вхождения). `form` — исходная форма значения
+ * («вклада ВТБ»), с которой токен вставили: возвращаем её, а не канон
+ * справочника. Возвращает и позицию каретки, чтобы поле не прыгало в конец.
  */
 export function replaceFieldPick(
   text: string,
   pick: FieldPick,
   target: "token" | "value",
+  form?: string | null,
 ): { text: string; caret: number; changed: boolean } {
   const source = String(text ?? "");
-  const replacement = target === "token" ? formatToken(pick.name) : pick.value;
+  const original = String(form ?? "").trim() ? String(form) : pick.value;
+  const replacement = target === "token" ? formatToken(pick.name) : original;
+
   if (!replacement.trim()) return { text: source, caret: pick.end, changed: false };
   return {
     text: replaceSpan(source, pick.start, pick.end, replacement),

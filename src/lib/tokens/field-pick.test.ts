@@ -122,6 +122,13 @@ describe("replaceFieldPick", () => {
     expect(replaceFieldPick(text, pick, "token").text).toBe("клиент ⟦фио⟧");
   });
 
+  it("токен → значение: возвращает исходную форму, а не канон", () => {
+    const text = "перевёл ⟦банк⟧ дальше";
+    const pick = describeFieldPick(text, text.indexOf("⟦") + 2, entries)!;
+    const result = replaceFieldPick(text, pick, "value", "банка ВТБ");
+    expect(result.text).toBe("перевёл банка ВТБ дальше");
+  });
+
   it("пустое значение не пишем", () => {
     const pick = { tokenized: true, name: "банк", value: "  ", start: 0, end: 7, text: "⟦банк⟧" };
     const result = replaceFieldPick("⟦банк⟧", pick, "value");

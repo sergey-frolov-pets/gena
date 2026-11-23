@@ -131,6 +131,8 @@ import {
   replaceFieldPick,
   type FieldPick,
 } from "@/lib/tokens/field-pick";
+import { lookupForm, rememberForm, type FormStore } from "@/lib/tokens/forms";
+import { measureCaret, placeBubble } from "@/lib/tokens/caret-point";
 import {
   findOccurrences,
   replaceAllInText,
@@ -505,12 +507,24 @@ function onComposerSelectSoon(): void {
  * Что нашли под пальцем в поле ввода.
  *
  * На телефоне тап не создаёт выделения, поэтому плашка выделения молчит.
- * Ткнул в ⟦имя⟧ или в сумму — показываем над полем вторую сторону и крестик:
+ * Ткнул в ⟦имя⟧ или в сумму — над самим словом появляется облачко со второй
+ * стороной (токен или исходное значение) и крестиком справа от него:
  * «отменить токенизацию» для токена, «свернуть» для значения.
  */
 const fieldPick = ref<FieldPick | null>(null);
 /** Номер попытки: пока справочник дочитывался, каретка уже ушла. */
 let fieldPickSeq = 0;
+/** Облачко: где его поставить. Считаем по месту слова, а не по полю целиком. */
+const fieldPickAnchor = ref<{ left: number; top: number; below: boolean } | null>(null);
+const fieldPickEl = ref<HTMLElement | null>(null);
+
+/**
+ * Исходная форма каждого токена: «вклада ВТБ» → ⟦вклад⟧.
+ *
+ * Снимаем токенизацию — возвращаем ровно то, что человек написал, а не канон
+ * справочника. Живёт в памяти экрана: на диск значения не попадают.
+ */
+const tokenForms: FormStore = new Map<string, string>();
 
 /**
  * В поле на этом месте виден сам токен ⟦имя⟧ (а не значение).
@@ -522,6 +536,14 @@ const fieldPickShowsToken = computed(() => {
   const pick = fieldPick.value;
   if (!pick) return false;
   return pick.tokenized && !displayValues.value;
+});
+
+/** Значение токена в его исходной форме — то, что было в тексте до замены. */
+const fieldPickOriginal = computed(() => {
+  const pick = fieldPick.value;
+  if (!pick) return "";
+  if (!pick.tokenized) return pick.value;
+  return lookupForm(tokenForms, draft.value, pick.name, pick.start) ?? pick.value;
 });
 
 /** Ищем фрагмент по каретке в точке тапа. */
@@ -550,12 +572,69 @@ async function pickComposerFragment(): Promise<void> {
   fieldPick.value = describeFieldPick(draft.value, caret, tokenEntries.value);
 }
 
-/** Поставить в поле вторую сторону: токен вместо значения или наоборот. */
+/**
+ * Поставить облачко над словом.
+ *
+ * Координаты слова берём замером зеркала (у textarea нет такой карты),
+ * размеры облачка — по факту его отрисовки. Считаем от рамки поля ввода,
+ * поэтому буббл живёт внутри `.chat-panel__composer-box` (там `position: relative`).
+ */
+async function placeFieldPick(): Promise<void> {
+  const pick = fieldPick.value;
+  if (!pick) {
+    fieldPickAnchor.value = null;
+    return;
+  }
+  await nextTick();
+  const area = composerEl.value;
+  const bubble = fieldPickEl.value;
+  const box = area?.closest(".chat-panel__composer-box") as HTMLElement | null;
+  if (!area || !bubble || !box) {
+    fieldPickAnchor.value = null;
+    return;
+  }
+  const visible = toVisibleOffset(draft.value, pick.start);
+  const point = measureCaret(area, visible);
+  if (!point) {
+    fieldPickAnchor.value = null;
+    return;
+  }
+  const areaRect = area.getBoundingClientRect();
+  const boxRect = box.getBoundingClientRect();
+  // Абсолютное позиционирование внутри бокса считается от его padding-box,
+  // поэтому ширины рамок бокса и поля вычитаем/добавляем явно.
+  const baseLeft = areaRect.left - boxRect.left - box.clientLeft + area.clientLeft;
+  const baseTop = areaRect.top - boxRect.top - box.clientTop + area.clientTop;
+  const placement = placeBubble({
+    wordLeft: baseLeft + point.left,
+    wordTop: baseTop + point.top,
+    lineHeight: point.lineHeight,
+    bubbleWidth: bubble.offsetWidth,
+    bubbleHeight: bubble.offsetHeight,
+    boxWidth: box.clientWidth,
+  });
+  fieldPickAnchor.value = placement;
+}
+
+/**
+ * Поставить в поле вторую сторону: токен вместо значения или наоборот.
+ *
+ * Заменяя значение на токен, запоминаем исходную форму: снятие токенизации
+ * вернёт ровно её, а не каноническое написание из справочника.
+ */
 function applyFieldPick(target: "token" | "value"): void {
   const pick = fieldPick.value;
   if (!pick) return;
-  const result = replaceFieldPick(draft.value, pick, target);
+  const form =
+    target === "value"
+      ? lookupForm(tokenForms, draft.value, pick.name, pick.start)
+      : null;
+  if (target === "token" && !pick.tokenized) {
+    rememberForm(tokenForms, draft.value, pick.name, pick.start, pick.text);
+  }
+  const result = replaceFieldPick(draft.value, pick, target, form);
   fieldPick.value = null;
+  fieldPickAnchor.value = null;
   if (!result.changed) return;
   draft.value = result.text;
   void nextTick(() => {
@@ -570,15 +649,16 @@ function applyFieldPick(target: "token" | "value"): void {
 
 /**
  * Крестик: у токена — отмена токенизации (возвращаем значение),
- * у значения — просто закрыть плашку.
+ * у значения — просто закрыть облачко.
  */
 function closeFieldPick(): void {
   const pick = fieldPick.value;
-  if (pick && pick.tokenized && pick.value.trim()) {
+  if (pick && pick.tokenized && fieldPickOriginal.value.trim()) {
     applyFieldPick("value");
     return;
   }
   fieldPick.value = null;
+  fieldPickAnchor.value = null;
 }
 
 /** Перетаскивание выделения мышью/пальцем: поле ввода или лента сообщений. */
@@ -920,6 +1000,14 @@ async function replaceCurrentOccurrence(): Promise<void> {
   if (!target || !name) return;
   const insert = formatToken(name);
   if (target.scope === "draft") {
+    // Исходная форма — чтобы снятие токенизации вернуло текст как был.
+    rememberForm(
+      tokenForms,
+      draft.value,
+      name,
+      target.start,
+      draft.value.slice(target.start, target.end),
+    );
     draft.value = replaceSpan(draft.value, target.start, target.end, insert);
     clearSelection();
     await nextTick();
@@ -934,6 +1022,29 @@ async function replaceCurrentOccurrence(): Promise<void> {
   );
   if (!updated) return;
   if (refreshOccurrences(occurrenceIndex.value) === 0) finishOccurrences();
+}
+
+/**
+ * Заменить все вхождения фрагмента в черновике, запомнив исходные формы.
+ *
+ * Идём с конца, чтобы позиции ещё не заменённых вхождений не сдвигались,
+ * и запоминаем форму каждого — снятие токенизации вернёт текст как был.
+ */
+function replaceDraftOccurrences(
+  needle: string,
+  name: string,
+  options: { caseSensitive?: boolean } = {},
+): number {
+  const hits = findOccurrences(draft.value, needle, options);
+  if (hits.length === 0) return 0;
+  let text = draft.value;
+  for (let i = hits.length - 1; i >= 0; i -= 1) {
+    const hit = hits[i];
+    rememberForm(tokenForms, text, name, hit.start, text.slice(hit.start, hit.end));
+    text = replaceSpan(text, hit.start, hit.end, formatToken(name));
+  }
+  draft.value = text;
+  return hits.length;
 }
 
 /** «Заменить все N»: поле ввода и ответы агента разом. */
@@ -953,11 +1064,8 @@ async function replaceAllOccurrences(): Promise<void> {
       if (await editMessage(message.id, result.text)) replaced += result.replaced;
     }
   }
-  const inDraft = replaceAllInText(draft.value, needle, insert, findOptions);
-  if (inDraft.replaced > 0) {
-    draft.value = inDraft.text;
-    replaced += inDraft.replaced;
-  }
+  const inDraft = replaceDraftOccurrences(needle, name, findOptions);
+  if (inDraft > 0) replaced += inDraft;
   clearSelection();
   finishOccurrences();
   if (replaced > 0) notice.value = t("chat.tokens.replaced", { count: replaced });
@@ -975,6 +1083,8 @@ async function applySelectionToken(name: string): Promise<void> {
   const range = selectionRange.value;
   if (!range) return;
   const needle = range.text;
+  // Запоминаем форму выделенного текста: крестик вернёт её, а не канон.
+  rememberForm(tokenForms, draft.value, name, range.start, needle);
   const result = replaceRange(draft.value, range.start, range.end, formatToken(name));
   draft.value = result.text;
   clearSelection();
@@ -2126,6 +2236,20 @@ watch(displayValues, () => {
   syncComposerField();
   void autoGrow();
 });
+
+/**
+ * Облачко тапа стоит над словом: появился фрагмент или поле перестроилось
+ * (новая строка, переключение значений ⇄ токенов) — пересчитываем место.
+ */
+watch(fieldPick, () => void placeFieldPick(), { flush: "post" });
+watch([displayValues, composerMultiline], () => {
+  if (fieldPick.value) void placeFieldPick();
+}, { flush: "post" });
+
+/** Поворот телефона и изменение окна: текст переносится, место слова меняется. */
+function onViewportChange(): void {
+  if (fieldPick.value) void placeFieldPick();
+}
 
 /** Выставить ручную высоту поля и запомнить её: авто-рост её не перебьёт. */
 function setComposerManualHeight(px: number): void {
@@ -3455,6 +3579,7 @@ onMounted(() => {
   window.visualViewport?.addEventListener("resize", syncViewport);
   window.visualViewport?.addEventListener("scroll", syncViewport);
   window.addEventListener("resize", syncViewport);
+  window.addEventListener("resize", onViewportChange);
   // Телефон: ввод открывается тапом по чату, а не занимает экран постоянно.
   compactQuery = window.matchMedia("(max-width: 640px)");
   syncCompact(compactQuery.matches);
@@ -3506,6 +3631,7 @@ onUnmounted(() => {
   window.visualViewport?.removeEventListener("resize", syncViewport);
   window.visualViewport?.removeEventListener("scroll", syncViewport);
   window.removeEventListener("resize", syncViewport);
+  window.removeEventListener("resize", onViewportChange);
   compactQuery?.removeEventListener("change", onCompactChange);
   window.removeEventListener("online", onOnline);
   window.removeEventListener("offline", onOffline);
@@ -4221,46 +4347,6 @@ function onRateChange(event: Event): void {
         </button>
       </div>
 
-      <div
-        v-if="fieldPick && (!compact || composerOpen)"
-        class="chat-panel__pick"
-        role="group"
-        :aria-label="t('chat.tokens.selection')"
-      >
-        <span class="chat-panel__pick-text" :title="fieldPick.text">«{{ fieldPick.text }}»</span>
-        <button
-          v-if="fieldPickShowsToken"
-          type="button"
-          class="chat-panel__pick-side is-value"
-          v-tip="t('chat.tokens.untokenize')"
-          :aria-label="t('chat.tokens.untokenize')"
-          @click="guardBlur(); applyFieldPick('value')"
-        >
-          {{ fieldPick.value }}
-        </button>
-        <button
-          v-else
-          type="button"
-          class="chat-panel__pick-side is-token"
-          v-tip="t('chat.tokens.replaceSelection')"
-          :aria-label="t('chat.tokens.replaceSelection')"
-          @click="guardBlur(); applyFieldPick('token')"
-        >
-          ⟦{{ fieldPick.name }}⟧
-        </button>
-        <button
-          type="button"
-          class="chat-panel__pick-close"
-          :v-tip="fieldPick.tokenized ? t('chat.tokens.untokenize') : t('chat.cancel')"
-          :aria-label="fieldPick.tokenized ? t('chat.tokens.untokenize') : t('chat.cancel')"
-          @click="guardBlur(); closeFieldPick()"
-        >
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-            <path d="M6 6l12 12M18 6L6 18" />
-          </svg>
-        </button>
-      </div>
-
       <form
         v-if="!compact || composerOpen"
         ref="composerForm"
@@ -4353,7 +4439,53 @@ function onRateChange(event: Event): void {
             @touchend="onComposerSelectSoon"
             @keyup="onComposerSelectSoon"
             @paste="onPaste"
+            @scroll="onViewportChange"
           />
+          <div
+            v-if="fieldPick"
+            ref="fieldPickEl"
+            class="chat-panel__pick"
+            :class="{ 'is-placed': fieldPickAnchor, 'is-below': fieldPickAnchor?.below }"
+            :style="
+              fieldPickAnchor
+                ? { left: `${fieldPickAnchor.left}px`, top: `${fieldPickAnchor.top}px` }
+                : undefined
+            "
+            role="group"
+            :aria-label="t('chat.tokens.selection')"
+          >
+            <button
+              type="button"
+              class="chat-panel__pick-bubble"
+              :class="{ 'is-token': !fieldPickShowsToken }"
+              :title="fieldPick.text"
+              v-tip="
+                fieldPickShowsToken
+                  ? t('chat.tokens.untokenize')
+                  : t('chat.tokens.replaceSelection')
+              "
+              :aria-label="
+                fieldPickShowsToken
+                  ? t('chat.tokens.untokenize')
+                  : t('chat.tokens.replaceSelection')
+              "
+              @click="guardBlur(); applyFieldPick(fieldPickShowsToken ? 'value' : 'token')"
+            >
+              <template v-if="fieldPickShowsToken">{{ fieldPickOriginal }}</template>
+              <template v-else>⟦{{ fieldPick.name }}⟧</template>
+            </button>
+            <button
+              type="button"
+              class="chat-panel__pick-close"
+              :v-tip="fieldPick.tokenized ? t('chat.tokens.untokenize') : t('chat.cancel')"
+              :aria-label="fieldPick.tokenized ? t('chat.tokens.untokenize') : t('chat.cancel')"
+              @click="guardBlur(); closeFieldPick()"
+            >
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            </button>
+          </div>
           <div class="chat-panel__composer-stack">
             <button
               v-if="dictationAvailable"
@@ -5785,72 +5917,77 @@ function onRateChange(event: Event): void {
   background: var(--panel-2);
 }
 
-/* Плашка тапа по полю ввода: вторая сторона фрагмента + крестик.
-   Живёт над полем, а не под ним: палец ставит каретку снизу, плашку видно. */
+/* Облачко тапа по полю ввода: вторая сторона слова (токен или исходное
+   значение) висит над самим словом, крестик — справа от облачка.
+   Позицию считает placeFieldPick() по замеру каретки. */
 .chat-panel__pick {
+  position: absolute;
+  z-index: 6;
   display: flex;
   align-items: center;
   gap: 4px;
-  margin: 0 8px 4px;
-  padding: 3px 5px;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: var(--panel-2);
+  max-width: calc(100% - 8px);
+  /* Пустое место вокруг облачка не мешает тапам по полю. */
+  pointer-events: none;
 }
 
-.chat-panel__pick-text {
-  max-width: 38%;
-  overflow: hidden;
-  font-size: 0.75rem;
-  color: var(--muted);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/* Пока место не посчитано, облачко не мелькает в углу поля. */
+.chat-panel__pick:not(.is-placed) {
+  visibility: hidden;
+  left: 0;
+  top: 0;
 }
 
-.chat-panel__pick-side {
-  max-width: 46%;
+.chat-panel__pick > * {
+  pointer-events: auto;
+}
+
+.chat-panel__pick-bubble {
+  max-width: min(240px, 70vw);
   overflow: hidden;
-  padding: 2px 8px;
+  padding: 3px 9px;
   border: 1px solid var(--accent);
   border-radius: 999px;
-  background: none;
+  background: var(--panel);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
   color: var(--accent);
   font: inherit;
   font-size: 0.78rem;
-  line-height: 1.4;
+  line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
 }
 
-.chat-panel__pick-side.is-token {
+.chat-panel__pick-bubble.is-token {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-.chat-panel__pick-side:hover,
-.chat-panel__pick-side:focus-visible {
-  background: var(--panel);
+.chat-panel__pick-bubble:hover,
+.chat-panel__pick-bubble:focus-visible {
+  background: var(--panel-2);
 }
 
+/* Крестик стоит рядом с облачком, а не внутри него. */
 .chat-panel__pick-close {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  margin-inline-start: auto;
-  width: 22px;
+  width: 20px;
   height: 20px;
   padding: 0;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: none;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--panel);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.16);
   color: var(--muted);
   font: inherit;
   cursor: pointer;
 }
 
 .chat-panel__pick-close:hover {
-  border-color: var(--border);
+  border-color: var(--accent);
   color: var(--text);
 }
 
