@@ -128,6 +128,7 @@ import {
 import { formatToken, isValidTokenName, parseTokens, tokenNameKey } from "@/lib/tokens/format";
 import { aliasByName, canRenameInDialog, upsertAlias } from "@/lib/tokens/dialog-alias";
 import { findSelectionEntry, replaceRange } from "@/lib/tokens/selection";
+import { loadNameBases, suggestBaseNames } from "@/lib/tokens/name-bases";
 import { replaceSelectionWithToken, replaceTokenWithValue } from "@/lib/tokens/message-replace";
 import {
   describeFieldPick,
@@ -523,21 +524,23 @@ const dialogTokenNames = computed(() => {
 });
 
 /**
- * Что предложить в плашке: записи справочника и токены, которые уже стоят
- * в этом диалоге. Сгенерированных основ («имя1», «компания2») здесь нет.
- * Имена диалога, которых нет в справочнике, идут следом.
+ * Что предложить в плашке: записи справочника как есть и основы
+ * («имя», «компания») со следующим свободным номером. Одинаковые имена
+ * не повторяются. Случайные токены из текста, которых нет ни там, ни там,
+ * не предлагаются.
  */
 const nameSuggestions = computed(() => {
-  const seen = new Set(tokenNames.value.map((name) => name.toLocaleLowerCase()));
-  const extra = dialogTokenNames.value.filter((name) => !seen.has(name.toLocaleLowerCase()));
-  return [...tokenNames.value, ...extra];
+  const numbered = suggestBaseNames(loadNameBases(), [...tokenNames.value, ...dialogTokenNames.value]);
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const name of [...tokenNames.value, ...numbered]) {
+    const key = name.toLocaleLowerCase();
+    if (!name || seen.has(key)) continue;
+    seen.add(key);
+    result.push(name);
+  }
+  return result;
 });
-
-/** Имя есть в справочнике — иначе это токен только этого диалога. */
-function suggestionFromDictionary(name: string): boolean {
-  const key = name.toLocaleLowerCase();
-  return tokenNames.value.some((item) => item.toLocaleLowerCase() === key);
-}
 
 /** Имена, заданные только в этом диалоге: справочник их не знает. */
 const pendingAliases = ref<{ name: string; source: string }[]>([]);
@@ -4743,7 +4746,6 @@ function onRateChange(event: Event): void {
               :key="name"
               type="button"
               class="chat-panel__selection-sug"
-              :class="{ 'is-used': !suggestionFromDictionary(name) }"
               @click="feedName = name"
             >
               ⟦{{ name }}⟧
@@ -5352,7 +5354,6 @@ function onRateChange(event: Event): void {
                 :key="name"
                 type="button"
                 class="chat-panel__selection-sug"
-                :class="{ 'is-used': !suggestionFromDictionary(name) }"
                 @click="selectionName = name"
               >
                 ⟦{{ name }}⟧
