@@ -123,8 +123,9 @@ import {
   TokenError,
   type TokenEntry,
 } from "@/lib/tokens/registry";
-import { formatToken } from "@/lib/tokens/format";
-import { findSelectionEntry, replaceRange, suggestTokenNames } from "@/lib/tokens/selection";
+import { formatToken, parseTokens } from "@/lib/tokens/format";
+import { loadNameBases, suggestBaseNames } from "@/lib/tokens/name-bases";
+import { categoryBase, findSelectionEntry, replaceRange, suggestTokenNames } from "@/lib/tokens/selection";
 import { replaceSelectionWithToken, replaceTokenWithValue } from "@/lib/tokens/message-replace";
 import {
   describeFieldPick,
@@ -148,7 +149,14 @@ import {
   replaceSpan,
   stepIndex,
 } from "@/lib/tokens/occurrences";
-import { draftText, toDraftCaret, toVisibleCaret, visibleText } from "@/lib/tokens/display";
+import {
+  draftOffsetForVisible,
+  draftText,
+  toDraftCaret,
+  toVisibleCaret,
+  visibleOffsetForDraft,
+  visibleText,
+} from "@/lib/tokens/display";
 import { restoreValuesWithCase } from "@/lib/tokens/context-case";
 import { tokenModeActive } from "@/lib/tokens/mode-intent";
 import { highlightSegments } from "@/lib/tokens/highlight";
@@ -312,6 +320,20 @@ const tokenPickVisible = computed(
   () => tokenPickNames.value.length > 0 && (tokenTrigger.value !== null || tokenPickOpen.value),
 );
 
+function toggleTokenPick(): void {
+  if (tokenEntries.value.length === 0) {
+    tokenPickOpen.value = false;
+    tokenSheetOpen.value = true;
+    return;
+  }
+  tokenPickOpen.value = !tokenPickOpen.value;
+}
+
+async function leaveTokenMode(): Promise<void> {
+  tokenPickOpen.value = false;
+  await toggleTokenMode();
+}
+
 /** Вставить канон `⟦имя⟧` в позицию курсора и вернуть фокус в поле. */
 function insertTokenName(name: string): void {
   const el = composerEl.value;
@@ -442,9 +464,30 @@ const selectionSuggestions = computed(() => {
   const range = selectionRange.value;
   if (!range || selectionMatch.value) return [];
   const taken = selectionName.value.trim().toLocaleLowerCase();
-  return suggestTokenNames(range.text, tokenNames.value, 4)
-    .filter((name) => name.toLocaleLowerCase() !== taken)
-    .slice(0, 3);
+  const bases = suggestBaseNames(loadNameBases(), tokenNames.value, categoryBase(range.text), 6);
+  const fromWords = suggestTokenNames(range.text, tokenNames.value, 2);
+  return [...bases, ...fromWords].filter((name, index, all) => {
+    const key = name.toLocaleLowerCase();
+    return key !== taken && all.findIndex((item) => item.toLocaleLowerCase() === key) === index;
+  });
+});
+
+/** Токены, которые уже стоят в этом диалоге: ими можно закрыть другое слово. */
+const dialogTokenNames = computed(() => {
+  const id = activeSessionId.value;
+  const chunks = messages.value.filter((item) => item.sessionId === id).map((item) => item.content);
+  chunks.push(draft.value);
+  const seen = new Set<string>();
+  const names: string[] = [];
+  for (const chunk of chunks) {
+    for (const token of parseTokens(chunk)) {
+      const key = token.name.toLocaleLowerCase();
+      if (!token.name || seen.has(key)) continue;
+      seen.add(key);
+      names.push(token.name);
+    }
+  }
+  return names;
 });
 
 /**
@@ -471,7 +514,19 @@ function onComposerSelect(): void {
     void pickComposerFragment();
     return;
   }
-  // Выделение есть — плашка про него, таповая плашка больше не нужна.
+  // Выделение ровно подсвеченного блока — то же облачко, что и по клику.
+  const from = draftOffsetForVisible(draft.value, startVisible, displayValues.value, formLookup(tokenForms));
+  const to = draftOffsetForVisible(draft.value, endVisible, displayValues.value, formLookup(tokenForms));
+  const lo = Math.min(from, to);
+  const hi = Math.max(from, to);
+  let covered = describeFieldPick(draft.value, lo, declinedEntries.value);
+  if (!covered && lo > 0) covered = describeFieldPick(draft.value, lo - 1, declinedEntries.value);
+  if (covered && lo >= covered.start && hi <= covered.end) {
+    fieldPick.value = covered;
+    clearSelection();
+    return;
+  }
+  // Выделение шире подсветки — плашка с именем, облачко не нужно.
   fieldPick.value = null;
   const start = toDraftOffset(el.value, startVisible);
   const end = toDraftOffset(el.value, endVisible);
@@ -488,7 +543,10 @@ function onComposerSelect(): void {
   } else if (selectionSource.value !== text || !selectionName.value.trim()) {
     // Новый фрагмент — предлагаем имя сами: «цена 1 200 ₽» → «цена»,
     // без букв — «имя» (и «имя2», если занято).
-    selectionName.value = suggestTokenNames(text, tokenNames.value, 1)[0] ?? "";
+    selectionName.value =
+      suggestBaseNames(loadNameBases(), tokenNames.value, categoryBase(text), 1)[0] ??
+      suggestTokenNames(text, tokenNames.value, 1)[0] ??
+      "";
   }
   selectionSource.value = text;
   selectionConfirm.value = null;
@@ -584,8 +642,16 @@ async function pickComposerFragment(): Promise<void> {
     fieldPick.value = null;
     return;
   }
-  const caret = toDraftOffset(area.value, start);
-  const pick = describeFieldPick(draft.value, caret, declinedEntries.value);
+  const caret = draftOffsetForVisible(
+    draft.value,
+    start,
+    displayValues.value,
+    formLookup(tokenForms),
+  );
+  let pick = describeFieldPick(draft.value, caret, declinedEntries.value);
+  if (!pick && caret > 0) {
+    pick = describeFieldPick(draft.value, caret - 1, declinedEntries.value);
+  }
   if (pick && !pick.tokenized && refusedOffers.value.includes(offerKey(pick.text))) {
     fieldPick.value = null;
     return;
@@ -614,7 +680,12 @@ async function placeFieldPick(): Promise<void> {
     fieldPickAnchor.value = null;
     return;
   }
-  const visible = toVisibleOffset(draft.value, pick.start);
+  const visible = visibleOffsetForDraft(
+    draft.value,
+    pick.start,
+    displayValues.value,
+    formLookup(tokenForms),
+  );
   const point = measureCaret(area, visible);
   if (!point) {
     fieldPickAnchor.value = null;
@@ -731,9 +802,12 @@ const feedSuggestions = computed(() => {
   const picked = feedSelection.value;
   if (!picked || feedMatch.value) return [];
   const taken = feedName.value.trim().toLocaleLowerCase();
-  return suggestTokenNames(picked.text, tokenNames.value, 4)
-    .filter((name) => name.toLocaleLowerCase() !== taken)
-    .slice(0, 3);
+  const bases = suggestBaseNames(loadNameBases(), tokenNames.value, categoryBase(picked.text), 6);
+  const fromWords = suggestTokenNames(picked.text, tokenNames.value, 2);
+  return [...bases, ...fromWords].filter((name, index, all) => {
+    const key = name.toLocaleLowerCase();
+    return key !== taken && all.findIndex((item) => item.toLocaleLowerCase() === key) === index;
+  });
 });
 
 function clearFeedSelection(): void {
@@ -767,7 +841,11 @@ function onFeedSelect(): void {
   feedSelection.value = { messageId, text };
   if (changed) {
     const known = findSelectionEntry(text, declinedEntries.value);
-    feedName.value = known ? known.name : (suggestTokenNames(text, tokenNames.value, 1)[0] ?? "");
+    feedName.value = known
+      ? known.name
+      : (suggestBaseNames(loadNameBases(), tokenNames.value, categoryBase(text), 1)[0] ??
+        suggestTokenNames(text, tokenNames.value, 1)[0] ??
+        "");
   }
 }
 
@@ -1167,9 +1245,27 @@ async function createTokenFromSelection(): Promise<void> {
   if (!range || !name) return;
   error.value = "";
   try {
-    await saveToken({ name, value: range.text, caseSensitive: selectionCaseSensitive.value });
-    await applySelectionToken(name);
-    notice.value = t("chat.tokens.created");
+    const existing = tokenEntryByName(name);
+    if (existing) {
+      const variants = [...(existing.variants ?? [])];
+      const known = [existing.value, ...variants].some(
+        (item) => item.trim().toLocaleLowerCase() === range.text.trim().toLocaleLowerCase(),
+      );
+      if (!known) variants.push(range.text.trim());
+      await saveToken({
+        id: existing.id,
+        name: existing.name,
+        value: existing.value,
+        variants,
+        note: existing.note,
+        caseSensitive: existing.caseSensitive,
+      });
+      await applySelectionToken(existing.name);
+    } else {
+      await saveToken({ name, value: range.text, caseSensitive: selectionCaseSensitive.value });
+      await applySelectionToken(name);
+      notice.value = t("chat.tokens.created");
+    }
   } catch (e) {
     error.value = e instanceof TokenError ? describeTokenError(e.code) : t("tokens.error.save_failed");
   }
@@ -1235,9 +1331,27 @@ async function createTokenFromFeed(): Promise<void> {
   if (!picked || !name) return;
   error.value = "";
   try {
-    await saveToken({ name, value: picked.text });
-    clearFeedSelection();
-    notice.value = t("chat.tokens.created");
+    const existing = tokenEntryByName(name);
+    if (existing) {
+      const variants = [...(existing.variants ?? [])];
+      const known = [existing.value, ...variants].some(
+        (item) => item.trim().toLocaleLowerCase() === picked.text.trim().toLocaleLowerCase(),
+      );
+      if (!known) variants.push(picked.text.trim());
+      await saveToken({
+        id: existing.id,
+        name: existing.name,
+        value: existing.value,
+        variants,
+        note: existing.note,
+        caseSensitive: existing.caseSensitive,
+      });
+      await replaceSelectionInMessage(existing.name);
+    } else {
+      await saveToken({ name, value: picked.text });
+      await replaceSelectionInMessage(name);
+      notice.value = t("chat.tokens.created");
+    }
   } catch (e) {
     error.value = e instanceof TokenError ? describeTokenError(e.code) : t("tokens.error.save_failed");
   }
@@ -4251,6 +4365,17 @@ function onRateChange(event: Event): void {
               ⟦{{ name }}⟧
             </button>
           </span>
+          <span v-if="dialogTokenNames.length > 0" class="chat-panel__selection-suggest">
+            <button
+              v-for="name in dialogTokenNames"
+              :key="'feed-used-' + name"
+              type="button"
+              class="chat-panel__selection-sug is-used"
+              @click="feedName = name"
+            >
+              ⟦{{ name }}⟧
+            </button>
+          </span>
         </template>
         <button
           type="button"
@@ -4409,6 +4534,66 @@ function onRateChange(event: Event): void {
         @submit.prevent="send"
         @focusout="onComposerBlur"
       >
+        <div
+          v-if="isTokenSession(activeSession)"
+          class="chat-panel__tokenbar"
+          role="toolbar"
+          :aria-label="t('chat.tokens.bar')"
+        >
+          <button
+            type="button"
+            class="chat-panel__token-btn is-icon"
+            v-tip="t('chat.tokens.matches')"
+            :aria-label="t('chat.tokens.matches')"
+            @click="openDictionary"
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="4" y="4" width="16" height="16" rx="2" />
+              <path d="M4 9h16M9 9v11" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="chat-panel__token-btn is-icon"
+            data-token-trigger
+            v-tip="t('chat.tokens.insert')"
+            :aria-label="t('chat.tokens.insert')"
+            :aria-expanded="tokenPickOpen"
+            @click="toggleTokenPick"
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M9 4H5v16h4" />
+              <path d="M15 4h4v16h-4" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="chat-panel__token-btn is-icon"
+            v-tip="viewValues ? t('chat.viewTokens') : t('chat.viewData')"
+            :aria-label="viewValues ? t('chat.viewTokens') : t('chat.viewData')"
+            :aria-pressed="!viewValues"
+            @click="viewValues = !viewValues"
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z" />
+              <circle cx="12" cy="12" r="2.6" />
+              <path v-if="viewValues" d="M4 4l16 16" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="chat-panel__token-btn is-icon"
+            v-tip="t('chat.tokens.exit')"
+            :aria-label="t('chat.tokens.exit')"
+            @click="leaveTokenMode"
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M9 4H5v16h4" />
+              <path d="M12 12h9" />
+              <path d="m17 8 4 4-4 4" />
+            </svg>
+          </button>
+        </div>
         <AttachmentTray
           :images="pendingImages"
           :docs="pendingDocs"
@@ -4782,6 +4967,17 @@ function onRateChange(event: Event): void {
                 :key="name"
                 type="button"
                 class="chat-panel__selection-sug"
+                @click="selectionName = name"
+              >
+                ⟦{{ name }}⟧
+              </button>
+            </span>
+            <span v-if="dialogTokenNames.length > 0" class="chat-panel__selection-suggest">
+              <button
+                v-for="name in dialogTokenNames"
+                :key="'used-' + name"
+                type="button"
+                class="chat-panel__selection-sug is-used"
                 @click="selectionName = name"
               >
                 ⟦{{ name }}⟧
@@ -5875,11 +6071,12 @@ function onRateChange(event: Event): void {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  gap: 2px;
-  padding: 2px 4px;
-  border: 1px solid transparent;
+  gap: 4px;
+  margin: 0 2px 2px;
+  padding: 2px;
+  border: 1px solid var(--tokens-edge);
   border-radius: 10px;
-  background: transparent;
+  background: color-mix(in srgb, var(--panel) 88%, var(--accent) 12%);
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -6049,6 +6246,8 @@ function onRateChange(event: Event): void {
   left: 0;
   right: 0;
   bottom: calc(100% + 4px);
+  max-height: 140px;
+  overflow-y: auto;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -6168,6 +6367,11 @@ function onRateChange(event: Event): void {
 .chat-panel__selection-sug:hover,
 .chat-panel__selection-sug:focus-visible {
   border-style: solid;
+}
+
+.chat-panel__selection-sug.is-used {
+  border-style: solid;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .chat-panel__selection-text {

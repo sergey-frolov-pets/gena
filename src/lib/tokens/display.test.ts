@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { draftText, toDraftCaret, toVisibleCaret, visibleText } from "./display";
+import {
+  draftOffsetForVisible,
+  draftText,
+  toDraftCaret,
+  toVisibleCaret,
+  visibleOffsetForDraft,
+  visibleText,
+} from "./display";
 import { tokenEntries } from "./registry";
 
 const entries = [
@@ -95,6 +102,19 @@ describe("исходные формы в поле", () => {
     const draft = draftText("Открыл вклад ВТБ вчера", true, (hit) => hits.push(hit));
     expect(draft).toBe("Открыл ⟦вклад ВТБ⟧ вчера");
     expect(hits).toEqual([{ name: "вклад ВТБ", form: "вклад ВТБ" }]);
+  });
+
+  it("клик по длинной форме попадает в короткий токен", () => {
+    const forms = () => "вклада в банке ВТБ";
+    const draft = "оплата ⟦вклад ВТБ⟧ сегодня";
+    const shown = visibleText(draft, true, forms);
+    const inside = shown.indexOf("банке");
+    const at = draftOffsetForVisible(draft, inside, true, forms);
+    const start = draft.indexOf("⟦");
+    const end = draft.indexOf("⟧") + 1;
+    expect(at).toBeGreaterThanOrEqual(start);
+    expect(at).toBeLessThan(end);
+    expect(visibleOffsetForDraft(draft, start, true, forms)).toBe(shown.indexOf("вклада"));
   });
 
   it("в режиме токенов форм не собирает", () => {
