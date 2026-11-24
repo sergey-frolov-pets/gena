@@ -61,6 +61,18 @@ export interface UsageState {
   chats: string[];
 }
 
+/**
+ * Ключ учёта диалога: диалог + режим.
+ *
+ * Режим — свойство не диалога, а куска работы в нём: обычные запросы и
+ * защищённые (режим токенов) считаются разными чатами. Диалог, в котором
+ * сначала писали без защиты, а потом включили режим токенов (или наоборот),
+ * даёт два события: `chat/plain` и `chat/token`.
+ */
+export function chatKey(session: Session): string {
+  return `${session.id}|${session.tokenMode ? "token" : "plain"}`;
+}
+
 function today(now: number = Date.now()): string {
   return new Date(now).toISOString().slice(0, 10);
 }
@@ -119,10 +131,18 @@ export function agentEvents(
     }
     next.agents.push(agent.id);
   }
-  if (session && !next.chats.includes(session.id)) {
-    events.push(session.tokenMode ? "chat/token" : "chat/plain");
-    next.chats.push(session.id);
-    if (next.chats.length > MAX_CHATS) next.chats = next.chats.slice(-MAX_CHATS);
+  if (session) {
+    const key = chatKey(session);
+    const legacy = next.chats.indexOf(session.id);
+    if (legacy >= 0) {
+      // Запись из прежней версии: диалог без режима уже посчитан.
+      // Обновляем ключ, чтобы смена режима дала второе событие, но не повторяем.
+      next.chats[legacy] = key;
+    } else if (!next.chats.includes(key)) {
+      events.push(session.tokenMode ? "chat/token" : "chat/plain");
+      next.chats.push(key);
+      if (next.chats.length > MAX_CHATS) next.chats = next.chats.slice(-MAX_CHATS);
+    }
   }
   return { events, state: next };
 }

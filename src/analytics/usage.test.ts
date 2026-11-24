@@ -70,7 +70,7 @@ describe("снимок статистики", () => {
     const openai = agent({ protocol: "openai", config: { model: "gpt-4o" } });
     const { events, state } = agentEvents(openai, session("s1"), "ru", empty, "2026-11-24");
     expect(events).toEqual(["locale/ru", "provider/openai/gpt-4o", "chat/plain"]);
-    expect(state).toEqual({ day: "2026-11-24", agents: ["a"], chats: ["s1"] });
+    expect(state).toEqual({ day: "2026-11-24", agents: ["a"], chats: ["s1|plain"] });
     expect(events.join(" ")).not.toContain("личный");
     expect(events.join(" ")).not.toContain("secret");
     expect(events.join(" ")).not.toContain("Секретное");
@@ -89,7 +89,36 @@ describe("снимок статистики", () => {
     const first = agentEvents(openai, session("s1"), "ru", empty, "2026-11-24");
     const second = agentEvents(openai, session("s2", true), "ru", first.state, "2026-11-24");
     expect(second.events).toEqual(["chat/token"]);
-    expect(second.state.chats).toEqual(["s1", "s2"]);
+    expect(second.state.chats).toEqual(["s1|plain", "s2|token"]);
+  });
+
+  it("смена режима в том же диалоге — второй чат, а не тот же", () => {
+    const openai = agent({ protocol: "openai", config: { model: "gpt-4o" } });
+    const plain = agentEvents(openai, session("s1"), "ru", empty, "2026-11-24");
+    const token = agentEvents(openai, session("s1", true), "ru", plain.state, "2026-11-24");
+    expect(token.events).toEqual(["chat/token"]);
+    expect(token.state.chats).toEqual(["s1|plain", "s1|token"]);
+    const back = agentEvents(openai, session("s1"), "ru", token.state, "2026-11-24");
+    expect(back.events).toEqual([]);
+  });
+
+  it("защищённый диалог, из которого вышли в обычный, тоже считается дважды", () => {
+    const openai = agent({ protocol: "openai", config: { model: "gpt-4o" } });
+    const token = agentEvents(openai, session("s1", true), "ru", empty, "2026-11-24");
+    expect(token.events).toContain("chat/token");
+    const plain = agentEvents(openai, session("s1", false), "ru", token.state, "2026-11-24");
+    expect(plain.events).toEqual(["chat/plain"]);
+    expect(plain.state.chats).toEqual(["s1|token", "s1|plain"]);
+  });
+
+  it("запись прежней версии (диалог без режима) не даёт повтора, но обновляется", () => {
+    const openai = agent({ protocol: "openai", config: { model: "gpt-4o" } });
+    const legacy: UsageState = { day: "2026-11-24", agents: ["a"], chats: ["s1"] };
+    const same = agentEvents(openai, session("s1"), "ru", legacy, "2026-11-24");
+    expect(same.events).toEqual([]);
+    expect(same.state.chats).toEqual(["s1|plain"]);
+    const token = agentEvents(openai, session("s1", true), "ru", same.state, "2026-11-24");
+    expect(token.events).toEqual(["chat/token"]);
   });
 
   it("другое подключение в тот же день — свои провайдеры, без языка", () => {
@@ -109,7 +138,7 @@ describe("снимок статистики", () => {
     const first = agentEvents(openai, session("s1"), "ru", empty, "2026-11-24");
     const nextDay = agentEvents(openai, session("s1"), "ru", first.state, "2026-11-25");
     expect(nextDay.events).toEqual(["locale/ru", "provider/openai/gpt-4o"]);
-    expect(nextDay.state.chats).toEqual(["s1"]);
+    expect(nextDay.state.chats).toEqual(["s1|plain"]);
   });
 
   it("кириллица в названии модели не ломает путь отчёта", () => {
