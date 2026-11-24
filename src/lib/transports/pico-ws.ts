@@ -157,6 +157,8 @@ interface FinalFrame {
   id: string;
   content: string;
   attachments?: TransportAttachment[];
+  /** Модель, которой ответил сервер (`model_name` в кадре). */
+  model?: string;
 }
 
 export function buildWsUrl(address: string, sessionId: string): string {
@@ -373,6 +375,9 @@ function runTurn(
       if (reply?.id) {
         base.serverId = reply.id;
       }
+      if (reply?.model) {
+        base.model = reply.model;
+      }
       return base;
     }
 
@@ -574,7 +579,12 @@ function runTurn(
     }
 
     /** Финальное сообщение или его обновление: заменяем ответ, стримим прирост. */
-    function setFinal(id: string, content: string, attachments?: TransportAttachment[]): void {
+    function setFinal(
+      id: string,
+      content: string,
+      attachments?: TransportAttachment[],
+      model?: string,
+    ): void {
       const previous = reply && reply.id === id ? reply.content : "";
       const chunk = content.startsWith(previous) ? content.slice(previous.length) : content;
       if (chunk) {
@@ -584,6 +594,7 @@ function runTurn(
         id,
         content,
         ...(attachments && attachments.length > 0 ? { attachments } : {}),
+        ...(model ? { model } : {}),
       };
       armQuiet();
     }
@@ -781,7 +792,12 @@ function runTurn(
           showNotice(content);
           return;
         }
-        setFinal(id, content, parseIncomingAttachments(payload.attachments));
+        setFinal(
+          id,
+          content,
+          parseIncomingAttachments(payload.attachments),
+          str(payload.model_name) || undefined,
+        );
     }
 
     conn.setHandlers({

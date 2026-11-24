@@ -179,6 +179,22 @@ describe("события первого успешного запроса", () =
     expect(back.events).toEqual([]);
   });
 
+  it("модель, которой ответил сервер, важнее настройки подключения", () => {
+    const pico = agent({ protocol: "pico_ws", settings: { contextSize: 8, callLimit: 0, llmModel: "deepseek-flash" } });
+    const { events } = agentEvents(pico, session("s1"), "ru", empty, "2026-11-24", "ds-pro");
+    expect(events).toContain("model/ds-pro");
+    expect(events).toContain("protocol/pico_ws/ds-pro");
+    expect(events).toContain("agent/picoclaw/ds-pro");
+    expect(events.join(" ")).not.toContain("deepseek-flash");
+  });
+
+  it("служебное «default» от сервера — не модель: берём настройку подключения", () => {
+    const pico = agent({ protocol: "pico_ws", settings: { contextSize: 8, callLimit: 0, llmModel: "deepseek-flash" } });
+    const { events } = agentEvents(pico, session("s1"), "ru", empty, "2026-11-24", "default");
+    expect(events).toContain("model/deepseek-flash");
+    expect(events.join(" ")).not.toContain("model/default");
+  });
+
   it("защищённый диалог, из которого вышли в обычный, тоже считается дважды", () => {
     const openai = agent({ protocol: "openai", config: { model: "gpt-4o" } });
     const token = agentEvents(openai, session("s1", true), "ru", empty, "2026-11-24");

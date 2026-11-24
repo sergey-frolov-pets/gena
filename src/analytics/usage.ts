@@ -214,7 +214,10 @@ export function agentEvents(
   // Пул и сводка временно выключены (см. modelsOf): по ним не отправляем
   // ни протокол, ни тип, ни модели. Вернуть — раскомментировать modelsOf.
   const disabled = protocol === "model_pool" || protocol === "model_mix";
-  const served = servedModel?.trim();
+  // Сервер может прислать служебное «default» — это не модель, а заглушка:
+  // такие значения в отчёт не пишем, берём модель из настроек подключения.
+  const rawServed = servedModel?.trim();
+  const served = rawServed && rawServed.toLowerCase() !== "default" ? rawServed : undefined;
   const models = disabled ? [] : served ? [served] : modelsOf(agent);
 
   if (!disabled) {
