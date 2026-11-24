@@ -623,12 +623,19 @@ async function commitDialogName(name: string, source: string): Promise<string | 
 /**
  * Выделение изменилось: показать плашку под полем.
  *
- * Плашка не зависит от режима токенов: справочник — свойство устройства,
- * а не диалога. Иначе в обычном диалоге выделение «ничего не делает».
+ * Плашка только в защищённом режиме. В обычном диалоге выделение текста
+ * ничего не предлагает.
  */
 function onComposerSelect(): void {
   // Вхождение выбрано программно стрелкой плашки — серию не сбрасываем.
   if (occurrencePicking) return;
+  if (!isTokenSession(activeSession.value)) {
+    clearSelection();
+    finishOccurrences();
+    fieldPick.value = null;
+    fieldPickAnchor.value = null;
+    return;
+  }
   const el = composerEl.value;
   if (!el) {
     clearSelection();
@@ -755,6 +762,11 @@ const fieldPickOriginal = computed(() => {
 /** Ищем фрагмент по каретке в точке тапа. */
 async function pickComposerFragment(): Promise<void> {
   const seq = ++fieldPickSeq;
+  if (!isTokenSession(activeSession.value)) {
+    fieldPick.value = null;
+    fieldPickAnchor.value = null;
+    return;
+  }
   const el = composerEl.value;
   if (!el) {
     fieldPick.value = null;
@@ -1141,6 +1153,10 @@ function clearFeedSelection(): void {
 
 /** Что выделено в ленте: текст и сообщение, внутри которого он лежит. */
 function onFeedSelect(): void {
+  if (!isTokenSession(activeSession.value)) {
+    clearFeedSelection();
+    return;
+  }
   const el = composerEl.value;
   if (el && document.activeElement === el) return;
   const sel = window.getSelection?.();
@@ -1225,6 +1241,7 @@ function tokenAtPoint(x: number, y: number): { messageId: string; text: string }
 
 /** Тап по ⟦токену⟧ в ленте открывает плашку с парой «токен ↔ значение». */
 function pickTokenAt(x: number, y: number): boolean {
+  if (!isTokenSession(activeSession.value)) return false;
   const picked = tokenAtPoint(x, y);
   if (!picked) return false;
   const known = findSelectionEntry(picked.text, declinedEntries.value);
@@ -1272,9 +1289,22 @@ const occurrenceCurrent = computed(() => occurrenceList.value[occurrenceIndex.va
 
 /** Плашка под полем: выделение в поле или идущая серия замен. */
 const selectionBanner = computed(() => {
+  if (!isTokenSession(activeSession.value)) return false;
   if (pendingTokenSend.value) return false;
   return Boolean(selectionRange.value) || occurrenceTotal.value > 0;
 });
+
+watch(
+  () => isTokenSession(activeSession.value),
+  (on) => {
+    if (on) return;
+    clearSelection();
+    finishOccurrences();
+    fieldPick.value = null;
+    fieldPickAnchor.value = null;
+    clearFeedSelection();
+  },
+);
 
 const bannerFragment = computed(() => selectionRange.value?.text ?? occurrenceNeedle.value);
 const bannerToken = computed(() => selectionMatch.value?.name ?? occurrenceToken.value);
@@ -4811,7 +4841,7 @@ function onRateChange(event: Event): void {
           }"
         >
       <div
-        v-if="feedSelection"
+        v-if="feedSelection && isTokenSession(activeSession)"
         class="chat-panel__selection is-feed"
         role="group"
         :aria-label="t('chat.tokens.selection')"
