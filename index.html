@@ -19,5 +19,27 @@
   <body>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
+    <!--
+      Статистика: GoatCounter, без cookie и без личных данных.
+      Хост — VITE_GOATCOUNTER_URL; не задан → stats.gena.code2graph.ru,
+      пустая строка → скрипт не грузится (см. src/analytics/config.ts).
+      Страна, язык браузера и размер экрана считает сам GoatCounter.
+    -->
+    <script>
+      (function () {
+        var configured = "%VITE_GOATCOUNTER_URL%";
+        var origin =
+          configured === "%VITE_GOATCOUNTER_URL%"
+            ? "https://stats.gena.code2graph.ru"
+            : configured.trim();
+        if (origin === "") return;
+        origin = origin.replace(/\/+$/, "");
+        var script = document.createElement("script");
+        script.async = true;
+        script.dataset.goatcounter = origin + "/count";
+        script.src = origin + "/count.js";
+        document.body.appendChild(script);
+      })();
+    </script>
   </body>
 </html>
