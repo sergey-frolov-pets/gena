@@ -86,4 +86,6 @@ export const appMessages = {
   "app.storageRetry": "重试",
   "app.storageRestored": "已从 {date} 的本地副本恢复连接和会话。",
   "app.storageDismiss": "隐藏",
+  "about.stats.title": "匿名统计",
+  "about.stats.body": "Gena 会发送匿名的使用情况。没有账户，也没有 cookie。消息、密钥、地址和对话标题都不会发送。打开应用时记录所打开的页面。请求本身会带出国家、浏览器语言、来源和屏幕尺寸。每天一次，这个浏览器还会加上界面语言、每个连接的协议和模型，以及每个对话的一条标记：普通或受保护。这些是合计数字，不是个人档案。",
 } as const satisfies LocaleMessages;

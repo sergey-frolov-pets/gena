@@ -87,4 +87,6 @@ export const appMessages = {
   "app.storageRetry": "Retry",
   "app.storageRestored": "Agents and sessions restored from the local copy of {date}.",
   "app.storageDismiss": "Hide",
+  "about.stats.title": "Anonymous statistics",
+  "about.stats.body": "Gena sends anonymous usage data. There is no account and no cookie. Messages, keys, addresses, and dialog titles are not included. Opening the app records which screen you opened. The request also yields country, browser language, referrer, and screen size. Once a day this browser adds the interface language, the protocol and model of each connection, and one mark per dialog: ordinary or protected. These are totals, not a profile of you.",
 } as const satisfies LocaleMessages;
