@@ -7,6 +7,7 @@ import AboutView from "./views/AboutView.vue";
 import TokensView from "./views/TokensView.vue";
 import LanguageSwitcher from "./components/LanguageSwitcher.vue";
 import ThemeSwitcher from "./components/ThemeSwitcher.vue";
+import AppearanceMenu from "./components/AppearanceMenu.vue";
 import InstallButton from "./components/InstallButton.vue";
 import AppFooter from "./components/AppFooter.vue";
 import { currentLanguageCode } from "./lib/dictation";
@@ -254,6 +255,7 @@ onBeforeUnmount(() => {
         </button>
         <LanguageSwitcher />
         <ThemeSwitcher />
+        <AppearanceMenu />
         <div class="menu-row">
           <InstallButton />
         </div>
@@ -510,6 +512,26 @@ onBeforeUnmount(() => {
   font-size: 0.86rem;
 }
 
+.menu :deep(.menu-line--width) {
+  gap: 8px;
+}
+
+.menu :deep(.menu-line input[type="range"]) {
+  margin-inline-start: auto;
+  width: 6.5rem;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+.menu :deep(.menu-line__value) {
+  flex: none;
+  min-width: 2.4rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+
 .menu-row {
   display: flex;
   align-items: center;
@@ -604,6 +626,23 @@ onBeforeUnmount(() => {
   min-height: 0;
   border: 0;
   border-radius: 0;
+}
+
+/* Широкий экран: колонка диалога по центру, ширина — из меню (--chat-width). */
+@media (min-width: 721px) {
+  .content--flush {
+    align-items: center;
+    background: var(--bg);
+  }
+
+  .content--flush > :not(.chat-panel) {
+    align-self: stretch;
+  }
+
+  .content--flush :deep(.chat-panel) {
+    width: min(100%, var(--chat-width, 960px));
+    border-inline: 1px solid var(--border);
+  }
 }
 
 /* Плашка обновления: тонкая полоса, видна на любой вкладке, ничего не перекрывает. */

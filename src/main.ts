@@ -3,6 +3,7 @@ import App from "./App.vue";
 import { vTip } from "./lib/tooltip";
 import { vLongPress } from "./lib/longpress";
 import { recordError } from "./lib/error-log";
+import "./lib/appearance";
 import "./style.css";
 
 const app = createApp(App);

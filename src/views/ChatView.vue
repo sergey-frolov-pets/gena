@@ -6590,12 +6590,11 @@ function onRateChange(event: Event): void {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  gap: 4px;
-  margin: 0 2px 2px;
-  padding: 2px;
-  border: 1px solid var(--tokens-edge);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--panel) 88%, var(--accent) 12%);
+  gap: 6px;
+  margin: 0 2px 4px;
+  padding: 0;
+  border: 0;
+  background: none;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -6611,10 +6610,10 @@ function onRateChange(event: Event): void {
   color: var(--danger);
 }
 
-/* Режим выключен: самой панели нет — только кнопки, без рамки и подложки. */
+/* Подложки у панели нет и при выключенном режиме: остаются только кнопки. */
 .chat-panel__tokenbar.is-off {
   padding: 0;
-  border-color: transparent;
+  border: 0;
   background: none;
 }
 
