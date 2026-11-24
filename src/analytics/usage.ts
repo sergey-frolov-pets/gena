@@ -1,16 +1,27 @@
 /**
- * Снимок использования раз в сутки.
+ * События использования — в момент первого запроса агенту.
  *
- * В GoatCounter уходит только вид факта, не содержимое:
- * язык интерфейса, протокол и модель каждого подключения,
- * по одному событию на обычный и на защищённый (токенный) диалог.
- * Адреса, ключи, названия диалогов и тексты сообщений не отправляются.
+ * Раньше снимок уходил раз в сутки при открытии страницы: новый диалог
+ * и новая модель попадали в отчёт только на следующий день. Теперь факт
+ * уходит тогда, когда происходит: первый за сутки запрос к подключению
+ * (провайдер + модели) и первый запрос в диалоге (обычный или защищённый).
+ *
+ * В GoatCounter уходит только вид факта, не содержимое: язык интерфейса,
+ * протокол и модели подключения, тип диалога. Адреса, ключи, названия
+ * диалогов и тексты сообщений не отправляются.
  */
 
 import type { Agent, ModelMixConfig, ModelPoolConfig, OpenAIConfig, Session } from "@/storage/types";
 import { trackEvent } from "./goatcounter";
 
+/** Язык интерфейса — один раз в сутки. */
 const DAY_KEY = "gena.analytics.day";
+/** Подключения, по которым сегодня уже ушли провайдеры и модели. */
+const AGENTS_KEY = "gena.analytics.agents";
+/** Диалоги, которые уже посчитаны: каждый — одно событие. */
+const CHATS_KEY = "gena.analytics.chats";
+/** Список диалогов не должен расти бесконечно. */
+const MAX_CHATS = 500;
 
 /** Безопасный кусок пути: латиница, цифры, точка, подчёркивание, дефис. */
 export function analyticsSlug(value: string): string {
@@ -43,46 +54,115 @@ export function modelsOf(agent: Agent): string[] {
   return [agent.settings.llmModel.trim() || "default"];
 }
 
-/**
- * События одного снимка.
- * `chat/plain` и `chat/token` повторяются по числу диалогов — в отчёте это сумма.
- */
-export function usageEvents(agents: readonly Agent[], sessions: readonly Session[], locale: string): string[] {
-  const events = [`locale/${analyticsSlug(locale)}`];
-  for (const session of sessions) {
-    events.push(session.tokenMode ? "chat/token" : "chat/plain");
+/** Что уже отправлено: день (язык), подключения, диалоги. */
+export interface UsageState {
+  day: string;
+  agents: string[];
+  chats: string[];
+}
+
+function today(now: number = Date.now()): string {
+  return new Date(now).toISOString().slice(0, 10);
+}
+
+function readList(key: string, store: Pick<Storage, "getItem"> | null): string[] {
+  try {
+    const raw = store?.getItem(key);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
   }
-  for (const agent of agents) {
+}
+
+function readDay(store: Pick<Storage, "getItem"> | null): string {
+  try {
+    return store?.getItem(DAY_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function writeJson(key: string, value: unknown, store: Pick<Storage, "setItem"> | null): void {
+  try {
+    store?.setItem(key, JSON.stringify(value));
+  } catch {
+    // Приватный режим: событие уйдёт ещё раз при следующем запросе.
+  }
+}
+
+/**
+ * События одного запроса к агенту — чистая функция, чтобы проверялась без хранилища.
+ *
+ * Язык — раз в сутки; провайдер и модели — при первом за сутки запросе
+ * к этому подключению; тип диалога — при первом запросе в этом диалоге.
+ */
+export function agentEvents(
+  agent: Agent,
+  session: Session | undefined,
+  language: string,
+  state: UsageState,
+  day: string = today(),
+): { events: string[]; state: UsageState } {
+  const next: UsageState = {
+    day,
+    agents: state.day === day ? [...state.agents] : [],
+    chats: [...state.chats],
+  };
+  const events: string[] = [];
+  if (state.day !== day) events.push(`locale/${analyticsSlug(language)}`);
+  if (!next.agents.includes(agent.id)) {
     const protocol = analyticsSlug(agent.protocol ?? "http_json");
     for (const model of modelsOf(agent)) {
       events.push(`provider/${protocol}/${analyticsSlug(model)}`);
     }
+    next.agents.push(agent.id);
   }
-  return events;
+  if (session && !next.chats.includes(session.id)) {
+    events.push(session.tokenMode ? "chat/token" : "chat/plain");
+    next.chats.push(session.id);
+    if (next.chats.length > MAX_CHATS) next.chats = next.chats.slice(-MAX_CHATS);
+  }
+  return { events, state: next };
 }
 
-function today(): string {
-  return new Date().toISOString().slice(0, 10);
+function store(): Storage | null {
+  try {
+    // Через globalThis: работает и в окне, и в воркере, и в тестах.
+    return (globalThis as { localStorage?: Storage }).localStorage ?? null;
+  } catch {
+    // Доступ к хранилищу запрещён настройками браузера.
+    return null;
+  }
 }
 
-/** Отправить снимок, если за эти сутки он ещё не уходил из этого браузера. */
-export function reportUsage(
-  agents: readonly Agent[],
-  sessions: readonly Session[],
-  locale: string,
-): void {
-  let sent = "";
+function readState(box: Storage | null): UsageState {
+  return {
+    day: readDay(box),
+    agents: readList(AGENTS_KEY, box),
+    chats: readList(CHATS_KEY, box),
+  };
+}
+
+function writeState(state: UsageState, box: Storage | null): void {
   try {
-    sent = localStorage.getItem(DAY_KEY) ?? "";
+    box?.setItem(DAY_KEY, state.day);
   } catch {
-    sent = "";
+    // Приватный режим: день не запомнится, язык уйдёт повторно.
   }
-  const day = today();
-  if (sent === day) return;
-  for (const name of usageEvents(agents, sessions, locale)) trackEvent(name);
-  try {
-    localStorage.setItem(DAY_KEY, day);
-  } catch {
-    // Приватный режим: снимок уйдёт ещё раз при следующем открытии.
-  }
+  writeJson(AGENTS_KEY, state.agents, box);
+  writeJson(CHATS_KEY, state.chats, box);
+}
+
+/**
+ * Первый запрос агенту: отправить вид факта сразу, не дожидаясь новых суток.
+ * Повторные запросы в том же диалоге и к тому же подключению — тишина.
+ */
+export function reportAgentUse(agent: Agent, session: Session | undefined, language: string): void {
+  const box = store();
+  const { events, state } = agentEvents(agent, session, language, readState(box), today());
+  if (events.length === 0) return;
+  for (const name of events) trackEvent(name);
+  writeState(state, box);
 }

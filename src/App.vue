@@ -36,7 +36,6 @@ import { useTheme } from "./lib/theme";
 import { watchForUpdate } from "./lib/version-update";
 import { useLocale } from "./i18n";
 import { trackPageview } from "./analytics/goatcounter";
-import { reportUsage } from "./analytics/usage";
 
 type Tab = "connections" | "chat" | "sessions" | "tokens" | "about";
 const tab = ref<Tab>("chat");
@@ -142,7 +141,6 @@ async function loadStorage(): Promise<void> {
 
   // Свежая копия: её хватит, если следующее обновление откроет пустую базу.
   writeSnapshot([...agents.value], [...sessions.value]);
-  reportUsage(agents.value, sessions.value, locale.value);
 }
 
 /** Кнопка «Повторить»: базой могла заниматься другая вкладка — пробуем снова. */

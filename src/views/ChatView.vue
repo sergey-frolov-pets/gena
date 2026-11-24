@@ -183,8 +183,9 @@ import {
 import ConfirmModal from "@/components/ConfirmModal.vue";
 import TextModal from "@/components/TextModal.vue";
 import { agentId } from "@/lib/active-agent";
+import { reportAgentUse } from "@/analytics/usage";
 
-const { t } = useLocale();
+const { t, locale } = useLocale();
 const draft = ref("");
 const error = ref("");
 const notice = ref("");
@@ -3617,6 +3618,9 @@ async function exchange(
   history: Message[],
   allowResend = true,
 ): Promise<void> {
+  // Первый запрос агенту — момент, когда факт уже можно показать в отчёте:
+  // подключение, модели и тип диалога уходят сразу, а не в конце суток.
+  reportAgentUse(agent, session, locale.value);
   stopDictation();
   lastText.value = text;
   const startedAt = Date.now();
