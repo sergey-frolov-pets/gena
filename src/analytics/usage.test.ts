@@ -37,9 +37,9 @@ function session(id = "s", tokenMode?: boolean): Session {
   };
 }
 
-const empty: UsageState = { day: "", agents: [], chats: [] };
+const empty: UsageState = { day: "", providers: [], models: [], pairs: [], chats: [] };
 
-describe("снимок статистики", () => {
+describe("путь отчёта", () => {
   it("режет всё, кроме безопасного пути", () => {
     expect(analyticsSlug("GPT 4.1 Mini")).toBe("gpt-4.1-mini");
     expect(analyticsSlug("https://evil")).toBe("https-evil");
@@ -61,16 +61,30 @@ describe("снимок статистики", () => {
         }),
       ),
     ).toEqual(["claude"]);
-    expect(modelsOf(agent({ protocol: "pico_ws", settings: { contextSize: 1, callLimit: 0, llmModel: "" } }))).toEqual([
-      "default",
-    ]);
+    expect(
+      modelsOf(agent({ protocol: "pico_ws", settings: { contextSize: 1, callLimit: 0, llmModel: "" } })),
+    ).toEqual(["default"]);
   });
+});
 
-  it("первый запрос за сутки: язык, провайдер с моделями и тип диалога", () => {
+describe("события первого успешного запроса", () => {
+  it("уходят сразу все пять видов: язык, подключение, модель, пара, диалог", () => {
     const openai = agent({ protocol: "openai", config: { model: "gpt-4o" } });
     const { events, state } = agentEvents(openai, session("s1"), "ru", empty, "2026-11-24");
-    expect(events).toEqual(["locale/ru", "provider/openai/gpt-4o", "chat/plain"]);
-    expect(state).toEqual({ day: "2026-11-24", agents: ["a"], chats: ["s1|plain"] });
+    expect(events).toEqual([
+      "locale/ru",
+      "provider/openai",
+      "model/gpt-4o",
+      "provider/openai/gpt-4o",
+      "chat/plain",
+    ]);
+    expect(state).toEqual({
+      day: "2026-11-24",
+      providers: ["openai"],
+      models: ["gpt-4o"],
+      pairs: ["openai/gpt-4o"],
+      chats: ["s1|plain"],
+    });
     expect(events.join(" ")).not.toContain("личный");
     expect(events.join(" ")).not.toContain("secret");
     expect(events.join(" ")).not.toContain("Секретное");
@@ -111,17 +125,7 @@ describe("снимок статистики", () => {
     expect(plain.state.chats).toEqual(["s1|token", "s1|plain"]);
   });
 
-  it("запись прежней версии (диалог без режима) не даёт повтора, но обновляется", () => {
-    const openai = agent({ protocol: "openai", config: { model: "gpt-4o" } });
-    const legacy: UsageState = { day: "2026-11-24", agents: ["a"], chats: ["s1"] };
-    const same = agentEvents(openai, session("s1"), "ru", legacy, "2026-11-24");
-    expect(same.events).toEqual([]);
-    expect(same.state.chats).toEqual(["s1|plain"]);
-    const token = agentEvents(openai, session("s1", true), "ru", same.state, "2026-11-24");
-    expect(token.events).toEqual(["chat/token"]);
-  });
-
-  it("другое подключение в тот же день — свои провайдеры, без языка", () => {
+  it("другое подключение в тот же день — своё подключение, модели и пары", () => {
     const openai = agent({ protocol: "openai", config: { model: "gpt-4o" } });
     const pool = agent({
       id: "b",
@@ -130,15 +134,38 @@ describe("снимок статистики", () => {
     });
     const first = agentEvents(openai, session("s1"), "ru", empty, "2026-11-24");
     const second = agentEvents(pool, session("s2"), "ru", first.state, "2026-11-24");
-    expect(second.events).toEqual(["provider/model_pool/a", "provider/model_pool/b", "chat/plain"]);
+    expect(second.events).toEqual([
+      "provider/model_pool",
+      "model/a",
+      "provider/model_pool/a",
+      "model/b",
+      "provider/model_pool/b",
+      "chat/plain",
+    ]);
   });
 
-  it("новые сутки — язык и провайдеры снова, диалог не повторяется", () => {
+  it("новые сутки — только язык, провайдеры и модели не повторяются", () => {
     const openai = agent({ protocol: "openai", config: { model: "gpt-4o" } });
     const first = agentEvents(openai, session("s1"), "ru", empty, "2026-11-24");
     const nextDay = agentEvents(openai, session("s1"), "ru", first.state, "2026-11-25");
-    expect(nextDay.events).toEqual(["locale/ru", "provider/openai/gpt-4o"]);
+    expect(nextDay.events).toEqual(["locale/ru"]);
     expect(nextDay.state.chats).toEqual(["s1|plain"]);
+  });
+
+  it("модель из ответа точнее настройки: пул отчитывается настоящей моделью", () => {
+    const pool = agent({
+      protocol: "model_pool",
+      config: { models: [{ id: "a" }, { id: "b" }] },
+    });
+    const { events, state } = agentEvents(pool, session("s1"), "ru", empty, "2026-11-24", "real-model");
+    expect(events).toEqual([
+      "locale/ru",
+      "provider/model_pool",
+      "model/real-model",
+      "provider/model_pool/real-model",
+      "chat/plain",
+    ]);
+    expect(state.models).toEqual(["real-model"]);
   });
 
   it("кириллица в названии модели не ломает путь отчёта", () => {
@@ -150,10 +177,11 @@ describe("снимок статистики", () => {
       "2026-11-24",
     );
     expect(events).toContain("provider/openai/unknown");
+    expect(events).toContain("model/unknown");
   });
 });
 
-describe("отправка в момент запроса", () => {
+describe("отправка после успешного ответа", () => {
   const calls = () => vi.mocked(trackEvent).mock.calls.map(([name]) => name);
 
   beforeEach(() => {
@@ -169,20 +197,37 @@ describe("отправка в момент запроса", () => {
   it("первый запрос уходит сразу, повторный — нет", () => {
     const openai = agent({ protocol: "openai", config: { model: "gpt-4o" } });
     reportAgentUse(openai, session("s1"), "ru");
-    expect(calls()).toEqual(["locale/ru", "provider/openai/gpt-4o", "chat/plain"]);
+    expect(calls()).toEqual([
+      "locale/ru",
+      "provider/openai",
+      "model/gpt-4o",
+      "provider/openai/gpt-4o",
+      "chat/plain",
+    ]);
     reportAgentUse(openai, session("s1"), "ru");
-    expect(calls()).toHaveLength(3);
+    expect(calls()).toHaveLength(5);
   });
 
   it("после перезагрузки страницы повтор не уходит (состояние в хранилище)", () => {
     const openai = agent({ protocol: "openai", config: { model: "gpt-4o" } });
     reportAgentUse(openai, session("s1"), "ru");
     vi.mocked(trackEvent).mockClear();
-    // Новый запуск приложения: те же данные, состояние читается из хранилища.
+    // Новый запуск приложения: состояние читается из хранилища.
     reportAgentUse(openai, session("s1"), "ru");
     expect(calls()).toEqual([]);
     reportAgentUse(openai, session("s2"), "ru");
     expect(calls()).toEqual(["chat/plain"]);
+  });
+
+  it("смена режима в том же диалоге уходит как второй чат", () => {
+    const openai = agent({ protocol: "openai", config: { model: "gpt-4o" } });
+    reportAgentUse(openai, session("s1"), "ru");
+    vi.mocked(trackEvent).mockClear();
+    reportAgentUse(openai, session("s1", true), "ru");
+    expect(calls()).toEqual(["chat/token"]);
+    vi.mocked(trackEvent).mockClear();
+    reportAgentUse(openai, session("s1", true), "ru");
+    expect(calls()).toEqual([]);
   });
 
   it("приватный режим: хранилище не пишется, но повтор молчит", () => {
@@ -194,8 +239,9 @@ describe("отправка в момент запроса", () => {
     });
     const openai = agent({ protocol: "openai", config: { model: "gpt-4o" } });
     reportAgentUse(openai, session("s9"), "ru");
-    expect(calls()).toEqual(["locale/ru", "provider/openai/gpt-4o", "chat/plain"]);
+    expect(calls()).toContain("chat/plain");
+    const first = calls().length;
     reportAgentUse(openai, session("s9"), "ru");
-    expect(calls()).toHaveLength(3);
+    expect(calls()).toHaveLength(first);
   });
 });

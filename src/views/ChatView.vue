@@ -3647,9 +3647,6 @@ async function exchange(
   history: Message[],
   allowResend = true,
 ): Promise<void> {
-  // Первый запрос агенту — момент, когда факт уже можно показать в отчёте:
-  // подключение, модели и тип диалога уходят сразу, а не в конце суток.
-  reportAgentUse(agent, session, locale.value);
   stopDictation();
   lastText.value = text;
   const startedAt = Date.now();
@@ -3761,6 +3758,9 @@ async function exchange(
     );
     // Ответ уже в ленте — живое облачко убираем, чтобы не было двух одинаковых.
     patchTurn(session.id, { streaming: "" });
+    // Успешный запрос: только теперь факт использования уходит в отчёт.
+    // Упавший, отменённый или оборванный запрос сюда не доходит.
+    reportAgentUse(agent, session, locale.value, response.model);
     // Пул и сводка считают лимит по модели внутри fallback.
     if (agent.protocol !== "model_pool" && agent.protocol !== "model_mix") {
       await recordCall(agent.id);
