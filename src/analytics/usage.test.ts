@@ -3,7 +3,9 @@ import type { Agent, Session } from "@/storage/types";
 import { trackEvent } from "./goatcounter";
 import {
   agentEvents,
+  agentTypeOf,
   analyticsSlug,
+  emptyUsageState,
   modelsOf,
   reportAgentUse,
   resetUsageMemory,
@@ -37,7 +39,7 @@ function session(id = "s", tokenMode?: boolean): Session {
   };
 }
 
-const empty: UsageState = { day: "", providers: [], models: [], pairs: [], chats: [] };
+const empty: UsageState = { ...emptyUsageState };
 
 describe("путь отчёта", () => {
   it("режет всё, кроме безопасного пути", () => {
@@ -46,48 +48,109 @@ describe("путь отчёта", () => {
     expect(analyticsSlug("   ")).toBe("unknown");
   });
 
-  it("берёт модели пула, сводки и openai, не адрес", () => {
+  it("берёт модель openai и pico_ws, не адрес", () => {
     expect(modelsOf(agent({ protocol: "openai", config: { model: "gpt-4o-mini" } }))).toEqual([
       "gpt-4o-mini",
     ]);
-    expect(
-      modelsOf(agent({ protocol: "model_pool", config: { models: [{ id: "a" }, { id: "b" }] } })),
-    ).toEqual(["a", "b"]);
-    expect(
-      modelsOf(
-        agent({
-          protocol: "model_mix",
-          config: { routes: [{ agentId: "x", model: "claude" }] },
-        }),
-      ),
-    ).toEqual(["claude"]);
+    expect(modelsOf(agent({ protocol: "openai", config: {}, settings: { contextSize: 1, callLimit: 0, llmModel: "gpt-4o" } }))).toEqual([
+      "gpt-4o",
+    ]);
     expect(
       modelsOf(agent({ protocol: "pico_ws", settings: { contextSize: 1, callLimit: 0, llmModel: "" } })),
     ).toEqual(["default"]);
   });
+
+  it("пул и сводка выключены: моделей нет и событий по ним нет", () => {
+    expect(
+      modelsOf(agent({ protocol: "model_pool", config: { models: [{ id: "a" }, { id: "b" }] } })),
+    ).toEqual([]);
+    expect(
+      modelsOf(agent({ protocol: "model_mix", config: { routes: [{ agentId: "x", model: "claude" }] } })),
+    ).toEqual([]);
+    const pool = agent({ protocol: "model_pool", config: { models: [{ id: "a" }] } });
+    const { events } = agentEvents(pool, session("s1"), "ru", empty, "2026-11-24");
+    expect(events).toEqual(["language/ru", "chat/plain"]);
+  });
+});
+
+describe("тип агента", () => {
+  it("узнаёт по настройкам", () => {
+    expect(agentTypeOf(agent({ protocol: "pico_ws", address: "ws://127.0.0.1:18790" }))).toBe("picoclaw");
+    expect(agentTypeOf(agent({ protocol: "openai", config: { model: "openclaw/default" } }))).toBe(
+      "openclaw",
+    );
+    expect(agentTypeOf(agent({ protocol: "openai", config: { model: "hermes-agent" } }))).toBe("hermes");
+  });
+
+  it("узнаёт по адресу и порту", () => {
+    expect(agentTypeOf(agent({ protocol: "openai", config: { model: "x" }, address: "http://127.0.0.1:18789/v1" }))).toBe(
+      "openclaw",
+    );
+    expect(agentTypeOf(agent({ protocol: "openai", config: { model: "x" }, address: "http://box.local:8642/v1" }))).toBe(
+      "hermes",
+    );
+    expect(agentTypeOf(agent({ protocol: "pico_ws", address: "ws://127.0.0.1:18790" }))).toBe("picoclaw");
+    expect(agentTypeOf(agent({ protocol: "openai", config: { model: "x" }, address: "https://hermes.example/v1" }))).toBe(
+      "hermes",
+    );
+  });
+
+  it("неизвестный — custom, адрес в отчёт не уходит", () => {
+    expect(agentTypeOf(agent({ protocol: "openai", config: { model: "gpt-4o" } }))).toBe("custom");
+    const { events } = agentEvents(
+      agent({ protocol: "openai", config: { model: "gpt-4o" } }),
+      session("s1"),
+      "ru",
+      empty,
+      "2026-11-24",
+    );
+    expect(events.join(" ")).not.toContain("secret.example");
+  });
 });
 
 describe("события первого успешного запроса", () => {
-  it("уходят сразу все пять видов: язык, подключение, модель, пара, диалог", () => {
+  it("уходят сразу все виды: язык, протокол, тип, модель и две пары, диалог", () => {
     const openai = agent({ protocol: "openai", config: { model: "gpt-4o" } });
     const { events, state } = agentEvents(openai, session("s1"), "ru", empty, "2026-11-24");
     expect(events).toEqual([
-      "locale/ru",
-      "provider/openai",
+      "language/ru",
+      "protocol/openai",
+      "agent/custom",
       "model/gpt-4o",
-      "provider/openai/gpt-4o",
+      "protocol/openai/gpt-4o",
+      "agent/custom/gpt-4o",
       "chat/plain",
     ]);
     expect(state).toEqual({
       day: "2026-11-24",
       providers: ["openai"],
+      agents: ["custom"],
       models: ["gpt-4o"],
       pairs: ["openai/gpt-4o"],
+      agentPairs: ["custom/gpt-4o"],
       chats: ["s1|plain"],
     });
     expect(events.join(" ")).not.toContain("личный");
     expect(events.join(" ")).not.toContain("secret");
     expect(events.join(" ")).not.toContain("Секретное");
+  });
+
+  it("openclaw: тип по модели, в путях и парах он же", () => {
+    const openclaw = agent({
+      protocol: "openai",
+      config: { model: "openclaw/default" },
+      address: "http://127.0.0.1:18789/v1",
+    });
+    const { events } = agentEvents(openclaw, session("s1"), "ru", empty, "2026-11-24");
+    expect(events).toEqual([
+      "language/ru",
+      "protocol/openai",
+      "agent/openclaw",
+      "model/openclaw-default",
+      "protocol/openai/openclaw-default",
+      "agent/openclaw/openclaw-default",
+      "chat/plain",
+    ]);
   });
 
   it("повторный запрос в тот же диалог и к тому же подключению — тишина", () => {
@@ -125,44 +188,43 @@ describe("события первого успешного запроса", () =
     expect(plain.state.chats).toEqual(["s1|token", "s1|plain"]);
   });
 
-  it("другое подключение в тот же день — своё подключение, модели и пары", () => {
+  it("другой агент в тот же день: новый тип, модель и пары, протокол уже был", () => {
     const openai = agent({ protocol: "openai", config: { model: "gpt-4o" } });
-    const pool = agent({
+    const hermes = agent({
       id: "b",
-      protocol: "model_pool",
-      config: { models: [{ id: "a" }, { id: "b" }] },
+      protocol: "openai",
+      address: "http://127.0.0.1:8642/v1",
+      config: { model: "hermes-agent" },
     });
     const first = agentEvents(openai, session("s1"), "ru", empty, "2026-11-24");
-    const second = agentEvents(pool, session("s2"), "ru", first.state, "2026-11-24");
+    const second = agentEvents(hermes, session("s2"), "ru", first.state, "2026-11-24");
     expect(second.events).toEqual([
-      "provider/model_pool",
-      "model/a",
-      "provider/model_pool/a",
-      "model/b",
-      "provider/model_pool/b",
+      "agent/hermes",
+      "model/hermes-agent",
+      "protocol/openai/hermes-agent",
+      "agent/hermes/hermes-agent",
       "chat/plain",
     ]);
   });
 
-  it("новые сутки — только язык, провайдеры и модели не повторяются", () => {
+  it("новые сутки — только язык, протоколы и модели не повторяются", () => {
     const openai = agent({ protocol: "openai", config: { model: "gpt-4o" } });
     const first = agentEvents(openai, session("s1"), "ru", empty, "2026-11-24");
     const nextDay = agentEvents(openai, session("s1"), "ru", first.state, "2026-11-25");
-    expect(nextDay.events).toEqual(["locale/ru"]);
+    expect(nextDay.events).toEqual(["language/ru"]);
     expect(nextDay.state.chats).toEqual(["s1|plain"]);
   });
 
-  it("модель из ответа точнее настройки: пул отчитывается настоящей моделью", () => {
-    const pool = agent({
-      protocol: "model_pool",
-      config: { models: [{ id: "a" }, { id: "b" }] },
-    });
-    const { events, state } = agentEvents(pool, session("s1"), "ru", empty, "2026-11-24", "real-model");
+  it("модель из ответа точнее настройки", () => {
+    const openai = agent({ protocol: "openai", config: { model: "gpt-4o" } });
+    const { events, state } = agentEvents(openai, session("s1"), "ru", empty, "2026-11-24", "real-model");
     expect(events).toEqual([
-      "locale/ru",
-      "provider/model_pool",
+      "language/ru",
+      "protocol/openai",
+      "agent/custom",
       "model/real-model",
-      "provider/model_pool/real-model",
+      "protocol/openai/real-model",
+      "agent/custom/real-model",
       "chat/plain",
     ]);
     expect(state.models).toEqual(["real-model"]);
@@ -176,7 +238,8 @@ describe("события первого успешного запроса", () =
       empty,
       "2026-11-24",
     );
-    expect(events).toContain("provider/openai/unknown");
+    expect(events).toContain("protocol/openai/unknown");
+    expect(events).toContain("agent/custom/unknown");
     expect(events).toContain("model/unknown");
   });
 });
@@ -198,14 +261,16 @@ describe("отправка после успешного ответа", () => {
     const openai = agent({ protocol: "openai", config: { model: "gpt-4o" } });
     reportAgentUse(openai, session("s1"), "ru");
     expect(calls()).toEqual([
-      "locale/ru",
-      "provider/openai",
+      "language/ru",
+      "protocol/openai",
+      "agent/custom",
       "model/gpt-4o",
-      "provider/openai/gpt-4o",
+      "protocol/openai/gpt-4o",
+      "agent/custom/gpt-4o",
       "chat/plain",
     ]);
     reportAgentUse(openai, session("s1"), "ru");
-    expect(calls()).toHaveLength(5);
+    expect(calls()).toHaveLength(7);
   });
 
   it("после перезагрузки страницы повтор не уходит (состояние в хранилище)", () => {

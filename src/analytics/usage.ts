@@ -6,32 +6,44 @@
  * один факт, повторов нет: ни после перезагрузки страницы, ни с каждым сообщением.
  *
  * Что уходит в GoatCounter (пути отчёта Events):
- *   chat/plain          — первый успешный запрос в обычном диалоге
- *   chat/token          — первый успешный запрос в защищённом диалоге (режим токенов)
- *   provider/<p>        — первый успешный запрос через подключение такого типа
- *   model/<m>           — первый успешный запрос с такой моделью
- *   provider/<p>/<m>    — первая успешная пара «подключение + модель»
- *   locale/<l>          — язык интерфейса, раз в сутки
+ *   chat/plain               — первый успешный запрос в обычном диалоге
+ *   chat/token               — первый успешный запрос в защищённом диалоге
+ *   protocol/<p>             — первый успешный запрос через подключение такого протокола
+ *   agent/<t>                — первый успешный запрос к агенту такого типа
+ *   model/<m>                — первый успешный запрос с такой моделью
+ *   protocol/<p>/<m>         — первая успешная пара «протокол + модель»
+ *   agent/<t>/<m>            — первая успешная пара «тип агента + модель»
+ *   language/<l>             — язык интерфейса, раз в сутки
+ *
+ * Тип агента (agent/<t>): picoclaw, openclaw, hermes, custom. Определяется по
+ * настройкам подключения, а если там ничего не сказано — по адресу: слово
+ * openclaw/hermes/pico в URL или известный порт (18789 / 8642 / 18790).
  *
  * Диалог считается по режиму: если в нём сначала писали без защиты, а потом
- * включили режим токенов (или наоборот), это два разных чата — `chat/plain`
+ * включили защищённый режим (или наоборот), это два разных чата — `chat/plain`
  * и `chat/token`.
  *
  * В отчёт не попадает ничего личного: ни адреса, ни ключи, ни названия диалогов,
- * ни тексты сообщений. Модель и тип подключения режутся до безопасного пути.
+ * ни тексты сообщений. Модель, протокол и тип агента режутся до безопасного пути.
  */
 
-import type { Agent, ModelMixConfig, ModelPoolConfig, OpenAIConfig, Session } from "@/storage/types";
+import type { Agent, OpenAIConfig, Session } from "@/storage/types";
+// Пул и сводка временно выключены — типы понадобятся, когда вернём.
+// import type { ModelMixConfig, ModelPoolConfig } from "@/storage/types";
 import { trackEvent } from "./goatcounter";
 
 /** Язык интерфейса — один раз в сутки. */
 const DAY_KEY = "gena.analytics.day";
-/** Типы подключений, по которым уже был успешный запрос. */
+/** Протоколы, по которым уже был успешный запрос. */
 const PROVIDERS_KEY = "gena.analytics.providers.v2";
+/** Типы агентов, по которым уже был успешный запрос. */
+const AGENTS_KEY = "gena.analytics.agents.v1";
 /** Модели, с которыми уже был успешный запрос. */
 const MODELS_KEY = "gena.analytics.models.v2";
-/** Пары «подключение + модель», по которым уже был успешный запрос. */
+/** Пары «протокол + модель», по которым уже был успешный запрос. */
 const PAIRS_KEY = "gena.analytics.pairs.v2";
+/** Пары «тип агента + модель», по которым уже был успешный запрос. */
+const AGENT_PAIRS_KEY = "gena.analytics.agent-pairs.v1";
 /** Диалоги с режимом, которые уже посчитаны: каждый — одно событие. */
 const CHATS_KEY = "gena.analytics.chats.v2";
 /** Списки не должны расти бесконечно. */
@@ -51,16 +63,19 @@ export function analyticsSlug(value: string): string {
 /** Модели, которые реально выбраны у подключения. */
 export function modelsOf(agent: Agent): string[] {
   const protocol = agent.protocol ?? "http_json";
-  if (protocol === "model_pool") {
-    const models = (agent.config as ModelPoolConfig | undefined)?.models ?? [];
-    const ids = models.map((model) => model.id.trim()).filter(Boolean);
-    return ids.length > 0 ? ids : ["default"];
-  }
-  if (protocol === "model_mix") {
-    const routes = (agent.config as ModelMixConfig | undefined)?.routes ?? [];
-    const ids = routes.map((route) => route.model.trim()).filter(Boolean);
-    return ids.length > 0 ? ids : ["default"];
-  }
+  // Пул моделей и «сводка» временно выключены: такие подключения не создаются,
+  // и событий по ним нет. Код оставлен закомментированным, а не удалён.
+  // if (protocol === "model_pool") {
+  //   const models = (agent.config as ModelPoolConfig | undefined)?.models ?? [];
+  //   const ids = models.map((model) => model.id.trim()).filter(Boolean);
+  //   return ids.length > 0 ? ids : ["default"];
+  // }
+  // if (protocol === "model_mix") {
+  //   const routes = (agent.config as ModelMixConfig | undefined)?.routes ?? [];
+  //   const ids = routes.map((route) => route.model.trim()).filter(Boolean);
+  //   return ids.length > 0 ? ids : ["default"];
+  // }
+  if (protocol === "model_pool" || protocol === "model_mix") return [];
   if (protocol === "openai") {
     const model = (agent.config as OpenAIConfig | undefined)?.model?.trim() || agent.settings.llmModel.trim();
     return [model || "default"];
@@ -68,20 +83,63 @@ export function modelsOf(agent: Agent): string[] {
   return [agent.settings.llmModel.trim() || "default"];
 }
 
-/** Что уже отправлено: день (язык), подключения, модели, пары, диалоги. */
+/** Тип агента в отчёте: узнаём по настройкам, иначе по адресу. */
+export type AgentType = "picoclaw" | "openclaw" | "hermes" | "custom";
+
+/** Подсказки по адресу: слово в URL/хосте или известный порт. */
+const ADDRESS_HINTS: { type: AgentType; word: RegExp; ports: string[] }[] = [
+  { type: "openclaw", word: /openclaw/, ports: ["18789"] },
+  { type: "hermes", word: /hermes/, ports: ["8642"] },
+  { type: "picoclaw", word: /pico(claw)?/, ports: ["18790"] },
+];
+
+/**
+ * Тип агента: сначала явные признаки настроек, потом адрес.
+ *
+ * В отчёт уходит только тип из короткого списка, сам адрес не отправляется.
+ */
+export function agentTypeOf(agent: Agent): AgentType {
+  if ((agent.protocol ?? "http_json") === "pico_ws") return "picoclaw";
+  const model = modelsOf(agent).join(" ").toLowerCase();
+  if (model.includes("openclaw")) return "openclaw";
+  if (model.includes("hermes")) return "hermes";
+  const address = (agent.address ?? "").toLowerCase();
+  for (const hint of ADDRESS_HINTS) {
+    if (hint.word.test(address)) return hint.type;
+    if (hint.ports.some((port) => new RegExp(`[:/]${port}(?![0-9])`).test(address))) {
+      return hint.type;
+    }
+  }
+  return "custom";
+}
+
+/** Что уже отправлено: день (язык), протоколы, типы, модели, пары, диалоги. */
 export interface UsageState {
   day: string;
   providers: string[];
+  agents: string[];
   models: string[];
   pairs: string[];
+  agentPairs: string[];
   chats: string[];
 }
+
+/** Пустое состояние — для тестов и первого запуска. */
+export const emptyUsageState: UsageState = {
+  day: "",
+  providers: [],
+  agents: [],
+  models: [],
+  pairs: [],
+  agentPairs: [],
+  chats: [],
+};
 
 /**
  * Ключ учёта диалога: диалог + режим.
  *
  * Режим — свойство не диалога, а куска работы в нём: обычные запросы и
- * защищённые (режим токенов) считаются разными чатами.
+ * защищённые (защищённый режим) считаются разными чатами.
  */
 export function chatKey(session: Session): string {
   return `${session.id}|${session.tokenMode ? "token" : "plain"}`;
@@ -129,8 +187,8 @@ function push(list: string[], value: string): void {
  * События одного успешного запроса к агенту — чистая функция, чтобы
  * проверялась без хранилища.
  *
- * `servedModel` — модель, которой ответил агент (если он её сообщил).
- * Она точнее настройки: у пула и сводки настоящая модель видна только в ответе.
+ * `servedModel` — модель, которой ответил агент (если он её сообщил):
+ * она точнее настройки подключения.
  */
 export function agentEvents(
   agent: Agent,
@@ -143,33 +201,51 @@ export function agentEvents(
   const next: UsageState = {
     day,
     providers: [...state.providers],
+    agents: [...state.agents],
     models: [...state.models],
     pairs: [...state.pairs],
+    agentPairs: [...state.agentPairs],
     chats: [...state.chats],
   };
   const events: string[] = [];
-  if (state.day !== day) events.push(`locale/${analyticsSlug(language)}`);
+  if (state.day !== day) events.push(`language/${analyticsSlug(language)}`);
 
   const protocol = analyticsSlug(agent.protocol ?? "http_json");
+  // Пул и сводка временно выключены (см. modelsOf): по ним не отправляем
+  // ни протокол, ни тип, ни модели. Вернуть — раскомментировать modelsOf.
+  const disabled = protocol === "model_pool" || protocol === "model_mix";
   const served = servedModel?.trim();
-  const models = served ? [served] : modelsOf(agent);
-  const seen = new Set<string>();
-  if (!next.providers.includes(protocol)) {
-    events.push(`provider/${protocol}`);
-    push(next.providers, protocol);
-  }
-  for (const model of models) {
-    const slug = analyticsSlug(model);
-    if (seen.has(slug)) continue;
-    seen.add(slug);
-    if (!next.models.includes(slug)) {
-      events.push(`model/${slug}`);
-      push(next.models, slug);
+  const models = disabled ? [] : served ? [served] : modelsOf(agent);
+
+  if (!disabled) {
+    const type = analyticsSlug(agentTypeOf(agent));
+    if (!next.providers.includes(protocol)) {
+      events.push(`protocol/${protocol}`);
+      push(next.providers, protocol);
     }
-    const pair = `${protocol}/${slug}`;
-    if (!next.pairs.includes(pair)) {
-      events.push(`provider/${protocol}/${slug}`);
-      push(next.pairs, pair);
+    if (!next.agents.includes(type)) {
+      events.push(`agent/${type}`);
+      push(next.agents, type);
+    }
+    const seen = new Set<string>();
+    for (const model of models) {
+      const slug = analyticsSlug(model);
+      if (seen.has(slug)) continue;
+      seen.add(slug);
+      if (!next.models.includes(slug)) {
+        events.push(`model/${slug}`);
+        push(next.models, slug);
+      }
+      const pair = `${protocol}/${slug}`;
+      if (!next.pairs.includes(pair)) {
+        events.push(`protocol/${protocol}/${slug}`);
+        push(next.pairs, pair);
+      }
+      const agentPair = `${type}/${slug}`;
+      if (!next.agentPairs.includes(agentPair)) {
+        events.push(`agent/${type}/${slug}`);
+        push(next.agentPairs, agentPair);
+      }
     }
   }
 
@@ -197,7 +273,7 @@ function store(): Storage | null {
  * Копия состояния в памяти: приватный режим не даёт писать в хранилище,
  * и без неё одни и те же события уходили бы с каждым сообщением.
  */
-const memory: UsageState = { day: "", providers: [], models: [], pairs: [], chats: [] };
+const memory: UsageState = { ...emptyUsageState };
 
 function union(first: readonly string[], second: readonly string[]): string[] {
   return [...new Set([...first, ...second])];
@@ -207,15 +283,19 @@ function readState(box: Storage | null): UsageState {
   const stored = {
     day: readDay(box),
     providers: readList(PROVIDERS_KEY, box),
+    agents: readList(AGENTS_KEY, box),
     models: readList(MODELS_KEY, box),
     pairs: readList(PAIRS_KEY, box),
+    agentPairs: readList(AGENT_PAIRS_KEY, box),
     chats: readList(CHATS_KEY, box),
   };
   return {
     day: stored.day > memory.day ? stored.day : memory.day,
     providers: union(stored.providers, memory.providers),
+    agents: union(stored.agents, memory.agents),
     models: union(stored.models, memory.models),
     pairs: union(stored.pairs, memory.pairs),
+    agentPairs: union(stored.agentPairs, memory.agentPairs),
     chats: union(stored.chats, memory.chats),
   };
 }
@@ -223,8 +303,10 @@ function readState(box: Storage | null): UsageState {
 function writeState(state: UsageState, box: Storage | null): void {
   memory.day = state.day;
   memory.providers = [...state.providers];
+  memory.agents = [...state.agents];
   memory.models = [...state.models];
   memory.pairs = [...state.pairs];
+  memory.agentPairs = [...state.agentPairs];
   memory.chats = [...state.chats];
   try {
     box?.setItem(DAY_KEY, state.day);
@@ -232,8 +314,10 @@ function writeState(state: UsageState, box: Storage | null): void {
     // Приватный режим: день не запомнится, язык уйдёт повторно.
   }
   writeJson(PROVIDERS_KEY, state.providers, box);
+  writeJson(AGENTS_KEY, state.agents, box);
   writeJson(MODELS_KEY, state.models, box);
   writeJson(PAIRS_KEY, state.pairs, box);
+  writeJson(AGENT_PAIRS_KEY, state.agentPairs, box);
   writeJson(CHATS_KEY, state.chats, box);
 }
 
@@ -241,8 +325,10 @@ function writeState(state: UsageState, box: Storage | null): void {
 export function resetUsageMemory(): void {
   memory.day = "";
   memory.providers = [];
+  memory.agents = [];
   memory.models = [];
   memory.pairs = [];
+  memory.agentPairs = [];
   memory.chats = [];
 }
 

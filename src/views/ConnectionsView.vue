@@ -168,10 +168,17 @@ function pickListedModel(event: Event): void {
   const id = (event.target as HTMLSelectElement).value;
   if (!id) return;
   ensureModelRow();
-  if (!poolModels.value.some((row) => row.id === id)) {
-    poolModels.value.push({ id, free: false, dailyLimit: 0 });
+  if (protocol.value === "model_pool") {
+    if (!poolModels.value.some((row) => row.id === id)) {
+      poolModels.value.push({ id, free: false, dailyLimit: 0 });
+    }
+    if (poolModels.value.length === 1 && !poolModels.value[0].id) poolModels.value[0].id = id;
+  } else if (poolModels.value.length > 0) {
+    // Пул выключен: у подключения одна модель — выбор из списка её заменяет.
+    poolModels.value[0].id = id;
+  } else {
+    poolModels.value = [{ id, free: false, dailyLimit: 0 }];
   }
-  if (poolModels.value.length === 1 && !poolModels.value[0].id) poolModels.value[0].id = id;
   model.value = poolModels.value[0]?.id ?? id;
 }
 
@@ -302,13 +309,17 @@ async function submit(): Promise<void> {
     if (onePlain) {
       protocol.value = "openai";
       config = { model: models[0].id, systemPrompt: systemPrompt.value.trim() || undefined };
-    } else {
-      protocol.value = "model_pool";
+    } else if (protocol.value === "model_pool") {
+      // Пул моделей временно выключен: сюда попадаем только при правке
+      // старого подключения этого типа.
       config = {
         models,
         preferFree: preferFree.value,
         systemPrompt: systemPrompt.value.trim() || undefined,
       };
+    } else {
+      // Одна модель на подключение: лишние строки не сохраняются.
+      config = { model: models[0].id, systemPrompt: systemPrompt.value.trim() || undefined };
     }
   } else if (protocol.value === "pico_ws") {
     config = { reconnect: true };
@@ -559,7 +570,8 @@ function moveRow<T>(list: T[], index: number, delta: number): void {
 
 function addPoolModel(): void {
   poolModels.value.push({ id: "", free: false, dailyLimit: 0 });
-  if (poolModels.value.length > 1 && protocol.value === "openai") protocol.value = "model_pool";
+  // Пул моделей временно выключен: протокол в model_pool не переключаем.
+  // if (poolModels.value.length > 1 && protocol.value === "openai") protocol.value = "model_pool";
 }
 
 function downloadAgents(filename: string, body: string, type: string): void {
@@ -635,8 +647,10 @@ function addMixRoute(): void {
             <option value="http_json">{{ t("connections.protocol.http_json") }}</option>
             <option value="openai">{{ t("connections.protocol.openai") }}</option>
             <option value="pico_ws">{{ t("connections.protocol.pico_ws") }}</option>
+            <!-- Пул и «сводка» временно выключены: вернуть — раскомментировать.
             <option value="model_pool">{{ t("connections.protocol.model_pool") }}</option>
             <option value="model_mix">{{ t("connections.protocol.model_mix") }}</option>
+            -->
           </select>
         </div>
       </div>
@@ -692,7 +706,7 @@ function addMixRoute(): void {
             <option v-for="id in listedModels" :key="id" :value="id" />
           </datalist>
           <div class="key-row">
-            <button type="button" @click="addPoolModel">{{ t("connections.addModel") }}</button>
+            <button v-if="protocol === 'model_pool'" type="button" @click="addPoolModel">{{ t("connections.addModel") }}</button>
             <button type="button" class="icon-btn" :disabled="!canListModels || modelsBusy" v-tip="modelsBusy ? t('connections.listingModels') : t('connections.listModels')" :aria-label="modelsBusy ? t('connections.listingModels') : t('connections.listModels')" @click="loadProviderModels">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M3 12h.01" />
