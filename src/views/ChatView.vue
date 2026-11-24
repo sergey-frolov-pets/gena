@@ -133,11 +133,6 @@ import { findSelectionEntry, replaceRange } from "@/lib/tokens/selection";
 import { loadNameBases, suggestBaseNames } from "@/lib/tokens/name-bases";
 import { replaceSelectionWithToken, replaceTokenWithValue } from "@/lib/tokens/message-replace";
 import {
-  describeFieldPick,
-  replaceFieldPick,
-  type FieldPick,
-} from "@/lib/tokens/field-pick";
-import {
   applyForms,
   assignForms,
   formAt,
@@ -145,14 +140,12 @@ import {
   formsOf,
   keepForms,
   keptForms,
-  lookupForm,
   preferForms,
   rememberForm,
   shiftForms,
   tokenIndexAt,
   type FormStore,
 } from "@/lib/tokens/forms";
-import { measureCaret, placeBubble } from "@/lib/tokens/caret-point";
 import {
   findOccurrences,
   replaceAllInText,
@@ -452,7 +445,6 @@ function insertTokenName(name: string): void {
 function onComposerInput(event: Event): void {
   // Выделение сдвинулось — плашка под полем больше не про этот фрагмент.
   if (selectionRange.value) clearSelection();
-  if (fieldPick.value) fieldPick.value = null;
   if (occurrenceTotal.value > 0) finishOccurrences();
   const el = event.target as HTMLTextAreaElement | null;
   const typed = composerField.value || el?.value || "";
@@ -658,8 +650,6 @@ function onComposerSelect(): void {
   if (!isTokenSession(activeSession.value)) {
     clearSelection();
     finishOccurrences();
-    fieldPick.value = null;
-    fieldPickAnchor.value = null;
     return;
   }
   const el = composerEl.value;
@@ -673,11 +663,8 @@ function onComposerSelect(): void {
   if (endVisible <= startVisible) {
     // Выделения нет — закрываем серию только если плашка и была про серию.
     if (occurrenceTotal.value === 0) clearSelection();
-    // Тап по полю без выделения: что под пальцем — токен или значение?
-    void pickComposerFragment();
     return;
   }
-  // Выделение ровно подсвеченного блока — то же облачко, что и по клику.
   const from = draftOffsetForVisible(draft.value, startVisible, displayValues.value, formLookup(tokenForms));
   const to = draftOffsetForVisible(draft.value, endVisible, displayValues.value, formLookup(tokenForms));
   const lo = Math.min(from, to);
@@ -690,19 +677,6 @@ function onComposerSelect(): void {
   const start = lo + lead;
   const end = hi - trail;
   const text = draft.value.slice(start, end);
-  let covered = describeFieldPick(draft.value, start, declinedEntries.value);
-  if (!covered && start > 0) covered = describeFieldPick(draft.value, start - 1, declinedEntries.value);
-  // Облачко — только когда выделено ровно подсвеченное слово.
-  // Кусок имени внутри длинного блока не раздуваем до текста ниже: иначе
-  // выделение снимается и править имя нельзя.
-  const coveredText = covered ? draft.value.slice(covered.start, covered.end).trim() : "";
-  if (covered && text === coveredText) {
-    fieldPick.value = covered;
-    clearSelection();
-    return;
-  }
-  // Выделение уже или шире подсветки — плашка с именем, облачко не нужно.
-  fieldPick.value = null;
   if (text.length < 2) {
     clearSelection();
     return;
@@ -742,32 +716,6 @@ function onComposerSelectSoon(): void {
   selectionTimer = window.setTimeout(onComposerSelect, 120);
 }
 
-/* ── Тап по полю: токен ⇄ значение прямо в поле ввода ─────────────────── */
-
-/**
- * Что нашли под пальцем в поле ввода.
- *
- * На телефоне тап не создаёт выделения, поэтому плашка выделения молчит.
- * Ткнул в ⟦имя⟧ или в сумму — над самим словом появляется облачко со второй
- * стороной (токен или исходное значение) и крестиком справа от него:
- * «отменить токенизацию» для токена, «свернуть» для значения.
- */
-const fieldPick = ref<FieldPick | null>(null);
-const fieldAliasName = ref("");
-const fieldCanRename = computed(
-  () =>
-    Boolean(fieldPick.value) &&
-    !fieldPick.value?.tokenized &&
-    offerCanRename(fieldPick.value?.name ?? ""),
-);
-watch(fieldPick, (pick) => {
-  fieldAliasName.value = pick && !pick.tokenized ? pick.name : "";
-});
-/** Номер попытки: пока справочник дочитывался, каретка уже ушла. */
-let fieldPickSeq = 0;
-/** Облачко: где его поставить. Считаем по месту слова, а не по полю целиком. */
-const fieldPickAnchor = ref<{ left: number; top: number; below: boolean } | null>(null);
-const fieldPickEl = ref<HTMLElement | null>(null);
 
 /**
  * Исходная форма каждого токена: «вклада ВТБ» → ⟦вклад⟧.
@@ -777,170 +725,7 @@ const fieldPickEl = ref<HTMLElement | null>(null);
  */
 const tokenForms: FormStore = new Map<string, string>();
 
-/** Значение токена в его исходной форме — то, что было в тексте до замены. */
-const fieldPickOriginal = computed(() => {
-  const pick = fieldPick.value;
-  if (!pick) return "";
-  if (!pick.tokenized) return pick.value;
-  return lookupForm(tokenForms, draft.value, pick.name, pick.start) ?? pick.value;
-});
 
-/** Ищем фрагмент по каретке в точке тапа. */
-async function pickComposerFragment(): Promise<void> {
-  const seq = ++fieldPickSeq;
-  if (!isTokenSession(activeSession.value)) {
-    fieldPick.value = null;
-    fieldPickAnchor.value = null;
-    return;
-  }
-  const el = composerEl.value;
-  if (!el) {
-    fieldPick.value = null;
-    return;
-  }
-  if (tokenEntries.value.length === 0) {
-    await ensureTokens();
-    if (seq !== fieldPickSeq) return;
-  }
-  await nextTick();
-  if (seq !== fieldPickSeq) return;
-  const area = composerEl.value;
-  if (!area) return;
-  const start = area.selectionStart ?? 0;
-  const end = area.selectionEnd ?? 0;
-  if (end > start) {
-    fieldPick.value = null;
-    return;
-  }
-  const caret = draftOffsetForVisible(
-    draft.value,
-    start,
-    displayValues.value,
-    formLookup(tokenForms),
-  );
-  let pick = describeFieldPick(draft.value, caret, declinedEntries.value);
-  if (!pick && caret > 0) {
-    pick = describeFieldPick(draft.value, caret - 1, declinedEntries.value);
-  }
-  if (pick && !pick.tokenized && refusedOffers.value.includes(offerKey(pick.text))) {
-    fieldPick.value = null;
-    return;
-  }
-  fieldPick.value = pick;
-}
-
-/**
- * Поставить облачко над словом.
- *
- * Координаты слова берём замером зеркала (у textarea нет такой карты),
- * размеры облачка — по факту его отрисовки. Считаем от рамки поля ввода,
- * поэтому буббл живёт внутри `.chat-panel__composer-box` (там `position: relative`).
- */
-async function placeFieldPick(): Promise<void> {
-  const pick = fieldPick.value;
-  if (!pick) {
-    fieldPickAnchor.value = null;
-    return;
-  }
-  await nextTick();
-  const area = composerEl.value;
-  const bubble = fieldPickEl.value;
-  const box = area?.closest(".chat-panel__composer-box") as HTMLElement | null;
-  if (!area || !bubble || !box) {
-    fieldPickAnchor.value = null;
-    return;
-  }
-  const visible = visibleOffsetForDraft(
-    draft.value,
-    pick.start,
-    displayValues.value,
-    formLookup(tokenForms),
-  );
-  const point = measureCaret(area, visible);
-  if (!point) {
-    fieldPickAnchor.value = null;
-    return;
-  }
-  const areaRect = area.getBoundingClientRect();
-  const boxRect = box.getBoundingClientRect();
-  // Абсолютное позиционирование внутри бокса считается от его padding-box,
-  // поэтому ширины рамок бокса и поля вычитаем/добавляем явно.
-  const baseLeft = areaRect.left - boxRect.left - box.clientLeft + area.clientLeft;
-  const baseTop = areaRect.top - boxRect.top - box.clientTop + area.clientTop;
-  const placement = placeBubble({
-    wordLeft: baseLeft + point.left,
-    wordTop: baseTop + point.top,
-    lineHeight: point.lineHeight,
-    bubbleWidth: bubble.offsetWidth,
-    bubbleHeight: bubble.offsetHeight,
-    boxWidth: box.clientWidth,
-  });
-  // На телефоне место под словом занимает клавиатура: список держим над полем.
-  if (compact.value && placement.below) {
-    fieldPickAnchor.value = { left: placement.left, top: 4, below: false };
-    return;
-  }
-  fieldPickAnchor.value = placement;
-}
-
-/**
- * Поставить в поле вторую сторону: токен вместо значения или наоборот.
- *
- * Заменяя значение на токен, запоминаем исходную форму: снятие токенизации
- * вернёт ровно её, а не каноническое написание из справочника.
- */
-async function applyFieldAlias(): Promise<void> {
-  const pick = fieldPick.value;
-  if (!pick) return;
-  const name = await commitDialogName(fieldAliasName.value || pick.name, pick.name);
-  if (!name) return;
-  if (tokenNameKey(name) === tokenNameKey(pick.name)) {
-    applyFieldPick("token");
-    return;
-  }
-  rememberForm(tokenForms, draft.value, name, pick.start, pick.text);
-  const result = replaceRange(draft.value, pick.start, pick.end, formatToken(name));
-  fieldPick.value = null;
-  fieldPickAnchor.value = null;
-  draft.value = result.text;
-  void nextTick(() => {
-    const area = composerEl.value;
-    if (!area) return;
-    const pos = toVisibleOffset(draft.value, result.caret);
-    area.focus();
-    area.setSelectionRange(pos, pos);
-  });
-}
-
-function applyFieldPick(target: "token" | "value"): void {
-  const pick = fieldPick.value;
-  if (!pick) return;
-  const form =
-    target === "value"
-      ? lookupForm(tokenForms, draft.value, pick.name, pick.start)
-      : null;
-  if (target === "token" && !pick.tokenized) {
-    rememberForm(tokenForms, draft.value, pick.name, pick.start, pick.text);
-  }
-  const result = replaceFieldPick(draft.value, pick, target, form);
-  fieldPick.value = null;
-  fieldPickAnchor.value = null;
-  if (!result.changed) return;
-  draft.value = result.text;
-  void nextTick(() => {
-    const area = composerEl.value;
-    if (!area) return;
-    const pos = toVisibleOffset(draft.value, result.caret);
-    area.focus();
-    area.setSelectionRange(pos, pos);
-    void autoGrow();
-  });
-}
-
-/**
- * Крестик: у токена — отмена токенизации (возвращаем значение),
- * у значения — просто закрыть облачко.
- */
 /** Все написания записи: значение и варианты, без падежей словаря. */
 function spellingsOf(name: string): string[] {
   const entry = tokenEntryByName(name);
@@ -955,26 +740,6 @@ function spellingsOf(name: string): string[] {
     list.push(text);
   }
   return list;
-}
-
-const fieldSpellings = computed(() => spellingsOf(fieldPick.value?.name ?? ""));
-
-/** Поставить в это место другое написание той же записи. */
-function applyFieldSpelling(spelling: string): void {
-  const pick = fieldPick.value;
-  const text = spelling.trim();
-  if (!pick || !text) return;
-  if (pick.tokenized) {
-    rememberForm(tokenForms, draft.value, pick.name, pick.start, text);
-    fieldPick.value = null;
-    fieldPickAnchor.value = null;
-    syncComposerField();
-    return;
-  }
-  draft.value = draft.value.slice(0, pick.start) + text + draft.value.slice(pick.end);
-  fieldPick.value = null;
-  fieldPickAnchor.value = null;
-  syncComposerField();
 }
 
 /**
@@ -1100,25 +865,7 @@ function dismissChatPick(): void {
 
 /** Спрятать облачко, не меняя текст: Esc и клик мимо. */
 function hideTokenPicks(): void {
-  fieldPick.value = null;
-  fieldPickAnchor.value = null;
   chatPick.value = null;
-}
-
-function closeFieldPick(): void {
-  const pick = fieldPick.value;
-  if (pick && pick.tokenized && fieldPickOriginal.value.trim()) {
-    applyFieldPick("value");
-    return;
-  }
-  if (pick && !pick.tokenized) {
-    const key = offerKey(pick.text);
-    if (key && !refusedOffers.value.includes(key)) {
-      refusedOffers.value = [...refusedOffers.value, key];
-    }
-  }
-  fieldPick.value = null;
-  fieldPickAnchor.value = null;
 }
 
 /** Перетаскивание выделения мышью/пальцем: поле ввода или лента сообщений. */
@@ -1830,12 +1577,11 @@ const marksScroll = ref({ left: 0, top: 0 });
  */
 const marksGutter = ref(0);
 
-/** Поле прокрутилось: подложку ставим на место и пересчитываем облачко. */
+/** Поле прокрутилось: подложку ставим на место. */
 function onComposerScroll(): void {
   const el = composerEl.value;
   marksScroll.value = { left: el?.scrollLeft ?? 0, top: el?.scrollTop ?? 0 };
   measureMarksGutter();
-  onViewportChange();
 }
 
 /** Запомнить, сколько места съедает полоса прокрутки поля. */
@@ -2152,7 +1898,7 @@ function onQuickOutside(event: Event): void {
       agentMenuOpen.value = false;
     }
   }
-  if ((fieldPick.value || chatPick.value) && !target.closest(".chat-panel__pick")) {
+  if (chatPick.value && !target.closest(".chat-panel__pick")) {
     hideTokenPicks();
   }
 }
@@ -2161,7 +1907,7 @@ function onQuickKey(event: KeyboardEvent): void {
   if (event.key !== "Escape") return;
   quickOpen.value = false;
   agentMenuOpen.value = false;
-  if (fieldPick.value || chatPick.value) {
+  if (chatPick.value) {
     event.preventDefault();
     hideTokenPicks();
   }
@@ -2214,7 +1960,6 @@ function openComposer(): void {
 /** Кнопка «Токены» в свёрнутом доке: включает режим (если надо) и открывает ввод. */
 function closeComposer(): void {
   composerOpen.value = false;
-  fieldPick.value = null;
 }
 
 /** Тап по полотну чата прячет открытый ввод и снова показывает его. */
@@ -2746,8 +2491,6 @@ watch(
     if (on) return;
     clearSelection();
     finishOccurrences();
-    fieldPick.value = null;
-    fieldPickAnchor.value = null;
     clearFeedSelection();
   },
 );
@@ -2907,10 +2650,6 @@ watch(draft, () => {
     draftFromField = false;
   } else {
     syncComposerField();
-    // Черновик переписали программно (отправка, вставка токена) — плашка тапа
-    // про старый фрагмент, её место больше не там.
-    const pick = fieldPick.value;
-    if (pick && draft.value.slice(pick.start, pick.end) !== pick.text) fieldPick.value = null;
   }
   void autoGrow();
 }, { flush: "pre" });
@@ -2920,20 +2659,6 @@ watch(displayValues, () => {
   syncComposerField();
   void autoGrow();
 });
-
-/**
- * Облачко тапа стоит над словом: появился фрагмент или поле перестроилось
- * (новая строка, переключение значений ⇄ токенов) — пересчитываем место.
- */
-watch(fieldPick, () => void placeFieldPick(), { flush: "post" });
-watch([displayValues, composerMultiline], () => {
-  if (fieldPick.value) void placeFieldPick();
-}, { flush: "post" });
-
-/** Поворот телефона и изменение окна: текст переносится, место слова меняется. */
-function onViewportChange(): void {
-  if (fieldPick.value) void placeFieldPick();
-}
 
 /** Выставить ручную высоту поля и запомнить её: авто-рост её не перебьёт. */
 function setComposerManualHeight(px: number): void {
@@ -4411,7 +4136,6 @@ onMounted(() => {
   window.visualViewport?.addEventListener("resize", syncViewport);
   window.visualViewport?.addEventListener("scroll", syncViewport);
   window.addEventListener("resize", syncViewport);
-  window.addEventListener("resize", onViewportChange);
   // Телефон: ввод открывается тапом по чату, а не занимает экран постоянно.
   compactQuery = window.matchMedia("(max-width: 720px)");
   syncCompact(compactQuery.matches);
@@ -4466,7 +4190,6 @@ onUnmounted(() => {
   window.visualViewport?.removeEventListener("resize", syncViewport);
   window.visualViewport?.removeEventListener("scroll", syncViewport);
   window.removeEventListener("resize", syncViewport);
-  window.removeEventListener("resize", onViewportChange);
   compactQuery?.removeEventListener("change", onCompactChange);
   window.removeEventListener("online", onOnline);
   window.removeEventListener("offline", onOffline);
@@ -5343,68 +5066,6 @@ function onRateChange(event: Event): void {
             @paste="onPaste"
             @scroll="onComposerScroll"
           />
-          </div>
-          <div
-            v-if="fieldPick"
-            ref="fieldPickEl"
-            class="chat-panel__pick"
-            :class="{ 'is-placed': fieldPickAnchor, 'is-below': fieldPickAnchor?.below }"
-            :style="
-              fieldPickAnchor
-                ? { left: `${fieldPickAnchor.left}px`, top: `${fieldPickAnchor.top}px` }
-                : undefined
-            "
-            role="group"
-            :aria-label="t('chat.tokens.selection')"
-          >
-            <div class="chat-panel__pick-col">
-              <div class="chat-panel__pick-head">
-                <input
-                  v-if="fieldCanRename"
-                  v-model="fieldAliasName"
-                  class="chat-panel__selection-input"
-                  type="text"
-                  :placeholder="t('chat.tokens.dialogName')"
-                  :aria-label="t('chat.tokens.dialogName')"
-                  @keydown.enter.prevent="guardBlur(); applyFieldAlias()"
-                />
-                <button
-                  v-if="!fieldPick.tokenized"
-                  type="button"
-                  class="chat-panel__pick-bubble is-token"
-                  :title="fieldPick.text"
-                  v-tip="t('chat.tokens.replaceSelection')"
-                  :aria-label="t('chat.tokens.replaceSelection')"
-                  @click="guardBlur(); fieldCanRename ? applyFieldAlias() : applyFieldPick('token')"
-                >
-                  ⟦{{ fieldCanRename ? fieldAliasName || fieldPick.name : fieldPick.name }}⟧
-                </button>
-                <span v-else class="chat-panel__pick-bubble is-token">⟦{{ fieldPick.name }}⟧</span>
-                <button
-                  v-if="fieldPick.tokenized"
-                  type="button"
-                  class="chat-panel__pick-close"
-                  v-tip="t('chat.tokens.untokenize')"
-                  :aria-label="t('chat.tokens.untokenize')"
-                  @click="guardBlur(); closeFieldPick()"
-                >
-                  <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-                    <path d="M6 6l12 12M18 6L6 18" />
-                  </svg>
-                </button>
-              </div>
-              <span v-if="fieldPick.tokenized && fieldSpellings.length > 0" class="chat-panel__pick-list">
-                <button
-                  v-for="spelling in fieldSpellings"
-                  :key="spelling"
-                  type="button"
-                  class="chat-panel__pick-bubble"
-                  @click="guardBlur(); applyFieldSpelling(spelling)"
-                >
-                  {{ spelling }}
-                </button>
-              </span>
-            </div>
           </div>
           <div class="chat-panel__composer-stack">
             <button
@@ -7092,9 +6753,8 @@ function onRateChange(event: Event): void {
   -webkit-touch-callout: none;
 }
 
-/* Облачко тапа по полю ввода: вторая сторона слова (токен или исходное
-   значение) висит над самим словом, крестик — справа от облачка.
-   Позицию считает placeFieldPick() по замеру каретки. */
+/* Облачко выбора токена в ленте сообщений: вторая сторона слова и крестик
+   рядом. Координаты приходят из места выделения (позиционируется инлайном). */
 .chat-panel__pick {
   position: absolute;
   z-index: 6;
@@ -7106,45 +6766,8 @@ function onRateChange(event: Event): void {
   pointer-events: none;
 }
 
-.chat-panel__pick-forms {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-height: 180px;
-  overflow: auto;
-  padding: 4px;
-  border: 1px solid var(--accent);
-  border-radius: 12px;
-  background: var(--panel);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
-}
 
-.chat-panel__pick-form {
-  max-width: min(240px, 70vw);
-  overflow: hidden;
-  padding: 3px 9px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-size: 0.78rem;
-  line-height: 1.35;
-  text-align: start;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
-}
 
-.chat-panel__pick-form.is-on {
-  background: var(--panel-2);
-  color: var(--accent);
-}
-
-.chat-panel__pick-form:hover,
-.chat-panel__pick-form:focus-visible {
-  background: var(--panel-2);
-}
 
 /* Пока место не посчитано, облачко не мелькает в углу поля. */
 .chat-panel__pick:not(.is-placed) {
