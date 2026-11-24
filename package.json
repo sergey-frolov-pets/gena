@@ -1,7 +1,7 @@
 {
   "name": "gena",
   "private": true,
-  "version": "0.2.27",
+  "version": "0.2.28",
   "type": "module",
   "description": "Gena — serverless messenger SPA with agent connections, encrypted keys, IndexedDB history",
   "scripts": {
