@@ -1295,6 +1295,12 @@ const selectionBanner = computed(() => {
 });
 
 watch(
+  [compact, composerOpen, selectionBanner, feedSelection],
+  () => void nextTick(syncDockSpace),
+  { flush: "post" },
+);
+
+watch(
   () => isTokenSession(activeSession.value),
   (on) => {
     if (on) return;
@@ -2028,18 +2034,52 @@ const dockEl = ref<HTMLElement | null>(null);
 /** Сколько места занял док-оверлей (px) — на столько поднимаем низ ленты. */
 const dockSpace = ref(0);
 let dockObserver: ResizeObserver | null = null;
+let panelObserver: ResizeObserver | null = null;
+let watchedPanels: Element[] = [];
+
+/** Запас над доком, чтобы последняя строка не прилипала к полю ввода. */
+const DOCK_CLEARANCE = 16;
+
+/** Высота плашек токенов: они висят над полем и в высоту дока не входят. */
+function selectionCover(): number {
+  const root = dockEl.value;
+  if (!root) return 0;
+  let cover = 0;
+  root.querySelectorAll(".chat-panel__selection").forEach((node) => {
+    const height = Math.round(node.getBoundingClientRect().height);
+    if (height > 0) cover += height + 8;
+  });
+  return cover;
+}
+
+function watchSelectionPanels(): void {
+  if (!panelObserver || !dockEl.value) return;
+  const nodes = [...dockEl.value.querySelectorAll(".chat-panel__selection")];
+  if (nodes.length === watchedPanels.length && nodes.every((node, index) => node === watchedPanels[index])) {
+    return;
+  }
+  panelObserver.disconnect();
+  watchedPanels = nodes;
+  nodes.forEach((node) => panelObserver?.observe(node));
+}
 
 function syncDockSpace(): void {
+  watchSelectionPanels();
   const el = dockEl.value;
   // На телефоне док лежит поверх ленты в обоих состояниях: с вводом и без него.
   const floating = compact.value;
-  const next = floating && el ? Math.round(el.getBoundingClientRect().height) + 8 : 0;
+  const dockHeight = floating && el ? Math.round(el.getBoundingClientRect().height) : 0;
+  const next = dockHeight + DOCK_CLEARANCE + selectionCover();
   if (next === dockSpace.value) return;
+  const delta = next - dockSpace.value;
   dockSpace.value = next;
+  const scroller = messagesEl.value;
+  // Читатель не у низа: сдвигаем ленту на прирост запаса, иначе плашка закрывает текст.
+  if (scroller && !stickBottom.value && delta !== 0) {
+    scroller.scrollTop = Math.max(0, scroller.scrollTop + delta);
+  }
   settleToBottom();
 }
-
-watch([compact, composerOpen], () => void nextTick(syncDockSpace), { flush: "post" });
 /* На телефоне поле ввода монтируется заново при каждом открытии — высоту
    восстанавливаем по тексту, иначе длинный черновик окажется в одну строку. */
 watch(composerOpen, () => void autoGrow(), { flush: "post" });
@@ -4355,6 +4395,7 @@ onMounted(() => {
   if (typeof ResizeObserver !== "undefined") {
     dockObserver = new ResizeObserver(() => syncDockSpace());
     if (dockEl.value) dockObserver.observe(dockEl.value);
+    panelObserver = new ResizeObserver(() => syncDockSpace());
   }
   syncDockSpace();
   void nextTick(autoGrow);
@@ -4401,6 +4442,9 @@ onUnmounted(() => {
   threadObserver = null;
   dockObserver?.disconnect();
   dockObserver = null;
+  panelObserver?.disconnect();
+  panelObserver = null;
+  watchedPanels = [];
   composerObserver?.disconnect();
   composerObserver = null;
   document.documentElement.style.removeProperty("--app-vvh");
