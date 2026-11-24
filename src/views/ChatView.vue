@@ -66,7 +66,9 @@ import {
   setAutoSpeak,
   setSpeechRate,
   speak,
+  speakParts,
   speakingId,
+  stopSpeaking,
   speechAvailable,
   speechRate,
   toggleSpeech,
@@ -3991,6 +3993,44 @@ function toggleAutoSpeak(): void {
   setAutoSpeak(!autoSpeak.value);
 }
 
+const CHAT_SPEECH_ID = "chat";
+
+/** Сообщение, внутри которого стоит курсор или выделение. */
+function cursorMessageId(): string {
+  const sel = window.getSelection?.();
+  if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+    const node = sel.getRangeAt(0).startContainer;
+    const element = node.nodeType === 1 ? (node as Element) : node.parentElement;
+    const host = element?.closest?.("[data-message-id]") as HTMLElement | null;
+    const id = host?.dataset.messageId ?? "";
+    if (id) return id;
+  }
+  if (sel && sel.rangeCount > 0) {
+    const node = sel.anchorNode;
+    const element = node && (node.nodeType === 1 ? (node as Element) : node.parentElement);
+    const host = element?.closest?.("[data-message-id]") as HTMLElement | null;
+    const id = host?.dataset.messageId ?? "";
+    if (id) return id;
+  }
+  return feedSelection.value?.messageId ?? "";
+}
+
+/** Озвучить ленту с сообщения под курсором до конца. Без курсора — с начала. */
+function speakChat(): void {
+  if (speakingId.value === CHAT_SPEECH_ID) {
+    stopSpeaking();
+    return;
+  }
+  const list = feed.value.filter((m) => m.kind !== "thought" && m.content.trim());
+  const fromId = cursorMessageId();
+  const start = fromId ? list.findIndex((m) => m.id === fromId) : 0;
+  const slice = list.slice(start < 0 ? 0 : start);
+  const parts = slice.map((m) => spokenContent(m.content, m.id));
+  if (liveStreaming.value.trim()) parts.push(spokenContent(liveStreaming.value));
+  if (parts.length === 0) return;
+  speakParts(CHAT_SPEECH_ID, parts);
+}
+
 function startRename(): void {
   renameDraft.value = activeSession.value?.title ?? "";
   renaming.value = true;
@@ -4437,6 +4477,28 @@ function onRateChange(event: Event): void {
           <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="9" y="9" width="11" height="11" rx="2" />
             <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+          </svg>
+        </button>
+        <button
+          v-if="speechAvailable"
+          type="button"
+          class="chat-panel__tool"
+          :class="{ 'is-on': speakingId === 'chat' }"
+          v-tip="speakingId === 'chat' ? t('chat.stopSpeaking') : t('chat.speakChat')"
+          :aria-label="speakingId === 'chat' ? t('chat.stopSpeaking') : t('chat.speakChat')"
+          :aria-pressed="speakingId === 'chat'"
+          :disabled="messages.length === 0 && !liveStreaming"
+          @click="speakChat"
+        >
+          <svg v-if="speakingId === 'chat'" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+            <rect x="7" y="7" width="10" height="10" rx="2" />
+          </svg>
+          <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 10v4" />
+            <path d="M8 7v10" />
+            <path d="M12 4v16" />
+            <path d="M16 8v8" />
+            <path d="M20 11v2" />
           </svg>
         </button>
         <button

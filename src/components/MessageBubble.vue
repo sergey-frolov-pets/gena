@@ -167,7 +167,7 @@ const canExport = computed(
         </svg>
       </button>
       <button
-        v-if="message.role === 'assistant' && speechAvailable"
+        v-if="speechAvailable && text"
         type="button"
         class="chat-panel__action"
         :class="{ 'is-on': speaking }"

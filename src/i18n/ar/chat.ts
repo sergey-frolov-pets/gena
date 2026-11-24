@@ -56,6 +56,7 @@ export const chatMessages = {
   "chat.downloadTxt": "تنزيل نص",
   "chat.copied": "تم النسخ",
   "chat.speakReply": "قراءة بصوت عالٍ",
+  "chat.speakChat": "اقرأ الدردشة من المؤشر",
   "chat.stopSpeaking": "إيقاف القراءة",
   "chat.autoSpeak": "قراءة الردود بصوت عالٍ",
   "chat.dictate": "إملاء صوتي",
