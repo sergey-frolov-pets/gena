@@ -5,9 +5,13 @@ const { t } = useLocale();
 
 const year = new Date().getFullYear();
 const logo = `${import.meta.env.BASE_URL}fsvibe-logo.svg`;
+const emit = defineEmits<{ (e: "about"): void }>();
+
 const GITHUB = "https://github.com/sergey-frolov-pets/gena";
+const DISCUSSIONS = "https://github.com/sergey-frolov-pets/gena/discussions";
 const LICENSE = "https://github.com/sergey-frolov-pets/gena/blob/main/LICENSE";
-const DONATE = "https://github.com/sponsors/sergey-frolov-pets";
+const DONATE =
+  "https://app.lava.top/products/47e144c0-24ca-48ee-b219-df6d3fa5e678/760537ad-a5d2-4b04-bd5f-dc5ba997ea56?currency=USD&domainId=ae6a3189-0ae9-4cc9-93b5-0c00d1a965b0&domainName=code2graph.ru";
 const VERSION = "0.2.26";
 </script>
 
@@ -18,7 +22,11 @@ const VERSION = "0.2.26";
       <img class="app-footer__logo" :src="logo" alt="FSVibe" decoding="async" />
     </div>
     <nav class="app-footer__links" :aria-label="t('app.footer.links')">
+      <button type="button" class="app-footer__text" @click="emit('about')">
+        {{ t("app.nav.about") }}
+      </button>
       <a :href="GITHUB" target="_blank" rel="noopener noreferrer">GitHub</a>
+      <a :href="DISCUSSIONS" target="_blank" rel="noopener noreferrer">{{ t("app.footer.discussions") }}</a>
       <a :href="LICENSE" target="_blank" rel="noopener noreferrer">{{ t("app.footer.license") }}</a>
     </nav>
     <div class="app-footer__meta">
@@ -75,14 +83,24 @@ const VERSION = "0.2.26";
   gap: 10px;
 }
 
-.app-footer__links a {
+.app-footer__links a,
+.app-footer__text {
   color: var(--muted);
   text-decoration: none;
   font-size: 12px;
   line-height: 1;
+  font-family: inherit;
 }
 
-.app-footer__links a:hover {
+.app-footer__text {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.app-footer__links a:hover,
+.app-footer__text:hover {
   color: var(--text);
   text-decoration: underline;
 }

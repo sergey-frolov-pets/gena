@@ -1906,7 +1906,7 @@ let composerObserver: ResizeObserver | null = null;
 let composerWidth = 0;
 /** Поле ввода — чтобы вернуть фокус после отправки. */
 /** Переход в справочник из панели режима токенов. */
-const emit = defineEmits<{ (e: "open-tokens"): void }>();
+const emit = defineEmits<{ (e: "open-tokens"): void; (e: "open-about"): void }>();
 
 const composerEl = ref<HTMLTextAreaElement | null>(null);
 /** Сколько строк сейчас в поле: от этого зависит кнопка «Очистить» и высота. */
@@ -5615,7 +5615,7 @@ function onRateChange(event: Event): void {
         </div>
       </form>
       <div v-if="stickBottom && composerOpen" class="chat-panel__footer">
-        <AppFooter />
+        <AppFooter @about="emit('open-about')" />
       </div>
     </div>
 

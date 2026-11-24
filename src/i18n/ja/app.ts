@@ -75,6 +75,7 @@ export const appMessages = {
   "about.agent.openclaw": "OpenClaw のゲートウェイは OpenAI 互換のチャット API を出せます。gateway.http.endpoints.chatCompletions.enabled で有効にします。接続では OpenAI 互換、下のベース URL、キーにゲートウェイトークンかパスワード、モデルは openclaw/default。ゲートウェイはループバックか私設網に置きます。この端点はオペレーター権限です。",
   "about.agent.hermes": "Hermes は OpenAI 互換の API サーバーです。API_SERVER_ENABLED、API_SERVER_KEY、API_SERVER_CORS_ORIGINS（このページのオリジン）を設定し、hermes gateway を起動します。接続では OpenAI 互換、下のベース URL、キーに API_SERVER_KEY、モデルは hermes-agent（または設定した名前）です。",
   "app.install": "インストール",
+  "app.footer.discussions": "Discussions",
   "app.footer.license": "ライセンス",
   "app.footer.support": "プロジェクトを支援",
   "app.footer.versionHint": "バージョン",

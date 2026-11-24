@@ -75,6 +75,7 @@ export const appMessages = {
   "about.agent.openclaw": "بوابة OpenClaw تستطيع تقديم واجهة دردشة متوافقة مع OpenAI. فعّلها بـ gateway.http.endpoints.chatCompletions.enabled. في الاتصالات اختر المتوافق مع OpenAI، استخدم العنوان الأساسي أدناه، وضع رمز البوابة أو كلمة السر في المفتاح، والنموذج openclaw/default. أبقِ البوابة على الجهاز المحلي أو شبكة خاصة: هذا الطرف صلاحية مشغّل.",
   "about.agent.hermes": "Hermes يشغّل خادم API متوافقاً مع OpenAI. عيّن API_SERVER_ENABLED وAPI_SERVER_KEY وAPI_SERVER_CORS_ORIGINS إلى مصدر هذه الصفحة، ثم شغّل hermes gateway. في الاتصالات اختر المتوافق مع OpenAI، استخدم العنوان الأساسي أدناه، وضع API_SERVER_KEY في المفتاح، والنموذج hermes-agent (أو الاسم الذي عيّنته).",
   "app.install": "تثبيت",
+  "app.footer.discussions": "Discussions",
   "app.footer.license": "الترخيص",
   "app.footer.support": "ادعم المشروع",
   "app.footer.versionHint": "الإصدار",

@@ -310,13 +310,17 @@ onBeforeUnmount(() => {
         </button>
       </div>
       <ConnectionsView v-if="tab === 'connections'" />
-      <ChatView v-else-if="tab === 'chat'" @open-tokens="openTab('tokens')" />
+      <ChatView
+        v-else-if="tab === 'chat'"
+        @open-tokens="openTab('tokens')"
+        @open-about="openTab('about')"
+      />
       <SessionsView v-else-if="tab === 'sessions'" />
       <TokensView v-else-if="tab === 'tokens'" />
       <AboutView v-else />
     </main>
 
-    <AppFooter v-if="tab !== 'chat'" />
+    <AppFooter v-if="tab !== 'chat'" @about="openTab('about')" />
 
     <div v-if="voiceOpen" class="voice-sheet" role="dialog" :aria-label="t('chat.voice')">
       <button type="button" class="voice-sheet__backdrop" :aria-label="t('chat.close')" @click="voiceOpen = false" />
