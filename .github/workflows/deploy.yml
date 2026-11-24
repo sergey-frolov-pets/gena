@@ -62,8 +62,10 @@ jobs:
       - run: npm ci
       - run: npm run build
         env:
-          # Свой домен gena-ai.space — сайт лежит в корне, а не в /gena/
-          VITE_BASE: "/"
+          # Относительные пути: сайт работает и с /gena-ai.space/, и с
+          # github.io/gena/ — пока сертификат своего домена не выпущен,
+          # https-вход есть через второй адрес.
+          VITE_BASE: "./"
           VITE_GOATCOUNTER_URL: https://stats.code2graph.ru:8443
       - name: SPA fallback (404.html)
         run: cp dist/index.html dist/404.html
