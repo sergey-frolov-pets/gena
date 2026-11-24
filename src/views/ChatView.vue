@@ -1295,12 +1295,6 @@ const selectionBanner = computed(() => {
 });
 
 watch(
-  [compact, composerOpen, selectionBanner, feedSelection],
-  () => void nextTick(syncDockSpace),
-  { flush: "post" },
-);
-
-watch(
   () => isTokenSession(activeSession.value),
   (on) => {
     if (on) return;
@@ -2080,6 +2074,12 @@ function syncDockSpace(): void {
   }
   settleToBottom();
 }
+
+watch(
+  [compact, composerOpen, selectionBanner, feedSelection],
+  () => void nextTick(syncDockSpace),
+  { flush: "post" },
+);
 /* На телефоне поле ввода монтируется заново при каждом открытии — высоту
    восстанавливаем по тексту, иначе длинный черновик окажется в одну строку. */
 watch(composerOpen, () => void autoGrow(), { flush: "post" });
