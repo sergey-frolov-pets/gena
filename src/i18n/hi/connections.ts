@@ -65,7 +65,7 @@ export const connectionsMessages = {
   "connections.field.wsUrl": "WebSocket URL",
   "connections.field.wsUrlPlaceholder": "wss://agent.example.com",
   "connections.hint.picoContextIgnored": "Pico में संदर्भ सर्वर पर संग्रहीत होता है — संदर्भ आकार अनदेखा किया जाता है।",
-  "connections.field.tokenOnly": "केवल टोकन मोड",
+  "connections.field.tokenOnly": "केवल सुरक्षित मोड",
   "connections.hint.tokenOnly":
     "इस एजेंट के सभी संवाद सुरक्षित रहते हैं: एजेंट को केवल ⟦टोकन⟧ दिखते हैं, चैट को सामान्य मोड में नहीं बदला जा सकता।",
   "connections.error.invalidUrl": "इस प्रोटोकॉल के लिए अमान्य URL।",

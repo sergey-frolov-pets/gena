@@ -64,7 +64,7 @@ const en = {
   "tokens.error.bad_file": "The file is damaged or is not a token file.",
   "tokens.error.unsupported_version": "The file was created by a newer version.",
   "tokens.error.wrong_password": "Wrong password.",
-  "chat.tokenMode": "Token mode",
+  "chat.tokenMode": "Protected mode",
   "chat.tokenModeOn": "Session stores tokens; values are substituted by the dictionary.",
   "chat.tokenModeOff": "Session stores plain text again.",
   "chat.tokenModeEmpty": "The dictionary is empty — add a match in the table or from a selection.",
@@ -72,9 +72,9 @@ const en = {
   "chat.tokenModeLocked":
     "This chat has at least one value–token pair. Protection cannot be turned off while that pair exists: otherwise the history would store the real values.",
   "chat.tokenModeAgentLocked":
-    "This connection is set to token mode only. Chat cannot switch it off — change it in Connections, in the agent settings.",
+    "This connection is set to protected mode only. Chat cannot switch it off — change it in Connections, in the agent settings.",
   "chat.tokenModeNoEntries":
-    "Token mode is on. The dictionary is empty for now — select text in the input field and press “Make token”, or add a match in the table.",
+    "Protected mode is on. The dictionary is empty for now — select text in the input field and press “Make token”, or add a match in the table.",
   "chat.tokenGuard":
     "Not sent: the token dictionary is unavailable, so the message could reach the agent with real values. Open the dictionary and check the entries.",
   "chat.viewTokens": "Show tokens",
@@ -85,11 +85,11 @@ const en = {
   "chat.tokens.untokenize": "Cancel tokenization",
   "chat.tokens.forms": "Word forms",
   "chat.tokens.untokenized": "Tokenization cancelled — the value is back in the text",
-  "chat.tokens.bar": "Token mode actions",
+  "chat.tokens.bar": "Protected mode actions",
   "chat.tokens.dictionary": "Dictionary",
   "chat.tokens.matches": "Matches",
   "chat.tokens.insert": "Insert token",
-  "chat.tokens.exit": "Leave token mode",
+  "chat.tokens.exit": "Leave protected mode",
   "chat.tokens.protected": "Protected chat — the agent sees only tokens",
   "chat.tokens.composerPlaceholder": "Write as usual — values will be replaced with tokens",
   "chat.composeHint": "Write a message…",
@@ -116,7 +116,7 @@ const en = {
   "tokens.caseSensitive": "Match case",
   "chat.tokens.inAgentMessage": "in an agent reply",
   "chat.tokens.inMyMessage": "in my message",
-  "chat.tokens.agentNeedsMode": "agent replies — only in token mode",
+  "chat.tokens.agentNeedsMode": "agent replies — only in protected mode",
   "chat.tokens.blockedToken": "{count} inside existing tokens",
   "chat.tokens.blockedWord": "{count} inside words",
   "chat.tokens.replaced": "Replaced: {count}",
@@ -204,7 +204,7 @@ const ru = {
   "tokens.error.bad_file": "Файл повреждён или это не файл справочника.",
   "tokens.error.unsupported_version": "Файл создан более новой версией.",
   "tokens.error.wrong_password": "Неверный пароль.",
-  "chat.tokenMode": "Режим токенов",
+  "chat.tokenMode": "Защищённый режим",
   "chat.tokenModeOn": "Диалог хранит токены; значения подставляет справочник.",
   "chat.tokenModeOff": "Диалог снова хранит обычный текст.",
   "chat.tokenModeEmpty": "Справочник пуст — добавьте соответствие в таблице или выделением в поле ввода.",
@@ -212,7 +212,7 @@ const ru = {
   "chat.tokenModeLocked":
     "В этом диалоге указана хотя бы одна пара «значение — токен». Пока она есть, защищённый режим нельзя выключить: иначе в историю попадут настоящие значения.",
   "chat.tokenModeNoEntries":
-    "Режим токенов включён. Справочник пока пуст — выделите текст в поле ввода и нажмите «Сделать токеном» или добавьте соответствие в таблице.",
+    "Защищённый режим включён. Справочник пока пуст — выделите текст в поле ввода и нажмите «Сделать токеном» или добавьте соответствие в таблице.",
   "chat.tokenGuard":
     "Не отправлено: справочник подстановок не прочитан, и сообщение могло уйти агенту с настоящими значениями. Откройте «Справочник» и проверьте записи.",
   "chat.viewTokens": "Показать токены",
@@ -223,7 +223,7 @@ const ru = {
   "chat.tokens.untokenize": "Отменить токенизацию",
   "chat.tokens.forms": "Формы слова",
   "chat.tokens.untokenized": "Токен снят — значение вернулось в текст",
-  "chat.tokens.bar": "Кнопки режима токенов",
+  "chat.tokens.bar": "Кнопки защищённого режима",
   "chat.tokens.dictionary": "Справочник",
   "chat.tokens.matches": "Соответствия",
   "chat.tokens.insert": "Вставить токен",
@@ -254,7 +254,7 @@ const ru = {
   "tokens.caseSensitive": "Учитывать регистр",
   "chat.tokens.inAgentMessage": "в ответе агента",
   "chat.tokens.inMyMessage": "в моей реплике",
-  "chat.tokens.agentNeedsMode": "ответы агента — только в режиме токенов",
+  "chat.tokens.agentNeedsMode": "ответы агента — только в защищённом режиме",
   "chat.tokens.blockedToken": "{count} внутри существующих токенов",
   "chat.tokens.blockedWord": "{count} внутри слов",
   "chat.tokens.replaced": "Заменено: {count}",
@@ -286,7 +286,7 @@ const ru = {
   "tokens.dict.kb": "{value} КБ",
   "tokens.dict.mb": "{value} МБ",
   "chat.tokenModeAgentLocked":
-    "У этого подключения включён «Только режим токенов». В чате защиту снять нельзя — меняется в «Подключениях», в настройках агента.",
+    "У этого подключения включён «Только защищённый режим». В чате защиту снять нельзя — меняется в «Подключениях», в настройках агента.",
 } as const satisfies LocaleMessages;
 
 const de = {
@@ -324,7 +324,7 @@ const de = {
   "tokens.transfer.keepOne": "Meine behalten",
   "tokens.transfer.replaceOne": "Ersetzen",
   "tokens.transfer.apply": "Anwenden",
-  "chat.tokenMode": "Token-Modus",
+  "chat.tokenMode": "Geschützter Modus",
   "chat.tokenModeEmpty": "Das Wörterbuch ist leer — zuerst Einträge anlegen.",
   "chat.tokenModeLockedTitle": "Schutz bleibt an",
   "chat.tokenModeLocked":
@@ -337,11 +337,11 @@ const de = {
   "chat.tokens.untokenize": "Tokenisierung aufheben",
   "chat.tokens.forms": "Wortformen",
   "chat.tokens.untokenized": "Token entfernt – der Wert steht wieder im Text",
-  "chat.tokens.bar": "Token-Modus-Aktionen",
+  "chat.tokens.bar": "Aktionen im geschützten Modus",
   "chat.tokens.dictionary": "Wörterbuch",
   "chat.tokens.matches": "Zuordnungen",
   "chat.tokens.insert": "Token einfügen",
-  "chat.tokens.exit": "Token-Modus verlassen",
+  "chat.tokens.exit": "Geschützten Modus verlassen",
   "chat.tokens.protected": "Geschützter Chat — der Agent sieht nur Token",
   "chat.tokens.composerPlaceholder": "Schreib wie gewohnt — Werte werden durch Token ersetzt",
   "chat.composeHint": "Nachricht schreiben…",
@@ -368,7 +368,7 @@ const de = {
   "tokens.caseSensitive": "Groß/klein beachten",
   "chat.tokens.inAgentMessage": "in einer Agentenantwort",
   "chat.tokens.inMyMessage": "in meiner Nachricht",
-  "chat.tokens.agentNeedsMode": "Agentenantworten — nur im Token-Modus",
+  "chat.tokens.agentNeedsMode": "Agentenantworten — nur im geschützten Modus",
   "chat.tokens.blockedToken": "{count} in vorhandenen Tokens",
   "chat.tokens.blockedWord": "{count} innerhalb von Wörtern",
   "chat.tokens.replaced": "Ersetzt: {count}",
@@ -400,7 +400,7 @@ const de = {
   "tokens.dict.kb": "{value} KB",
   "tokens.dict.mb": "{value} MB",
   "chat.tokenModeAgentLocked":
-    "Für diese Verbindung ist „Nur Token-Modus“ aktiv. Der Chat kann den Schutz nicht aufheben — das geht in „Verbindungen“, in den Agenteneinstellungen.",
+    "Für diese Verbindung ist „Nur geschützter Modus“ aktiv. Der Chat kann den Schutz nicht aufheben — das geht in „Verbindungen“, in den Agenteneinstellungen.",
 } as const satisfies LocaleMessages;
 
 const es = {
@@ -438,7 +438,7 @@ const es = {
   "tokens.transfer.keepOne": "Conservar el mío",
   "tokens.transfer.replaceOne": "Reemplazar",
   "tokens.transfer.apply": "Aplicar",
-  "chat.tokenMode": "Modo token",
+  "chat.tokenMode": "Modo protegido",
   "chat.tokenModeEmpty": "El diccionario está vacío: añade entradas primero.",
   "chat.tokenModeLockedTitle": "La protección sigue activa",
   "chat.tokenModeLocked":
@@ -451,11 +451,11 @@ const es = {
   "chat.tokens.untokenize": "Anular la tokenización",
   "chat.tokens.forms": "Formas de la palabra",
   "chat.tokens.untokenized": "Tokenización anulada: el valor vuelve al texto",
-  "chat.tokens.bar": "Acciones del modo token",
+  "chat.tokens.bar": "Acciones del modo protegido",
   "chat.tokens.dictionary": "Diccionario",
   "chat.tokens.matches": "Coincidencias",
   "chat.tokens.insert": "Insertar token",
-  "chat.tokens.exit": "Salir del modo token",
+  "chat.tokens.exit": "Salir del modo protegido",
   "chat.tokens.protected": "Chat protegido: el agente solo ve tokens",
   "chat.tokens.composerPlaceholder": "Escribe como siempre: los valores se sustituirán por tokens",
   "chat.composeHint": "Escribir un mensaje…",
@@ -482,7 +482,7 @@ const es = {
   "tokens.caseSensitive": "Distinguir mayúsculas",
   "chat.tokens.inAgentMessage": "en una respuesta del agente",
   "chat.tokens.inMyMessage": "en mi mensaje",
-  "chat.tokens.agentNeedsMode": "respuestas del agente — solo en modo token",
+  "chat.tokens.agentNeedsMode": "respuestas del agente — solo en modo protegido",
   "chat.tokens.blockedToken": "{count} dentro de tokens existentes",
   "chat.tokens.blockedWord": "{count} dentro de palabras",
   "chat.tokens.replaced": "Sustituidas: {count}",
@@ -514,7 +514,7 @@ const es = {
   "tokens.dict.kb": "{value} KB",
   "tokens.dict.mb": "{value} MB",
   "chat.tokenModeAgentLocked":
-    "Esta conexión usa «Solo modo token». El chat no puede desactivarlo: se cambia en «Conexiones», en los ajustes del agente.",
+    "Esta conexión usa «Solo modo protegido». El chat no puede desactivarlo: se cambia en «Conexiones», en los ajustes del agente.",
 } as const satisfies LocaleMessages;
 
 const pt = {
@@ -552,7 +552,7 @@ const pt = {
   "tokens.transfer.keepOne": "Manter o meu",
   "tokens.transfer.replaceOne": "Substituir",
   "tokens.transfer.apply": "Aplicar",
-  "chat.tokenMode": "Modo token",
+  "chat.tokenMode": "Modo protegido",
   "chat.tokenModeEmpty": "O dicionário está vazio — adicione entradas primeiro.",
   "chat.tokenModeLockedTitle": "A proteção continua ligada",
   "chat.tokenModeLocked":
@@ -565,11 +565,11 @@ const pt = {
   "chat.tokens.untokenize": "Cancelar a tokenização",
   "chat.tokens.forms": "Formas da palavra",
   "chat.tokens.untokenized": "Tokenização cancelada — o valor voltou ao texto",
-  "chat.tokens.bar": "Ações do modo token",
+  "chat.tokens.bar": "Ações do modo protegido",
   "chat.tokens.dictionary": "Dicionário",
   "chat.tokens.matches": "Correspondências",
   "chat.tokens.insert": "Inserir token",
-  "chat.tokens.exit": "Sair do modo token",
+  "chat.tokens.exit": "Sair do modo protegido",
   "chat.tokens.protected": "Conversa protegida: o agente só vê tokens",
   "chat.tokens.composerPlaceholder": "Escreva como sempre — os valores serão substituídos por tokens",
   "chat.composeHint": "Escrever uma mensagem…",
@@ -596,7 +596,7 @@ const pt = {
   "tokens.caseSensitive": "Diferenciar maiúsculas",
   "chat.tokens.inAgentMessage": "em uma resposta do agente",
   "chat.tokens.inMyMessage": "na minha mensagem",
-  "chat.tokens.agentNeedsMode": "respostas do agente — apenas no modo token",
+  "chat.tokens.agentNeedsMode": "respostas do agente — apenas no modo protegido",
   "chat.tokens.blockedToken": "{count} dentro de tokens existentes",
   "chat.tokens.blockedWord": "{count} dentro de palavras",
   "chat.tokens.replaced": "Substituídas: {count}",
@@ -628,7 +628,7 @@ const pt = {
   "tokens.dict.kb": "{value} KB",
   "tokens.dict.mb": "{value} MB",
   "chat.tokenModeAgentLocked":
-    "Esta conexão usa «Apenas modo token». O chat não pode desativar — muda-se em «Conexões», nas configurações do agente.",
+    "Esta conexão usa «Apenas modo protegido». O chat não pode desativar — muda-se em «Conexões», nas configurações do agente.",
 } as const satisfies LocaleMessages;
 
 const zh = {
@@ -664,7 +664,7 @@ const zh = {
   "tokens.transfer.keepOne": "保留我的",
   "tokens.transfer.replaceOne": "替换",
   "tokens.transfer.apply": "应用",
-  "chat.tokenMode": "令牌模式",
+  "chat.tokenMode": "保护模式",
   "chat.tokenModeEmpty": "词典为空，请先添加条目。",
   "chat.tokenModeLockedTitle": "保护保持开启",
   "chat.tokenModeLocked":
@@ -677,11 +677,11 @@ const zh = {
   "chat.tokens.untokenize": "取消令牌化",
   "chat.tokens.forms": "词形",
   "chat.tokens.untokenized": "已取消令牌化，值已回到文本中",
-  "chat.tokens.bar": "令牌模式操作",
+  "chat.tokens.bar": "保护模式操作",
   "chat.tokens.dictionary": "词典",
   "chat.tokens.matches": "对应表",
   "chat.tokens.insert": "插入令牌",
-  "chat.tokens.exit": "退出令牌模式",
+  "chat.tokens.exit": "退出保护模式",
   "chat.tokens.protected": "受保护会话——代理只看到令牌",
   "chat.tokens.composerPlaceholder": "照常输入——值会自动替换为令牌",
   "chat.composeHint": "写消息…",
@@ -708,7 +708,7 @@ const zh = {
   "tokens.caseSensitive": "区分大小写",
   "chat.tokens.inAgentMessage": "在智能体回复中",
   "chat.tokens.inMyMessage": "在我的消息中",
-  "chat.tokens.agentNeedsMode": "智能体回复仅在令牌模式下可替换",
+  "chat.tokens.agentNeedsMode": "智能体回复仅在保护模式下可替换",
   "chat.tokens.blockedToken": "{count} 处在已有令牌内",
   "chat.tokens.blockedWord": "{count} 处在单词内部",
   "chat.tokens.replaced": "已替换 {count} 处",
@@ -739,7 +739,7 @@ const zh = {
   "tokens.dict.kb": "{value} KB",
   "tokens.dict.mb": "{value} MB",
   "chat.tokenModeAgentLocked":
-    "此连接已开启「仅令牌模式」。聊天中无法关闭保护，请在「连接」的代理设置中修改。",
+    "此连接已开启「仅保护模式」。聊天中无法关闭保护，请在「连接」的代理设置中修改。",
 } as const satisfies LocaleMessages;
 
 const ja = {
@@ -775,7 +775,7 @@ const ja = {
   "tokens.transfer.keepOne": "自分のを残す",
   "tokens.transfer.replaceOne": "置き換え",
   "tokens.transfer.apply": "適用",
-  "chat.tokenMode": "トークンモード",
+  "chat.tokenMode": "保護モード",
   "chat.tokenModeEmpty": "辞書が空です。先に項目を追加してください。",
   "chat.tokenModeLockedTitle": "保護はオフにできません",
   "chat.tokenModeLocked":
@@ -788,11 +788,11 @@ const ja = {
   "chat.tokens.untokenize": "トークン化を解除",
   "chat.tokens.forms": "語形",
   "chat.tokens.untokenized": "トークン化を解除しました。値がテキストに戻りました",
-  "chat.tokens.bar": "トークンモードの操作",
+  "chat.tokens.bar": "保護モードの操作",
   "chat.tokens.dictionary": "辞書",
   "chat.tokens.matches": "対応表",
   "chat.tokens.insert": "トークンを挿入",
-  "chat.tokens.exit": "トークンモードを終了",
+  "chat.tokens.exit": "保護モードを終了",
   "chat.tokens.protected": "保護されたチャット — エージェントはトークンのみ参照します",
   "chat.tokens.composerPlaceholder": "いつも通り入力してください — 値はトークンに置き換わります",
   "chat.composeHint": "メッセージを入力…",
@@ -819,7 +819,7 @@ const ja = {
   "tokens.caseSensitive": "大文字小文字を区別",
   "chat.tokens.inAgentMessage": "エージェントの返信内",
   "chat.tokens.inMyMessage": "自分のメッセージ内",
-  "chat.tokens.agentNeedsMode": "エージェントの返信はトークンモードのみ",
+  "chat.tokens.agentNeedsMode": "エージェントの返信は保護モードのみ",
   "chat.tokens.blockedToken": "{count} 件は既存トークン内",
   "chat.tokens.blockedWord": "{count} 件は単語の内部",
   "chat.tokens.replaced": "置換しました: {count}",
@@ -851,7 +851,7 @@ const ja = {
   "tokens.dict.kb": "{value} KB",
   "tokens.dict.mb": "{value} MB",
   "chat.tokenModeAgentLocked":
-    "この接続は「トークンモードのみ」です。チャットでは保護を解除できません。「接続」のエージェント設定で変更します。",
+    "この接続は「保護モードのみ」です。チャットでは保護を解除できません。「接続」のエージェント設定で変更します。",
 } as const satisfies LocaleMessages;
 
 const hi = {
@@ -888,7 +888,7 @@ const hi = {
   "tokens.transfer.keepOne": "मेरा रखें",
   "tokens.transfer.replaceOne": "बदलें",
   "tokens.transfer.apply": "लागू करें",
-  "chat.tokenMode": "टोकन मोड",
+  "chat.tokenMode": "सुरक्षित मोड",
   "chat.tokenModeEmpty": "शब्दकोश खाली है — पहले प्रविष्टियाँ जोड़ें।",
   "chat.tokenModeLockedTitle": "सुरक्षा चालू रहेगी",
   "chat.tokenModeLocked":
@@ -901,11 +901,11 @@ const hi = {
   "chat.tokens.untokenize": "टोकनाइज़ेशन रद्द करें",
   "chat.tokens.forms": "शब्द रूप",
   "chat.tokens.untokenized": "टोकनाइज़ेशन रद्द — मान फिर से पाठ में है",
-  "chat.tokens.bar": "टोकन मोड क्रियाएँ",
+  "chat.tokens.bar": "सुरक्षित मोड क्रियाएँ",
   "chat.tokens.dictionary": "शब्दकोश",
   "chat.tokens.matches": "मिलान",
   "chat.tokens.insert": "टोकन डालें",
-  "chat.tokens.exit": "टोकन मोड छोड़ें",
+  "chat.tokens.exit": "सुरक्षित मोड छोड़ें",
   "chat.tokens.protected": "सुरक्षित चैट — एजेंट केवल टोकन देखता है",
   "chat.tokens.composerPlaceholder": "सामान्य रूप से लिखें — मान टोकन में बदल जाएँगे",
   "chat.composeHint": "संदेश लिखें…",
@@ -932,7 +932,7 @@ const hi = {
   "tokens.caseSensitive": "केस संवेदी",
   "chat.tokens.inAgentMessage": "एजेंट के उत्तर में",
   "chat.tokens.inMyMessage": "मेरे संदेश में",
-  "chat.tokens.agentNeedsMode": "एजेंट के उत्तर — केवल टोकन मोड में",
+  "chat.tokens.agentNeedsMode": "एजेंट के उत्तर — केवल सुरक्षित मोड में",
   "chat.tokens.blockedToken": "{count} मौजूदा टोकन के अंदर",
   "chat.tokens.blockedWord": "{count} शब्दों के अंदर",
   "chat.tokens.replaced": "बदले गए: {count}",
@@ -964,7 +964,7 @@ const hi = {
   "tokens.dict.kb": "{value} KB",
   "tokens.dict.mb": "{value} MB",
   "chat.tokenModeAgentLocked":
-    "इस कनेक्शन में «केवल टोकन मोड» चालू है। चैट में सुरक्षा हटाई नहीं जा सकती — इसे «कनेक्शन» में एजेंट सेटिंग्स में बदलें।",
+    "इस कनेक्शन में «केवल सुरक्षित मोड» चालू है। चैट में सुरक्षा हटाई नहीं जा सकती — इसे «कनेक्शन» में एजेंट सेटिंग्स में बदलें।",
 } as const satisfies LocaleMessages;
 
 const ar = {
@@ -1001,7 +1001,7 @@ const ar = {
   "tokens.transfer.keepOne": "الإبقاء على نسختي",
   "tokens.transfer.replaceOne": "استبدال",
   "tokens.transfer.apply": "تطبيق",
-  "chat.tokenMode": "وضع الرموز",
+  "chat.tokenMode": "الوضع المحمي",
   "chat.tokenModeEmpty": "القاموس فارغ — أضف إدخالات أولًا.",
   "chat.tokenModeLockedTitle": "تبقى الحماية مفعّلة",
   "chat.tokenModeLocked":
@@ -1014,11 +1014,11 @@ const ar = {
   "chat.tokens.untokenize": "إلغاء الترميز",
   "chat.tokens.forms": "صيغ الكلمة",
   "chat.tokens.untokenized": "أُلغي الترميز — عادت القيمة إلى النص",
-  "chat.tokens.bar": "إجراءات وضع الرموز",
+  "chat.tokens.bar": "إجراءات الوضع المحمي",
   "chat.tokens.dictionary": "القاموس",
   "chat.tokens.matches": "المطابقات",
   "chat.tokens.insert": "إدراج رمز",
-  "chat.tokens.exit": "الخروج من وضع الرموز",
+  "chat.tokens.exit": "الخروج من الوضع المحمي",
   "chat.tokens.protected": "محادثة محمية — يرى الوكيل الرموز فقط",
   "chat.tokens.composerPlaceholder": "اكتب كالعادة — ستُستبدل القيم بالرموز",
   "chat.composeHint": "اكتب رسالة…",
@@ -1045,7 +1045,7 @@ const ar = {
   "tokens.caseSensitive": "حساس لحالة الأحرف",
   "chat.tokens.inAgentMessage": "في رد الوكيل",
   "chat.tokens.inMyMessage": "في رسالتي",
-  "chat.tokens.agentNeedsMode": "ردود الوكيل — في وضع الرموز فقط",
+  "chat.tokens.agentNeedsMode": "ردود الوكيل — في الوضع المحمي فقط",
   "chat.tokens.blockedToken": "{count} داخل رموز موجودة",
   "chat.tokens.blockedWord": "{count} داخل الكلمات",
   "chat.tokens.replaced": "تم الاستبدال: {count}",
@@ -1077,7 +1077,7 @@ const ar = {
   "tokens.dict.kb": "{value} كيلوبايت",
   "tokens.dict.mb": "{value} ميغابايت",
   "chat.tokenModeAgentLocked":
-    "هذا الاتصال مضبوط على «وضع الرموز فقط». لا يمكن إلغاء الحماية من الدردشة — يُغيَّر في «الاتصالات» ضمن إعدادات الوكيل.",
+    "هذا الاتصال مضبوط على «الوضع المحمي فقط». لا يمكن إلغاء الحماية من الدردشة — يُغيَّر في «الاتصالات» ضمن إعدادات الوكيل.",
 } as const satisfies LocaleMessages;
 
 export const tokensByLocale = {

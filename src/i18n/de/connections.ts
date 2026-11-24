@@ -65,7 +65,7 @@ export const connectionsMessages = {
   "connections.field.wsUrl": "WebSocket-URL",
   "connections.field.wsUrlPlaceholder": "wss://agent.example.com",
   "connections.hint.picoContextIgnored": "Bei Pico wird der Kontext serverseitig gespeichert — die Kontextgröße wird ignoriert.",
-  "connections.field.tokenOnly": "Nur Token-Modus",
+  "connections.field.tokenOnly": "Nur geschützter Modus",
   "connections.hint.tokenOnly":
     "Alle Dialoge dieses Agenten bleiben geschützt: der Agent sieht nur ⟦Token⟧, der Chat lässt sich nicht auf Klartext umschalten.",
   "connections.error.invalidUrl": "Ungültige URL für dieses Protokoll.",

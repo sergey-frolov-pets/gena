@@ -65,7 +65,7 @@ export const connectionsMessages = {
   "connections.field.wsUrl": "عنوان WebSocket",
   "connections.field.wsUrlPlaceholder": "wss://agent.example.com",
   "connections.hint.picoContextIgnored": "في Pico يُخزَّن السياق على الخادم — يتم تجاهل حجم السياق.",
-  "connections.field.tokenOnly": "وضع الرموز فقط",
+  "connections.field.tokenOnly": "الوضع المحمي فقط",
   "connections.hint.tokenOnly":
     "تبقى جميع محادثات هذا الوكيل محمية: لا يرى الوكيل إلا ⟦الرموز⟧، ولا يمكن تحويل الدردشة إلى الوضع العادي.",
   "connections.error.invalidUrl": "عنوان URL غير صالح لهذا البروتوكول.",

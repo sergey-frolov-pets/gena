@@ -1167,6 +1167,16 @@ function addMixRoute(): void {
   display: flex;
   gap: 6px;
   align-items: center;
+  justify-content: flex-start;
+  text-align: left;
+  margin: 0;
+  width: auto;
+}
+/* Общее правило `input { width: 100% }` растягивало чек-бокс на всю строку
+   и выбрасывало подпись на перенос — галочка должна быть по размеру. */
+.check input[type="checkbox"] {
+  width: auto;
+  flex: 0 0 auto;
   margin: 0;
 }
 .model-row .check-label {
