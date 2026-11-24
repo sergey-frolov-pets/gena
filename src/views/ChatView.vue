@@ -1294,18 +1294,6 @@ const selectionBanner = computed(() => {
   return Boolean(selectionRange.value) || occurrenceTotal.value > 0;
 });
 
-watch(
-  () => isTokenSession(activeSession.value),
-  (on) => {
-    if (on) return;
-    clearSelection();
-    finishOccurrences();
-    fieldPick.value = null;
-    fieldPickAnchor.value = null;
-    clearFeedSelection();
-  },
-);
-
 const bannerFragment = computed(() => selectionRange.value?.text ?? occurrenceNeedle.value);
 const bannerToken = computed(() => selectionMatch.value?.name ?? occurrenceToken.value);
 
@@ -2075,11 +2063,6 @@ function syncDockSpace(): void {
   settleToBottom();
 }
 
-watch(
-  [compact, composerOpen, selectionBanner, feedSelection],
-  () => void nextTick(syncDockSpace),
-  { flush: "post" },
-);
 /* На телефоне поле ввода монтируется заново при каждом открытии — высоту
    восстанавливаем по тексту, иначе длинный черновик окажется в одну строку. */
 watch(composerOpen, () => void autoGrow(), { flush: "post" });
@@ -2718,6 +2701,24 @@ const confirmDeleteSession = computed<Session | undefined>(() =>
 
 const activeSession = computed<Session | undefined>(() =>
   sessions.value.find((s) => s.id === activeSessionId.value),
+);
+
+watch(
+  () => isTokenSession(activeSession.value),
+  (on) => {
+    if (on) return;
+    clearSelection();
+    finishOccurrences();
+    fieldPick.value = null;
+    fieldPickAnchor.value = null;
+    clearFeedSelection();
+  },
+);
+
+watch(
+  [compact, composerOpen, selectionBanner, feedSelection],
+  () => void nextTick(syncDockSpace),
+  { flush: "post" },
 );
 
 const activeAgent = computed(() =>
