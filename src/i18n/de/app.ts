@@ -88,4 +88,6 @@ export const appMessages = {
   "app.storageRetry": "Erneut",
   "app.storageRestored": "Verbindungen und Sitzungen aus der lokalen Kopie vom {date} wiederhergestellt.",
   "app.storageDismiss": "Ausblenden",
+  "about.stats.title": "Anonyme Statistik",
+  "about.stats.body": "Gena sendet anonyme Nutzungsdaten. Es gibt kein Konto und kein Cookie. Nachrichten, Schlüssel, Adressen und Dialogtitel gehen nicht mit. Beim Öffnen wird der geöffnete Bildschirm gezählt. Aus der Anfrage ergeben sich Land, Browsersprache, Herkunft und Bildschirmgröße. Einmal am Tag ergänzt dieser Browser die Sprache der Oberfläche, Protokoll und Modell jeder Verbindung und eine Markierung je Dialog: normal oder geschützt. Das sind Summen, kein Profil einer Person.",
 } as const satisfies LocaleMessages;

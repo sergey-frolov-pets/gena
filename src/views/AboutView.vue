@@ -86,6 +86,11 @@ async function copyPrompt(): Promise<void> {
     </section>
 
     <section>
+      <h2>{{ t("about.stats.title") }}</h2>
+      <p>{{ t("about.stats.body") }}</p>
+    </section>
+
+    <section>
       <h2>{{ t("about.ask.title") }}</h2>
       <p>{{ t("about.ask.body") }}</p>
       <pre class="about__prompt">{{ t("about.ask.prompt") }}</pre>

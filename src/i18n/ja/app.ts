@@ -88,4 +88,6 @@ export const appMessages = {
   "app.storageRetry": "再試行",
   "app.storageRestored": "接続と会話を {date} のローカルコピーから復元しました。",
   "app.storageDismiss": "閉じる",
+  "about.stats.title": "匿名の統計",
+  "about.stats.body": "Gena は匿名の利用状況を送ります。アカウントも cookie もありません。メッセージ、鍵、アドレス、対話の題名は含まれません。開いたときに、どの画面を開いたかが記録されます。リクエストから国、ブラウザの言語、参照元、画面サイズが分かります。1日に1回、このブラウザは画面の言語、各接続のプロトコルとモデル、対話ごとの印（通常か保護か）を加えます。合計であり、個人のプロフィールではありません。",
 } as const satisfies LocaleMessages;
