@@ -22,8 +22,15 @@ const VERSION = "0.2.27";
       <img class="app-footer__logo" :src="logo" alt="FSVibe" decoding="async" />
     </div>
     <nav class="app-footer__links" :aria-label="t('app.footer.links')">
-      <button type="button" class="app-footer__text" @click="emit('about')">
-        {{ t("app.nav.about") }}
+      <button
+        type="button"
+        class="app-footer__text app-footer__about"
+        :aria-label="t('app.nav.about')"
+        :title="t('app.nav.about')"
+        @click="emit('about')"
+      >
+        <span class="app-footer__about-label">{{ t("app.nav.about") }}</span>
+        <span class="app-footer__about-mark" aria-hidden="true">ⓘ</span>
       </button>
       <a :href="GITHUB" target="_blank" rel="noopener noreferrer">GitHub</a>
       <a :href="DISCUSSIONS" target="_blank" rel="noopener noreferrer">{{ t("app.footer.discussions") }}</a>
@@ -99,6 +106,12 @@ const VERSION = "0.2.27";
   cursor: pointer;
 }
 
+.app-footer__about-mark {
+  display: none;
+  font-size: 14px;
+  line-height: 1;
+}
+
 .app-footer__links a:hover,
 .app-footer__text:hover {
   color: var(--text);
@@ -115,6 +128,18 @@ const VERSION = "0.2.27";
   color: var(--muted);
   font-size: 12px;
   line-height: 1;
+}
+
+@media (max-width: 720px) {
+  .app-footer__about-label {
+    display: none;
+  }
+  .app-footer__about-mark {
+    display: inline;
+  }
+  .app-footer__about:hover {
+    text-decoration: none;
+  }
 }
 
 @media (max-width: 420px) {
