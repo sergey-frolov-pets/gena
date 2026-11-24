@@ -1,7 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Agent, Session } from "@/storage/types";
 import { trackEvent } from "./goatcounter";
-import { agentEvents, analyticsSlug, modelsOf, reportAgentUse, type UsageState } from "./usage";
+import {
+  agentEvents,
+  analyticsSlug,
+  modelsOf,
+  reportAgentUse,
+  resetUsageMemory,
+  type UsageState,
+} from "./usage";
 
 vi.mock("./goatcounter", () => ({ trackEvent: vi.fn() }));
 
@@ -123,6 +130,11 @@ describe("отправка в момент запроса", () => {
   beforeEach(() => {
     vi.mocked(trackEvent).mockClear();
     globalThis.localStorage?.clear();
+    resetUsageMemory();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("первый запрос уходит сразу, повторный — нет", () => {
@@ -142,5 +154,19 @@ describe("отправка в момент запроса", () => {
     expect(calls()).toEqual([]);
     reportAgentUse(openai, session("s2"), "ru");
     expect(calls()).toEqual(["chat/plain"]);
+  });
+
+  it("приватный режим: хранилище не пишется, но повтор молчит", () => {
+    vi.stubGlobal("localStorage", {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error("QuotaExceededError");
+      },
+    });
+    const openai = agent({ protocol: "openai", config: { model: "gpt-4o" } });
+    reportAgentUse(openai, session("s9"), "ru");
+    expect(calls()).toEqual(["locale/ru", "provider/openai/gpt-4o", "chat/plain"]);
+    reportAgentUse(openai, session("s9"), "ru");
+    expect(calls()).toHaveLength(3);
   });
 });

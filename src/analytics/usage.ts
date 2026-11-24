@@ -137,15 +137,33 @@ function store(): Storage | null {
   }
 }
 
+/**
+ * Копия состояния в памяти: приватный режим не даёт писать в хранилище,
+ * и без неё провайдеры уходили бы с каждым сообщением.
+ */
+const memory: UsageState = { day: "", agents: [], chats: [] };
+
+function union(first: readonly string[], second: readonly string[]): string[] {
+  return [...new Set([...first, ...second])];
+}
+
 function readState(box: Storage | null): UsageState {
-  return {
+  const stored = {
     day: readDay(box),
     agents: readList(AGENTS_KEY, box),
     chats: readList(CHATS_KEY, box),
   };
+  return {
+    day: stored.day > memory.day ? stored.day : memory.day,
+    agents: union(stored.agents, memory.agents),
+    chats: union(stored.chats, memory.chats),
+  };
 }
 
 function writeState(state: UsageState, box: Storage | null): void {
+  memory.day = state.day;
+  memory.agents = [...state.agents];
+  memory.chats = [...state.chats];
   try {
     box?.setItem(DAY_KEY, state.day);
   } catch {
@@ -153,6 +171,13 @@ function writeState(state: UsageState, box: Storage | null): void {
   }
   writeJson(AGENTS_KEY, state.agents, box);
   writeJson(CHATS_KEY, state.chats, box);
+}
+
+/** Сбросить копию в памяти — нужно тестам, в приложении не вызывается. */
+export function resetUsageMemory(): void {
+  memory.day = "";
+  memory.agents = [];
+  memory.chats = [];
 }
 
 /**
