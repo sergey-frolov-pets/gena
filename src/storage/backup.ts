@@ -33,6 +33,8 @@ export interface BackupAgent {
   settings: AgentSettings;
   protocol?: Protocol;
   config?: AgentConfig;
+  /** «Только режим токенов» — ограничение переезжает вместе с подключением. */
+  tokenOnly?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -63,6 +65,7 @@ function toBackupAgent(agent: Agent): BackupAgent {
     settings: { ...agent.settings },
     protocol: agent.protocol,
     config: agent.config ? { ...agent.config } : undefined,
+    tokenOnly: agent.tokenOnly ? true : undefined,
     createdAt: agent.createdAt,
     updatedAt: agent.updatedAt,
   };
@@ -163,6 +166,7 @@ function parseAgent(raw: unknown): BackupAgent {
     settings: parseAgentSettings(raw.settings),
     protocol: parseProtocol(raw.protocol),
     config: parseConfig(raw.config),
+    tokenOnly: raw.tokenOnly === true ? true : undefined,
     createdAt: asNumber(raw.createdAt, "agent.createdAt"),
     updatedAt: asNumber(raw.updatedAt, "agent.updatedAt"),
   };
@@ -243,6 +247,7 @@ export function backupAgentToAgent(backup: BackupAgent): Agent {
     settings: { ...backup.settings },
     protocol: backup.protocol,
     config: backup.config,
+    tokenOnly: backup.tokenOnly ? true : undefined,
     createdAt: backup.createdAt,
     updatedAt: backup.updatedAt,
   });

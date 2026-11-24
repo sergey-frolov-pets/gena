@@ -167,7 +167,8 @@ import {
   visibleText,
 } from "@/lib/tokens/display";
 import { contextForms, restoreValuesWithCase } from "@/lib/tokens/context-case";
-import { tokenModeActive, tokenModeCanTurnOff } from "@/lib/tokens/mode-intent";
+import { tokenModeActive } from "@/lib/tokens/mode-intent";
+import { agentRequiresTokens, tokenModeLockReason } from "@/lib/tokens/agent-lock";
 import { highlightSegments, markChatHtml } from "@/lib/tokens/highlight";
 import { findOfferSpans } from "@/lib/tokens/substitute";
 import { withDeclensions } from "@/lib/tokens/morph/service";
@@ -236,8 +237,22 @@ function showNotice(text: string, ttl = 12_000): void {
  */
 const pendingTokenMode = ref(false);
 
-/** Диалог в режиме токенов: флаг записи или намерение для нового диалога. */
+/**
+ * Подключение агента, у которого включён «Только режим токенов».
+ * Смотрим запись диалога, если он открыт: у сессии может быть свой агент.
+ */
+const agentTokenOnly = computed<boolean>(() => {
+  const session = sessions.value.find((item) => item.id === activeSessionId.value);
+  const id = session?.agentId ?? agentId.value;
+  return agentRequiresTokens(agents.value.find((item) => item.id === id));
+});
+
+/**
+ * Диалог в режиме токенов: флаг записи, намерение для нового диалога
+ * или требование подключения («только режим токенов» у агента).
+ */
 function isTokenSession(session?: Session | null): boolean {
+  if (agentTokenOnly.value) return true;
   return tokenModeActive(session, pendingTokenMode.value);
 }
 
@@ -309,6 +324,11 @@ const tokenSwitching = ref(false);
 
 /** Объяснение, почему защиту этого диалога снять нельзя. */
 const tokenLockOpen = ref(false);
+/** Причина замка: подключение агента сильнее локальных связей диалога. */
+const tokenLockReason = ref<"agent" | "links" | null>(null);
+const tokenLockText = computed(() =>
+  t(tokenLockReason.value === "agent" ? "chat.tokenModeAgentLocked" : "chat.tokenModeLocked"),
+);
 
 async function toggleTokenMode(): Promise<void> {
   if (busy.value || tokenSwitching.value) return;
@@ -322,7 +342,11 @@ async function toggleTokenMode(): Promise<void> {
     // пока здесь нет ни одной связи «значение — токен».
     if (!next) {
       await ensureTokens();
-      if (!tokenModeCanTurnOff(dialogTokenLinks())) {
+      // Замок подключения сильнее локальных связей: если агент требует
+      // защиту, объясняем именно его, а не пары «значение — токен».
+      const reason = tokenModeLockReason(dialogTokenLinks(), agentTokenOnly.value);
+      if (reason) {
+        tokenLockReason.value = reason;
         tokenLockOpen.value = true;
         return;
       }
@@ -3323,10 +3347,15 @@ function sessionTitle(text: string): string {
   return line || t("chat.newDialogTitle");
 }
 
-/** Применить намерение «новый диалог в режиме токенов» к созданной записи. */
-async function applyPendingTokenMode(sessionId: string): Promise<void> {
-  if (!pendingTokenMode.value) return;
+/**
+ * Применить защищённый режим к созданной записи: намерение «новый диалог
+ * в режиме токенов» или требование подключения агента.
+ */
+async function applyPendingTokenMode(sessionId: string, agent?: Agent | null): Promise<void> {
+  const required = pendingTokenMode.value
+    || (agent ? agentRequiresTokens(agent) : agentTokenOnly.value);
   pendingTokenMode.value = false;
+  if (!required) return;
   try {
     await setSessionTokenMode(sessionId, true);
   } catch {
@@ -3343,7 +3372,7 @@ async function startSession(text: string): Promise<string | undefined> {
     await setSessionTokenAlias(created.id, alias.name, alias.source);
   }
   pendingAliases.value = [];
-  await applyPendingTokenMode(created.id);
+  await applyPendingTokenMode(created.id, agent);
   await loadMessages(created.id);
   return created.id;
 }
@@ -3475,7 +3504,7 @@ async function dispatch(
     const title = sessionTitle(text);
     session = await createSession(agent.id, title);
     // Намерение режима токенов переносим в запись до первой записи истории.
-    await applyPendingTokenMode(session.id);
+    await applyPendingTokenMode(session.id, agent);
     // Экран «Нового диалога» остаётся тем же — просто открываем созданную запись.
     if (activeSessionId.value === null) {
       await loadMessages(session.id);
@@ -5699,7 +5728,7 @@ function onRateChange(event: Event): void {
     <TextModal
       :open="tokenLockOpen"
       :title="t('chat.tokenModeLockedTitle')"
-      :text="t('chat.tokenModeLocked')"
+      :text="tokenLockText"
       :close-label="t('chat.close')"
       @close="tokenLockOpen = false"
     />

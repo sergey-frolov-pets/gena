@@ -87,6 +87,8 @@ export async function createAgent(input: {
   settings: Partial<typeof DEFAULT_AGENT_SETTINGS>;
   protocol?: Protocol;
   config?: AgentConfig;
+  /** «Только режим токенов» для всех диалогов этого подключения. */
+  tokenOnly?: boolean;
 }): Promise<Agent> {
   const id = newId("agent");
   const sealedKey = input.apiKey ? await sealAgentKey(input.apiKey, id) : "";
@@ -99,6 +101,7 @@ export async function createAgent(input: {
     settings: normalizeSettings(input.settings),
     protocol: input.protocol ?? "http_json",
     config: input.config ?? {},
+    tokenOnly: input.tokenOnly ? true : undefined,
     schemaVersion: SCHEMA_VERSION,
     createdAt: now,
     updatedAt: now,
@@ -127,6 +130,8 @@ export async function updateAgent(
     settings: Partial<typeof DEFAULT_AGENT_SETTINGS>;
     protocol?: Protocol;
     config?: AgentConfig;
+    /** «Только режим токенов» для всех диалогов этого подключения. */
+    tokenOnly?: boolean;
   },
 ): Promise<void> {
   const agent = await getAgent(agentId);
@@ -136,6 +141,8 @@ export async function updateAgent(
   agent.settings = normalizeSettings(input.settings);
   agent.protocol = input.protocol ?? agent.protocol ?? "http_json";
   agent.config = input.config ?? {};
+  if (input.tokenOnly) agent.tokenOnly = true;
+  else delete agent.tokenOnly;
   agent.schemaVersion = SCHEMA_VERSION;
   agent.updatedAt = Date.now();
   await putAgent(agent);

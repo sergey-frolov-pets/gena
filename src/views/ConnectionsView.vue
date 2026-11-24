@@ -53,6 +53,8 @@ const callLimit = ref(0);
 const llmModel = ref("");
 /** Стандартные сообщения: textarea, одна строка — одна кнопка. */
 const quickRepliesText = ref("");
+/** «Только режим токенов»: диалоги агента всегда защищённые. */
+const tokenOnly = ref(false);
 /** Агент, у которого берём готовый набор стандартных сообщений. */
 const importFromId = ref("");
 const protocol = ref<Protocol>("http_json");
@@ -209,6 +211,7 @@ function resetForm(): void {
   callLimit.value = 0;
   llmModel.value = "";
   quickRepliesText.value = "";
+  tokenOnly.value = false;
   importFromId.value = "";
   model.value = "";
   systemPrompt.value = "";
@@ -227,6 +230,7 @@ function startEdit(agent: Agent): void {
   callLimit.value = agent.settings.callLimit;
   llmModel.value = agent.settings.llmModel;
   quickRepliesText.value = (agent.settings.quickReplies ?? []).join("\n");
+  tokenOnly.value = agent.tokenOnly === true;
   importFromId.value = "";
   protocol.value = agent.protocol ?? "http_json";
   const cfg = agent.config as {
@@ -331,6 +335,7 @@ async function submit(): Promise<void> {
         settings,
         protocol: protocol.value,
         config,
+        tokenOnly: tokenOnly.value,
       });
       notice.value = t("connections.updated");
     } else {
@@ -341,6 +346,7 @@ async function submit(): Promise<void> {
         settings,
         protocol: protocol.value,
         config,
+        tokenOnly: tokenOnly.value,
       });
       if (apiKey.value && created.address) {
         await rememberAccount(created.id, created.address, apiKey.value);
@@ -754,6 +760,12 @@ function addMixRoute(): void {
           <input v-model="llmModel" :placeholder="t('connections.field.llmModelPlaceholder')" />
         </div>
       </div>
+
+      <label class="check">
+        <input v-model="tokenOnly" type="checkbox" />
+        {{ t("connections.field.tokenOnly") }}
+      </label>
+      <p class="muted small">{{ t("connections.hint.tokenOnly") }}</p>
 
       <details class="extras">
         <summary>{{ t("connections.extras") }}</summary>

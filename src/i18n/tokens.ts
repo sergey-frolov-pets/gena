@@ -71,6 +71,8 @@ const en = {
   "chat.tokenModeLockedTitle": "Protection stays on",
   "chat.tokenModeLocked":
     "This chat has at least one value–token pair. Protection cannot be turned off while that pair exists: otherwise the history would store the real values.",
+  "chat.tokenModeAgentLocked":
+    "This connection is set to token mode only. Chat cannot switch it off — change it in Connections, in the agent settings.",
   "chat.tokenModeNoEntries":
     "Token mode is on. The dictionary is empty for now — select text in the input field and press “Make token”, or add a match in the table.",
   "chat.tokenGuard":
@@ -283,6 +285,8 @@ const ru = {
   "tokens.dict.priority": "Вписанные вручную варианты важнее словаря.",
   "tokens.dict.kb": "{value} КБ",
   "tokens.dict.mb": "{value} МБ",
+  "chat.tokenModeAgentLocked":
+    "У этого подключения включён «Только режим токенов». В чате защиту снять нельзя — меняется в «Подключениях», в настройках агента.",
 } as const satisfies LocaleMessages;
 
 const de = {
@@ -395,6 +399,8 @@ const de = {
   "tokens.dict.priority": "Selbst eingetragene Schreibweisen haben Vorrang vor dem Wörterbuch.",
   "tokens.dict.kb": "{value} KB",
   "tokens.dict.mb": "{value} MB",
+  "chat.tokenModeAgentLocked":
+    "Für diese Verbindung ist „Nur Token-Modus“ aktiv. Der Chat kann den Schutz nicht aufheben — das geht in „Verbindungen“, in den Agenteneinstellungen.",
 } as const satisfies LocaleMessages;
 
 const es = {
@@ -507,6 +513,8 @@ const es = {
   "tokens.dict.priority": "Las variantes escritas a mano tienen prioridad sobre el diccionario.",
   "tokens.dict.kb": "{value} KB",
   "tokens.dict.mb": "{value} MB",
+  "chat.tokenModeAgentLocked":
+    "Esta conexión usa «Solo modo token». El chat no puede desactivarlo: se cambia en «Conexiones», en los ajustes del agente.",
 } as const satisfies LocaleMessages;
 
 const pt = {
@@ -619,6 +627,8 @@ const pt = {
   "tokens.dict.priority": "As variantes escritas à mão têm prioridade sobre o dicionário.",
   "tokens.dict.kb": "{value} KB",
   "tokens.dict.mb": "{value} MB",
+  "chat.tokenModeAgentLocked":
+    "Esta conexão usa «Apenas modo token». O chat não pode desativar — muda-se em «Conexões», nas configurações do agente.",
 } as const satisfies LocaleMessages;
 
 const zh = {
@@ -728,6 +738,8 @@ const zh = {
   "tokens.dict.priority": "手动填写的写法优先于词典。",
   "tokens.dict.kb": "{value} KB",
   "tokens.dict.mb": "{value} MB",
+  "chat.tokenModeAgentLocked":
+    "此连接已开启「仅令牌模式」。聊天中无法关闭保护，请在「连接」的代理设置中修改。",
 } as const satisfies LocaleMessages;
 
 const ja = {
@@ -838,6 +850,8 @@ const ja = {
   "tokens.dict.priority": "手入力した表記は辞書より優先されます。",
   "tokens.dict.kb": "{value} KB",
   "tokens.dict.mb": "{value} MB",
+  "chat.tokenModeAgentLocked":
+    "この接続は「トークンモードのみ」です。チャットでは保護を解除できません。「接続」のエージェント設定で変更します。",
 } as const satisfies LocaleMessages;
 
 const hi = {
@@ -949,6 +963,8 @@ const hi = {
   "tokens.dict.priority": "हाथ से लिखे रूप शब्दकोश से अधिक महत्वपूर्ण हैं।",
   "tokens.dict.kb": "{value} KB",
   "tokens.dict.mb": "{value} MB",
+  "chat.tokenModeAgentLocked":
+    "इस कनेक्शन में «केवल टोकन मोड» चालू है। चैट में सुरक्षा हटाई नहीं जा सकती — इसे «कनेक्शन» में एजेंट सेटिंग्स में बदलें।",
 } as const satisfies LocaleMessages;
 
 const ar = {
@@ -1060,6 +1076,8 @@ const ar = {
   "tokens.dict.priority": "الصيغ المكتوبة يدويًا تسبق القاموس.",
   "tokens.dict.kb": "{value} كيلوبايت",
   "tokens.dict.mb": "{value} ميغابايت",
+  "chat.tokenModeAgentLocked":
+    "هذا الاتصال مضبوط على «وضع الرموز فقط». لا يمكن إلغاء الحماية من الدردشة — يُغيَّر في «الاتصالات» ضمن إعدادات الوكيل.",
 } as const satisfies LocaleMessages;
 
 export const tokensByLocale = {

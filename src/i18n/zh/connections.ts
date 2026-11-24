@@ -64,6 +64,9 @@ export const connectionsMessages = {
   "connections.field.wsUrl": "WebSocket URL",
   "connections.field.wsUrlPlaceholder": "wss://agent.example.com",
   "connections.hint.picoContextIgnored": "Pico 的上下文保存在服务端——上下文大小将被忽略。",
+  "connections.field.tokenOnly": "仅令牌模式",
+  "connections.hint.tokenOnly":
+    "该代理的所有对话始终保持保护：代理只能看到 ⟦令牌⟧，聊天无法切换到普通模式。",
   "connections.error.invalidUrl": "此协议的 URL 无效。",
   "connections.error.mixedContent": "HTTPS 页面会阻止 ws://——请使用 wss://。",
   "connections.editAgent": "编辑代理",

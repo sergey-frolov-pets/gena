@@ -65,6 +65,9 @@ export const connectionsMessages = {
   "connections.field.wsUrl": "WebSocket URL",
   "connections.field.wsUrlPlaceholder": "wss://agent.example.com",
   "connections.hint.picoContextIgnored": "Pico ではコンテキストはサーバー側に保存され、コンテキストサイズは無視されます。",
+  "connections.field.tokenOnly": "トークンモードのみ",
+  "connections.hint.tokenOnly":
+    "このエージェントのすべての対話は保護されたままです。エージェントが見るのは ⟦トークン⟧ だけで、通常モードには切り替えられません。",
   "connections.error.invalidUrl": "このプロトコルには無効な URL です。",
   "connections.error.mixedContent": "HTTPS ページでは ws:// はブロックされます。wss:// を使用してください。",
   "connections.editAgent": "エージェントを編集",

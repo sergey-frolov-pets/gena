@@ -70,6 +70,9 @@ export const connectionsMessages = {
   "connections.field.wsUrl": "WebSocket URL",
   "connections.field.wsUrlPlaceholder": "wss://agent.example.com",
   "connections.hint.picoContextIgnored": "Для Pico контекст хранится на сервере — размер контекста игнорируется.",
+  "connections.field.tokenOnly": "Только режим токенов",
+  "connections.hint.tokenOnly":
+    "Все диалоги этого агента остаются защищёнными: агент видит только ⟦токены⟧, переключить чат в обычный режим нельзя.",
   "connections.error.invalidUrl": "Некорректный URL для этого протокола.",
   "connections.error.mixedContent": "ws:// блокируется на HTTPS-страницах — используйте wss://.",
   "connections.test": "Проверить подключение",

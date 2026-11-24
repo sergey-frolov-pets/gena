@@ -88,6 +88,11 @@ export interface Agent {
   config?: AgentConfig;
   /** Версия схемы агента: 1 = legacy, 2 = мульти-протокол. */
   schemaVersion?: number;
+  /**
+   * «Только режим токенов»: диалоги этого агента всегда защищённые,
+   * снять защиту из чата нельзя — только здесь, в подключении.
+   */
+  tokenOnly?: boolean;
   createdAt: number;
   updatedAt: number;
 }
