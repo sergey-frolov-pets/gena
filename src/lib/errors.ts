@@ -10,6 +10,7 @@
 
 import { AgentClientError } from "@/lib/agent-client";
 import { AgentKeyCipherError } from "@/crypto/agent-key-cipher";
+import { CryptoUnavailableError } from "@/crypto/subtle";
 import { translateForLocale } from "@/i18n";
 import { DEFAULT_LOCALE } from "@/i18n/constants";
 import type { LocaleKey, TranslateFn } from "@/i18n/types";
@@ -55,6 +56,9 @@ export function describeCipherError(error: AgentKeyCipherError, t: TranslateFn =
 
 /** Универсальный маппер: любая ошибка → текст для пользователя. */
 export function describeError(error: unknown, t: TranslateFn = tDefault): string {
+  if (error instanceof CryptoUnavailableError) {
+    return t("errors.cipher.insecure");
+  }
   if (error instanceof AgentKeyCipherError) {
     return describeCipherError(error, t);
   }

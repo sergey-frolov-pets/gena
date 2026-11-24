@@ -15,6 +15,7 @@ export const errorsMessages = {
   "errors.network.other": "无法连接智能体：{raw}",
   "errors.cipher.missingSeed": "浏览器不保存数据（隐私模式）— 无法安全保存密钥。",
   "errors.cipher.decryptFailed": "无法解密智能体密钥。请在「连接」中重新输入密钥。",
+  "errors.cipher.insecure": "加密不可用：请通过 https 打开网站。普通 http 下浏览器不提供加密，密钥和数值无法安全保存。",
   "errors.client.noAddress": "智能体未设置地址。请在「连接」中填写。",
   "errors.client.notJson": "智能体返回的不是 JSON。请确认该地址是智能体的 endpoint。",
   "errors.client.noReply": "智能体响应中缺少 reply 字段。请检查智能体契约。",

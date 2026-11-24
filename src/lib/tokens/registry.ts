@@ -14,6 +14,7 @@ import {
   putTokenRecord,
 } from "@/storage/tokens";
 import { openTokenValue, sealTokenValue } from "@/crypto/token-cipher";
+import { CryptoUnavailableError } from "@/crypto/subtle";
 import { isValidTokenName, normalizeTokenName, tokenNameKey, tokensToValues } from "./format";
 import { valuesToTokens, type SubstitutionResult } from "./substitute";
 import { withDeclensions } from "./morph/service";
@@ -43,7 +44,8 @@ export type TokenErrorCode =
   | "name_invalid"
   | "name_duplicate"
   | "value_required"
-  | "save_failed";
+  | "save_failed"
+  | "insecure_context";
 
 export class TokenError extends Error {
   readonly code: TokenErrorCode;
@@ -142,7 +144,9 @@ export async function saveToken(input: TokenInput): Promise<TokenEntry> {
   let sealedValue: string;
   try {
     sealedValue = await sealTokenValue(value, id);
-  } catch {
+  } catch (error) {
+    // Нет WebCrypto — сайт открыт по http; это не «нет хранилища», и лечится иначе.
+    if (error instanceof CryptoUnavailableError) throw new TokenError("insecure_context");
     throw new TokenError("save_failed");
   }
 

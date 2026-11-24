@@ -15,6 +15,7 @@ export const errorsMessages = {
   "errors.network.other": "Der Agent konnte nicht erreicht werden: {raw}",
   "errors.cipher.missingSeed": "Der Browser speichert keine Daten (privater Modus) — der Schlüssel kann nicht sicher gespeichert werden.",
   "errors.cipher.decryptFailed": "Der Agentenschlüssel konnte nicht entschlüsselt werden. Schlüssel unter „Verbindungen“ erneut eingeben.",
+  "errors.cipher.insecure": "Verschlüsselung nicht verfügbar: Website über https öffnen. Über einfaches http blockiert der Browser die Kryptografie — Schlüssel und Werte lassen sich nicht sicher speichern.",
   "errors.client.noAddress": "Der Agent hat keine Adresse. Unter „Verbindungen“ ausfüllen.",
   "errors.client.notJson": "Der Agent hat kein JSON zurückgegeben. Prüfen, ob die Adresse ein Agenten-Endpunkt ist.",
   "errors.client.noReply": "Der Agent antwortete ohne reply-Feld. Agentenvertrag prüfen.",

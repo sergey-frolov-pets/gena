@@ -11,9 +11,10 @@
  * клиентская, сид всегда на устройстве. Смена версии сборки не ломает ключи.
  */
 
+import { requireSubtleCrypto, secureRandom } from "@/crypto/subtle";
+
 const AES_GCM = "AES-GCM";
-const HKDF = "HKDF";
-const SHA_256 = "SHA-256";
+const HKDF = "HKDF";const SHA_256 = "SHA-256";
 const AES_KEY_BITS = 256;
 const RAW_KEY_FORMAT = "raw";
 
@@ -92,7 +93,7 @@ export function ensureDeviceSeed(): { seed: string; persisted: boolean } {
     return deviceSeedCache;
   }
 
-  const seed = bytesToBase64(crypto.getRandomValues(new Uint8Array(DEVICE_SEED_BYTES)));
+  const seed = bytesToBase64(secureRandom(DEVICE_SEED_BYTES));
   const wrote = writeStorageItem(STORAGE_KEY_DEVICE_SEED, seed);
   const winner = readStorageItem(STORAGE_KEY_DEVICE_SEED)?.trim() ?? "";
   if (wrote && isUsableSeed(winner)) {
@@ -146,8 +147,9 @@ export async function openAgentKey(stored: string, agentId: string): Promise<str
 }
 
 async function encryptWithSeed(apiKey: string, seed: string, agentId: string): Promise<string> {
-  const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
-  const cipher = await crypto.subtle.encrypt(
+  const subtle = requireSubtleCrypto();
+  const iv = secureRandom(IV_BYTES);
+  const cipher = await subtle.encrypt(
     {
       name: AES_GCM,
       iv: iv as BufferSource,
@@ -173,8 +175,9 @@ async function decryptWithSeed(stored: string, seed: string, agentId: string): P
     throw new AgentKeyCipherError("decrypt_failed");
   }
 
+  const subtle = requireSubtleCrypto();
   try {
-    const plain = await crypto.subtle.decrypt(
+    const plain = await subtle.decrypt(
       {
         name: AES_GCM,
         iv: iv as BufferSource,
@@ -197,10 +200,11 @@ async function deriveAesKey(seed: string): Promise<CryptoKey> {
     return cachedKey;
   }
 
-  const pending = crypto.subtle
+  const subtle = requireSubtleCrypto();
+  const pending = subtle
     .importKey(RAW_KEY_FORMAT, textEncoder.encode(seed), HKDF, false, ["deriveKey"])
     .then((material) =>
-      crypto.subtle.deriveKey(
+      subtle.deriveKey(
         {
           name: HKDF,
           hash: SHA_256,

@@ -15,6 +15,7 @@ export const errorsMessages = {
   "errors.network.other": "تعذّر الاتصال بالوكيل: {raw}",
   "errors.cipher.missingSeed": "المتصفح لا يحفظ البيانات (الوضع الخاص) — لا يمكن حفظ المفتاح بأمان.",
   "errors.cipher.decryptFailed": "تعذّر فك تشفير مفتاح الوكيل. أدخل المفتاح من جديد في «الاتصالات».",
+  "errors.cipher.insecure": "التشفير غير متاح: افتح الموقع عبر https. على http العادي يحجب المتصفح التشفير، فلا يمكن حفظ المفاتيح والقيم بأمان.",
   "errors.client.noAddress": "لا يوجد عنوان للوكيل. املأه في «الاتصالات».",
   "errors.client.notJson": "أعاد الوكيل استجابة ليست JSON. تحقق من أن العنوان هو endpoint للوكيل.",
   "errors.client.noReply": "أجاب الوكيل دون حقل reply. تحقق من عقد الوكيل.",

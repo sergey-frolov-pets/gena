@@ -58,6 +58,7 @@ const ERROR_KEYS: Record<string, string> = {
   name_duplicate: "tokens.error.name_duplicate",
   value_required: "tokens.error.value_required",
   save_failed: "tokens.error.save_failed",
+  insecure_context: "tokens.error.insecure_context",
 };
 
 function describeTokenError(code: string): string {

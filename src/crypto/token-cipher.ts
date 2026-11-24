@@ -11,6 +11,7 @@
  */
 
 import { AgentKeyCipherError, ensureDeviceSeed } from "@/crypto/agent-key-cipher";
+import { requireSubtleCrypto, secureRandom } from "@/crypto/subtle";
 
 const AES_GCM = "AES-GCM";
 const HKDF = "HKDF";
@@ -61,8 +62,9 @@ export async function sealTokenValue(value: string, entryId: string): Promise<st
   if (!device.persisted) {
     throw new TokenCipherError("missing_seed");
   }
-  const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
-  const cipher = await crypto.subtle.encrypt(
+  const subtle = requireSubtleCrypto();
+  const iv = secureRandom(IV_BYTES);
+  const cipher = await subtle.encrypt(
     { name: AES_GCM, iv: iv as BufferSource, additionalData: textEncoder.encode(entryId) },
     await deriveKey(device.seed),
     textEncoder.encode(value),
@@ -79,6 +81,7 @@ export async function openTokenValue(sealed: string, entryId: string): Promise<s
   if (!device.persisted) {
     throw new TokenCipherError("missing_seed");
   }
+  const subtle = requireSubtleCrypto();
 
   const payload = sealed.slice(TOKEN_VALUE_PREFIX.length);
   const separator = payload.indexOf(".");
@@ -89,7 +92,7 @@ export async function openTokenValue(sealed: string, entryId: string): Promise<s
   if (!iv || !cipher || iv.length !== IV_BYTES) throw new TokenCipherError("decrypt_failed");
 
   try {
-    const plain = await crypto.subtle.decrypt(
+    const plain = await subtle.decrypt(
       { name: AES_GCM, iv: iv as BufferSource, additionalData: textEncoder.encode(entryId) },
       await deriveKey(device.seed),
       cipher as BufferSource,
@@ -103,10 +106,11 @@ export async function openTokenValue(sealed: string, entryId: string): Promise<s
 async function deriveKey(seed: string): Promise<CryptoKey> {
   if (cachedKey && cachedSeed === seed) return cachedKey;
 
-  const pending = crypto.subtle
+  const subtle = requireSubtleCrypto();
+  const pending = subtle
     .importKey(RAW_KEY_FORMAT, textEncoder.encode(seed), HKDF, false, ["deriveKey"])
     .then((material) =>
-      crypto.subtle.deriveKey(
+      subtle.deriveKey(
         {
           name: HKDF,
           hash: SHA_256,

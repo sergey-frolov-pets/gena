@@ -18,6 +18,7 @@
  */
 
 import { isValidTokenName, normalizeTokenName } from "@/lib/tokens/format";
+import { requireSubtleCrypto, secureRandom } from "@/crypto/subtle";
 
 export const TOKENS_FILE_FORMAT = "gena.tokens";
 export const TOKENS_FILE_VERSION = 1;
@@ -119,14 +120,15 @@ async function deriveKey(
   iterations: number,
   usages: KeyUsage[],
 ): Promise<CryptoKey> {
-  const material = await crypto.subtle.importKey(
+  const subtle = requireSubtleCrypto();
+  const material = await subtle.importKey(
     "raw",
     textEncoder.encode(password),
     "PBKDF2",
     false,
     ["deriveKey"],
   );
-  return crypto.subtle.deriveKey(
+  return subtle.deriveKey(
     { name: "PBKDF2", hash: "SHA-256", salt: salt as unknown as BufferSource, iterations },
     material,
     { name: CIPHER_NAME, length: 256 },
@@ -152,8 +154,8 @@ export async function exportTokenFile(
     throw new TransferError("bad_file");
   }
 
-  const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
-  const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
+  const salt = secureRandom(SALT_BYTES);
+  const iv = secureRandom(IV_BYTES);
   const saltB64 = bytesToBase64(salt);
   const createdAt = options.now ?? Date.now();
 
@@ -165,7 +167,7 @@ export async function exportTokenFile(
   });
 
   const key = await deriveKey(password, salt, iterations, ["encrypt"]);
-  const cipher = await crypto.subtle.encrypt(
+  const cipher = await requireSubtleCrypto().encrypt(
     {
       name: CIPHER_NAME,
       iv: iv as BufferSource,
@@ -265,9 +267,10 @@ export async function importTokenFile(text: string, password: string): Promise<T
   if (!payload || payload.length === 0) throw new TransferError("bad_file");
 
   const key = await deriveKey(password, salt, iterations, ["decrypt"]);
+  const subtle = requireSubtleCrypto();
   let plain: ArrayBuffer;
   try {
-    plain = await crypto.subtle.decrypt(
+    plain = await subtle.decrypt(
       {
         name: CIPHER_NAME,
         iv: iv as BufferSource,

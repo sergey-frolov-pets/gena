@@ -38,6 +38,8 @@ const en = {
   "tokens.error.name_duplicate": "This name is already used.",
   "tokens.error.value_required": "Enter a value.",
   "tokens.error.save_failed": "Could not save: device storage is unavailable.",
+  "tokens.error.insecure_context":
+    "Encryption is unavailable: open the site over https. Plain http blocks the browser's crypto, so values cannot be stored safely.",
   "tokens.error.broken": "Entries that could not be decrypted: {count}.",
   "tokens.transfer.title": "Transfer to another device",
   "tokens.transfer.intro":
@@ -174,6 +176,8 @@ const ru = {
   "tokens.error.name_duplicate": "Такое имя уже занято.",
   "tokens.error.value_required": "Введите значение.",
   "tokens.error.save_failed": "Не удалось сохранить: хранилище устройства недоступно.",
+  "tokens.error.insecure_context":
+    "Шифрование недоступно: откройте сайт по https. По обычному http браузер не даёт криптографию, поэтому значение нельзя сохранить безопасно.",
   "tokens.error.broken": "Записей, которые не расшифровались: {count}.",
   "tokens.transfer.title": "Перенос на другое устройство",
   "tokens.transfer.intro":

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { describeError, describeNetworkError, describeStatus } from "./errors";
 import { AgentClientError } from "./agent-client";
 import { AgentKeyCipherError } from "@/crypto/agent-key-cipher";
+import { CryptoUnavailableError } from "@/crypto/subtle";
 import { translateForLocale } from "@/i18n";
 
 /** Русский переводчик для проверки текстов, как их видит русский пользователь. */
@@ -80,6 +81,10 @@ describe("describeError", () => {
 
   it("decrypt_failed из крипто", () => {
     expect(describeError(new AgentKeyCipherError("decrypt_failed"), t)).toMatch(/заново/i);
+  });
+
+  it("нет WebCrypto (http) — подсказка про https", () => {
+    expect(describeError(new CryptoUnavailableError(), t)).toMatch(/https/i);
   });
 
   it("обычная ошибка отдаётся как есть", () => {

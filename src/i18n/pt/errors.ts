@@ -15,6 +15,7 @@ export const errorsMessages = {
   "errors.network.other": "Não foi possível contatar o agente: {raw}",
   "errors.cipher.missingSeed": "O navegador não armazena dados (modo privado) — a chave não pode ser salva com segurança.",
   "errors.cipher.decryptFailed": "Não foi possível descriptografar a chave do agente. Insira a chave novamente em «Conexões».",
+  "errors.cipher.insecure": "Criptografia indisponível: abra o site por https. Em http simples o navegador bloqueia a criptografia, então chaves e valores não podem ser guardados com segurança.",
   "errors.client.noAddress": "O agente não tem endereço. Preencha em «Conexões».",
   "errors.client.notJson": "O agente retornou algo que não é JSON. Verifique se o endereço é um endpoint de agente.",
   "errors.client.noReply": "O agente respondeu sem o campo reply. Verifique o contrato do agente.",

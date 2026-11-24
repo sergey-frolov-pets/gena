@@ -15,6 +15,7 @@ export const errorsMessages = {
   "errors.network.other": "エージェントに接続できませんでした: {raw}",
   "errors.cipher.missingSeed": "ブラウザがデータを保存しません（プライベートモード）— キーを安全に保存できません。",
   "errors.cipher.decryptFailed": "エージェントのキーを復号できませんでした。「接続」でキーを再入力してください。",
+  "errors.cipher.insecure": "暗号化を利用できません。https でサイトを開いてください。通常の http ではブラウザが暗号化を提供しないため、キーや値を安全に保存できません。",
   "errors.client.noAddress": "エージェントにアドレスがありません。「接続」で入力してください。",
   "errors.client.notJson": "エージェントが JSON 以外を返しました。アドレスがエージェントの endpoint か確認してください。",
   "errors.client.noReply": "エージェントの応答に reply フィールドがありません。契約を確認してください。",

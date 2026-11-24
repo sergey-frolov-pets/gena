@@ -15,6 +15,7 @@ export const errorsMessages = {
   "errors.network.other": "Could not reach the agent: {raw}",
   "errors.cipher.missingSeed": "The browser does not persist data (private mode) — the key cannot be stored securely.",
   "errors.cipher.decryptFailed": "Could not decrypt the agent key. Enter the key again under “Connections”.",
+  "errors.cipher.insecure": "WebCrypto is unavailable: open the site over https. Plain http blocks browser encryption, so keys and values cannot be stored safely.",
   "errors.client.noAddress": "The agent has no address. Fill it in under “Connections”.",
   "errors.client.notJson": "The agent returned a non-JSON response. Make sure the address is an agent endpoint.",
   "errors.client.noReply": "The agent responded without a reply field. Check the agent contract.",
