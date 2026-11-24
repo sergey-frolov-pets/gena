@@ -5,7 +5,7 @@
  * Значения показываются по кнопке: по умолчанию строка замаскирована.
  * Экспорт и импорт — один файл и один пароль (см. `lib/tokens/transfer.ts`).
  */
-import { onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { useLocale } from "@/i18n";
 import { isLocaleKey, type LocaleKey } from "@/i18n/types";
 import {
@@ -179,10 +179,20 @@ async function confirmDelete(): Promise<void> {
   }
 }
 
-function masked(entry: TokenEntry): string {
-  const length = [...entry.value].length;
+function masked(text: string): string {
+  const length = [...text].length;
   return "•".repeat(Math.min(12, Math.max(4, length)));
 }
+
+/** Канон и ручные варианты — все формы записи, не только первая. */
+function formsOf(entry: TokenEntry): string[] {
+  const extra = (entry.variants ?? []).map((item) => item.trim()).filter((item) => item.length > 0);
+  return [entry.value, ...extra];
+}
+
+const pendingDelete = computed(() =>
+  tokenEntries.value.find((entry) => entry.id === confirmDeleteId.value) ?? null,
+);
 
 /** Проверка пароля файла: пустой, короткий и несовпадающий — разные подсказки. */
 function checkFilePassword(repeat: boolean): void {
@@ -418,15 +428,19 @@ function setDecision(key: string, policy: MergePolicy): void {
     </form>
 
     <p v-if="tokensLoaded && tokenEntries.length === 0" class="muted">{{ t("tokens.empty") }}</p>
-    <ul v-else class="list tokens-list">
-      <li v-for="entry in tokenEntries" :key="entry.id" :class="{ 'is-saved': entry.id === savedId }">
-        <div class="tokens-row">
-          <div class="tokens-main">
+    <table v-else class="tokens-table">
+      <thead>
+        <tr>
+          <th scope="col">{{ t("tokens.name") }}</th>
+          <th scope="col">{{ t("tokens.value") }}</th>
+          <th scope="col">{{ t("tokens.note") }}</th>
+          <th scope="col"><span class="tokens-visually-hidden">{{ t("tokens.sheet.actions") }}</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-for="entry in tokenEntries" :key="entry.id" :class="{ 'is-saved': entry.id === savedId }">
+          <td>
             <strong class="tokens-name">⟦{{ entry.name }}⟧</strong>
-            <span class="tokens-value">
-              {{ revealed.has(entry.id) ? entry.value : masked(entry) }}
-            </span>
-            <span v-if="entry.note" class="muted small">{{ entry.note }}</span>
             <span
               v-if="entry.caseSensitive"
               class="tokens-case"
@@ -435,24 +449,31 @@ function setDecision(key: string, policy: MergePolicy): void {
             >
               Aa
             </span>
-            <span v-if="entry.variants && entry.variants.length" class="muted small">
-              · {{ entry.variants.join(" · ") }}
-            </span>
-          </div>
-          <div class="tokens-buttons">
-            <button type="button" class="tokens-mini" @click="toggleReveal(entry.id)">
-              {{ revealed.has(entry.id) ? t("tokens.hide") : t("tokens.reveal") }}
-            </button>
-            <button type="button" class="tokens-mini" @click="startEdit(entry)">
-              {{ t("tokens.edit") }}
-            </button>
-            <button type="button" class="tokens-mini is-danger" @click="askDelete(entry.id)">
-              {{ t("tokens.delete") }}
-            </button>
-          </div>
-        </div>
-      </li>
-    </ul>
+          </td>
+          <td>
+            <ul class="tokens-forms">
+              <li v-for="(formText, index) in formsOf(entry)" :key="index" class="tokens-value">
+                {{ revealed.has(entry.id) ? formText : masked(formText) }}
+              </li>
+            </ul>
+          </td>
+          <td class="muted small">{{ entry.note }}</td>
+          <td>
+            <div class="tokens-buttons">
+              <button type="button" class="tokens-mini" @click="toggleReveal(entry.id)">
+                {{ revealed.has(entry.id) ? t("tokens.hide") : t("tokens.reveal") }}
+              </button>
+              <button type="button" class="tokens-mini" @click="startEdit(entry)">
+                {{ t("tokens.edit") }}
+              </button>
+              <button type="button" class="tokens-mini is-danger" @click="askDelete(entry.id)">
+                {{ t("tokens.delete") }}
+              </button>
+            </div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
 
     <h3 class="tokens-subtitle">{{ t("tokens.transfer.title") }}</h3>
     <p class="muted small">{{ t("tokens.transfer.intro", { min: TRANSFER_MIN_PASSWORD }) }}</p>
@@ -530,7 +551,8 @@ function setDecision(key: string, policy: MergePolicy): void {
 
     <ConfirmModal
       :open="confirmDeleteId !== ''"
-      :title="t('tokens.delete')"
+      :title="t('tokens.sheet.removeTitle')"
+      :message="t('tokens.sheet.removeQuestion', { name: pendingDelete?.name ?? '' })"
       :confirm-label="t('tokens.delete')"
       :cancel-label="t('tokens.cancel')"
       @confirm="confirmDelete"
@@ -645,22 +667,47 @@ function setDecision(key: string, policy: MergePolicy): void {
   background: var(--accent-soft, rgb(47 143 91 / 14%));
 }
 
-.tokens-list li {
-  align-items: flex-start;
-}
-
-.tokens-row {
-  display: flex;
-  gap: 10px;
+.tokens-table {
   width: 100%;
-  justify-content: space-between;
-  flex-wrap: wrap;
+  border-collapse: collapse;
 }
 
-.tokens-main {
+.tokens-table th,
+.tokens-table td {
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  text-align: start;
+}
+
+.tokens-table th {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.tokens-table tr.is-saved td {
+  background: color-mix(in srgb, var(--accent, #2f8f5b) 10%, transparent);
+}
+
+.tokens-forms {
+  margin: 0;
+  padding: 0;
+  list-style: none;
   display: grid;
   gap: 2px;
-  min-width: 0;
+}
+
+.tokens-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .tokens-name {
