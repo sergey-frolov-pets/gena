@@ -21,17 +21,18 @@
     <script type="module" src="/src/main.ts"></script>
     <!--
       Статистика: GoatCounter, без cookie и без личных данных.
-      Хост — VITE_GOATCOUNTER_URL; не задан → stats.gena.code2graph.ru,
-      пустая строка → скрипт не грузится (см. src/analytics/config.ts).
+      Хост — VITE_GOATCOUNTER_URL; пустая строка → скрипт не грузится
+      (см. src/analytics/config.ts). Если переменная не подставлена при
+      сборке, берём рабочий счётчик Gena.
       Страна, язык браузера и размер экрана считает сам GoatCounter.
     -->
     <script>
       (function () {
+        // Vite подставляет значение на место %VITE_…%; если плейсхолдер остался,
+        // переменной при сборке не было.
         var configured = "%VITE_GOATCOUNTER_URL%";
-        var origin =
-          configured === "%VITE_GOATCOUNTER_URL%"
-            ? "https://stats.gena.code2graph.ru"
-            : configured.trim();
+        if (configured.indexOf("%") === 0) configured = "https://stats.code2graph.ru:8443";
+        var origin = configured.trim();
         if (origin === "") return;
         origin = origin.replace(/\/+$/, "");
         var script = document.createElement("script");

@@ -11,7 +11,7 @@
  */
 
 /** Хост по умолчанию, когда сборка не задаёт VITE_GOATCOUNTER_URL. */
-export const DEFAULT_GOATCOUNTER_ORIGIN = "https://stats.gena.code2graph.ru";
+export const DEFAULT_GOATCOUNTER_ORIGIN = "https://stats.code2graph.ru:8443";
 
 /** Origin счётчика или пустая строка, если статистика выключена. */
 export function resolveGoatCounterOrigin(
