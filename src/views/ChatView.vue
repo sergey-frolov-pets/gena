@@ -6653,6 +6653,11 @@ function onRateChange(event: Event): void {
   pointer-events: none;
 }
 
+/* Маска дока рисует полосу цвета панели как раз под кнопками токенов. */
+.chat-panel.is-tokens .chat-panel__dock::before {
+  display: none;
+}
+
 .chat-panel.is-tokens .chat-panel__dock.is-overlay > * {
   pointer-events: auto;
 }
@@ -6662,12 +6667,25 @@ function onRateChange(event: Event): void {
   flex-wrap: nowrap;
   align-items: center;
   gap: 6px;
-  margin: 0 2px 4px;
+  margin: 0;
   padding: 0;
   border: 0;
   background: none;
+  box-shadow: none;
   overflow-x: auto;
   scrollbar-width: none;
+  /* Над полем, но вне потока: лента идёт под кнопками, полосы фона нет. */
+  position: absolute;
+  z-index: 6;
+  bottom: calc(100% + 6px);
+  inset-inline-start: 0;
+  width: max-content;
+  max-width: 100%;
+  pointer-events: none;
+}
+
+.chat-panel__tokenbar .chat-panel__token-btn {
+  pointer-events: auto;
 }
 
 .chat-panel__tokenbar::-webkit-scrollbar {
