@@ -2115,6 +2115,7 @@ watch([activeSessionId, sessionsLoaded], ([id, loaded]) => {
 });
 
 function openComposer(): void {
+  holdVoiceSend();
   quickOpen.value = false;
   composerOpen.value = true;
   void nextTick(() => composerEl.value?.focus());
@@ -3964,10 +3965,54 @@ async function retry(): Promise<void> {
   await send();
 }
 
+/** Автоотправка после паузы в диктовке. Сбрасывается тапом по полю ввода. */
+const SILENCE_MS = 3_000;
+let voiceAutoSend = false;
+let silenceTimer = 0;
+
+function clearSilenceTimer(): void {
+  window.clearTimeout(silenceTimer);
+  silenceTimer = 0;
+}
+
+/** Тап по полю (или по кнопке, которая его открывает) — не отправлять самим. */
+function holdVoiceSend(): void {
+  voiceAutoSend = false;
+  clearSilenceTimer();
+}
+
+function armSilenceSend(): void {
+  clearSilenceTimer();
+  if (!voiceAutoSend || !dictationListening.value) return;
+  if (!draft.value.trim()) return;
+  silenceTimer = window.setTimeout(() => {
+    silenceTimer = 0;
+    if (!voiceAutoSend || !dictationListening.value) return;
+    if (!draft.value.trim()) return;
+    voiceAutoSend = false;
+    stopDictation();
+    void send();
+  }, SILENCE_MS);
+}
+
 function onDictateToggle(): void {
+  if (dictationListening.value) {
+    voiceAutoSend = false;
+    clearSilenceTimer();
+  } else {
+    voiceAutoSend = true;
+  }
   toggleDictation(draft);
   void autoGrow();
 }
+
+watch(draft, () => {
+  if (dictationListening.value) armSilenceSend();
+});
+
+watch(dictationListening, (listening) => {
+  if (!listening) clearSilenceTimer();
+});
 
 async function copyText(id: string, text: string): Promise<void> {
   try {
@@ -4299,6 +4344,7 @@ function onCompactChange(event: MediaQueryListEvent): void {
 }
 
 onUnmounted(() => {
+  clearSilenceTimer();
   disposeTurns();
   window.visualViewport?.removeEventListener("resize", syncViewport);
   window.visualViewport?.removeEventListener("scroll", syncViewport);
@@ -4919,6 +4965,23 @@ function onRateChange(event: Event): void {
           </svg>
         </button>
         <button
+          v-if="dictationAvailable"
+          type="button"
+          class="chat-panel__quick-trigger"
+          :class="{ 'is-listening': dictationListening }"
+          v-tip="dictationListening ? t('chat.dictateStop') : t('chat.dictate')"
+          :aria-label="dictationListening ? t('chat.dictateStop') : t('chat.dictate')"
+          :aria-pressed="dictationListening"
+          :disabled="composerDisabled"
+          @click="onDictateToggle"
+        >
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="9" y="3" width="6" height="11" rx="3" />
+            <path d="M5 11a7 7 0 0 0 14 0" />
+            <path d="M12 18v3" />
+          </svg>
+        </button>
+        <button
           v-if="quickReplies.length > 0"
           type="button"
           class="chat-panel__quick-trigger"
@@ -5151,6 +5214,7 @@ function onRateChange(event: Event): void {
             :aria-label="composerPlaceholder"
             :disabled="composerDisabled"
             @keydown="onComposerKey"
+            @pointerdown="holdVoiceSend"
             @input="onComposerInput"
             @select="onComposerSelect"
             @pointerup="onComposerSelectSoon"
@@ -6518,6 +6582,20 @@ function onRateChange(event: Event): void {
   opacity: 1;
   color: var(--text);
   border-color: var(--accent);
+}
+
+.chat-panel__quick-trigger.is-listening,
+.chat-panel__quick-trigger.is-listening:hover:not(:disabled) {
+  opacity: 1;
+  color: var(--danger);
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 16%, var(--panel-2));
+  animation: gena-mic-pulse 1.4s ease-in-out infinite;
+}
+
+.chat-panel__quick-trigger:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* «Стоп» в доке: полупрозрачная круглая кнопка, видна пока агент работает */
