@@ -249,6 +249,15 @@ function storedContent(text: string, session?: Session | null): string {
   return isTokenSession(session) ? forAgent(text) : text;
 }
 
+/**
+ * Что озвучивать. В защищённом режиме при показанных значениях голос читает
+ * их, а не имена ⟦токенов⟧ — ту же строку, что человек видит в ленте.
+ */
+function spokenContent(text: string, messageId = ""): string {
+  if (!isTokenSession(activeSession.value) || !viewValues.value) return text;
+  return displayContent(text, messageId);
+}
+
 /** Что человек видит в ленте: значения (по умолчанию) или токены. */
 function displayContent(text: string, messageId = ""): string {
   // В ленте исходной формы под рукой нет — подбираем падеж по предлогу
@@ -3040,7 +3049,7 @@ async function listenTurn(
     await recordCall(agent.id);
     await refreshUsage();
     if (autoSpeak.value && response.reply.trim() && shown()) {
-      speak(reply.id, response.reply);
+      speak(reply.id, spokenContent(response.reply, reply.id));
     }
     return "answered";
   } catch (e) {
@@ -3651,7 +3660,7 @@ async function exchange(
     await refreshUsage();
     forgetPendingTurn(session.id, pendingText);
     if (autoSpeak.value && response.reply.trim() && shown()) {
-      speak(reply.id, response.reply);
+      speak(reply.id, spokenContent(response.reply, reply.id));
     }
     if (limit > 0 && shown()) {
       notice.value = t("chat.remaining", { remaining: Math.max(0, limit - usedToday.value) });
@@ -4570,7 +4579,7 @@ function onRateChange(event: Event): void {
             "
             @lift="startEdit(entry.message)"
             @copy="copyText(entry.message.id, entry.message.content)"
-            @speak="toggleSpeech(entry.message.id, entry.message.content)"
+            @speak="toggleSpeech(entry.message.id, spokenContent(entry.message.content, entry.message.id))"
             @download="(kind, event) => downloadReply(entry.message, kind, event)"
             @regenerate="regenerate(entry.message)"
             @open-attachment="openAttachment"
