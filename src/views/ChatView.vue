@@ -2048,21 +2048,32 @@ let watchedPanels: Element[] = [];
 /** Запас над доком, чтобы последняя строка не прилипала к полю ввода. */
 const DOCK_CLEARANCE = 16;
 
-/** Высота плашек токенов: они висят над полем и в высоту дока не входят. */
-function selectionCover(): number {
+/** Панели, которые висят над полем ввода: в высоту дока они не входят,
+ *  поэтому их выступ над доком считаем отдельно. */
+const OVERHANG_SELECTOR = [
+  ".chat-panel__selection",
+  ".chat-panel__tokenbar",
+  ".chat-panel__token-pick",
+].join(",");
+
+/** На сколько верхняя из плашек выступает над доком (px) — ровно столько
+ *  ленты перекрыто, независимо от того, сколько плашек висит одновременно. */
+function dockOverhang(): number {
   const root = dockEl.value;
   if (!root) return 0;
+  const dockTop = root.getBoundingClientRect().top;
   let cover = 0;
-  root.querySelectorAll(".chat-panel__selection").forEach((node) => {
-    const height = Math.round(node.getBoundingClientRect().height);
-    if (height > 0) cover += height + 8;
+  root.querySelectorAll(OVERHANG_SELECTOR).forEach((node) => {
+    const rect = node.getBoundingClientRect();
+    if (rect.height <= 0) return;
+    cover = Math.max(cover, Math.round(dockTop - rect.top));
   });
-  return cover;
+  return cover > 0 ? cover : 0;
 }
 
-function watchSelectionPanels(): void {
+function watchOverhangPanels(): void {
   if (!panelObserver || !dockEl.value) return;
-  const nodes = [...dockEl.value.querySelectorAll(".chat-panel__selection")];
+  const nodes = [...dockEl.value.querySelectorAll(OVERHANG_SELECTOR)];
   if (nodes.length === watchedPanels.length && nodes.every((node, index) => node === watchedPanels[index])) {
     return;
   }
@@ -2072,12 +2083,12 @@ function watchSelectionPanels(): void {
 }
 
 function syncDockSpace(): void {
-  watchSelectionPanels();
+  watchOverhangPanels();
   const el = dockEl.value;
   // На телефоне док лежит поверх ленты в обоих состояниях: с вводом и без него.
   const floating = compact.value;
   const dockHeight = floating && el ? Math.round(el.getBoundingClientRect().height) : 0;
-  const next = dockHeight + DOCK_CLEARANCE + selectionCover();
+  const next = dockHeight + DOCK_CLEARANCE + dockOverhang();
   if (next === dockSpace.value) return;
   const delta = next - dockSpace.value;
   dockSpace.value = next;
@@ -2742,7 +2753,7 @@ watch(
 );
 
 watch(
-  [compact, composerOpen, selectionBanner, feedSelection],
+  [compact, composerOpen, selectionBanner, feedSelection, tokenSessionNow],
   () => void nextTick(syncDockSpace),
   { flush: "post" },
 );
