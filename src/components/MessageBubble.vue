@@ -383,7 +383,7 @@ const canExport = computed(
    На телефоне и планшете реплики остаются по разным сторонам. */
 @media (min-width: 1100px) {
   .chat-panel__message {
-    max-width: min(100%, 42rem);
+    max-width: 100%;
   }
   .chat-panel__content {
     font-size: 0.95rem;
