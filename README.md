@@ -9,17 +9,20 @@
 Serverless messenger SPA for AI agents. Built as a static site and deployed to GitHub Pages — no backend, all state lives in the browser.
 
 **Live:** https://sergey-frolov-pets.github.io/gena/
+**Discussions:** https://github.com/sergey-frolov-pets/gena/discussions
 
 ## Features
 
-- **Agent connections** — address (URL endpoint), key (Bearer), settings (context size, daily call limit, LLM model).
-- **Daily call limit** — per-agent counter in IndexedDB (`usage` store, UTC day), send is blocked when exhausted, "N / M calls today" indicator.
-- **Readable errors** — 401/403/404/429/5xx, CORS/network, non-JSON, private mode → human text instead of a raw status code.
-- **9 UI languages** — English, Russian, Spanish, Chinese, Japanese, Hindi, Portuguese, German, Arabic (RTL). English is the default; the choice is persisted in `localStorage`.
-- **Chat** — sends `POST {message, sessionId, settings, history}` → `{reply}`, history stored in IndexedDB.
-- **Key encryption** — device seed in `localStorage` → HKDF-SHA256 → AES-GCM-256. Envelope `enc:v1:<iv>.<cipher>`, bound to `agentId` via `additionalData`. Rebuilding the app does not break keys.
-- **History backup** — export/import plain JSON **without agent keys** (sessions, messages, agent settings only). Import merges: existing agents keep their keys, conflicts are skipped.
-- **IndexedDB cleanup** — "delete all except selected" + "delete all". Agents are preserved.
+- **Connections** — your own agents and LLMs. Protocols: HTTP JSON (`POST` → `{reply}`), OpenAI-compatible chat (`/v1`), and Pico (WebSocket). Address, Bearer key, model, context size, optional system prompt, and a daily call limit.
+- **Bring your own key** — Gena does not sell model access. The key stays encrypted on this device (device seed → HKDF-SHA256 → AES-GCM-256, envelope `enc:v1:`, bound to `agentId`). Backups never include keys.
+- **Chat** — several dialogs at once, search, pin, rename, duplicate, delete. Attach images and text files. Dictate a message; after three seconds of silence it is sent unless you tap the input. Replies can be read aloud. Stop a running reply or queue the next one. Empty dialogs offer starter prompts.
+- **Protected mode** — a token dictionary replaces sensitive values before they go to the agent. The selection panel appears only in this mode. The dictionary is a table; every form stays masked until you reveal the row. Deleting a token names it.
+- **Quick phrases** — per agent, one phrase per line, shown as buttons in the chat.
+- **Daily call limit** — per-agent counter in IndexedDB (`usage`, UTC day). Send is blocked when it is exhausted. The chat shows “N / M calls today”.
+- **Readable errors** — 401/403/404/429/5xx, CORS, non-JSON, and private mode become a sentence instead of a status code.
+- **9 UI languages** — English, Russian, Spanish, Chinese, Japanese, Hindi, Portuguese, German, Arabic (RTL). The choice is stored in `localStorage`. Light and dark theme. Install to the home screen.
+- **History backup** — export and import JSON without keys. Import merges; existing agents keep their keys.
+- **Cleanup** — delete every session, or everything except the ones you keep. Agents stay.
 
 ## Stack
 
