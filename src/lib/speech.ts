@@ -67,19 +67,11 @@ if (typeof window !== "undefined") {
   }
 }
 
-export function stopSpeaking(): void {
-  synthesizer()?.cancel();
-  speakingId.value = null;
-}
+/** Поколение очереди: отмена и новая озвучка обрывают предыдущую цепочку. */
+let speechGeneration = 0;
 
-export function speak(id: string, text: string): void {
-  const synth = synthesizer();
-  if (!synth) return;
-  const spoken = stripForSpeech(text);
-  if (!spoken) return;
-
-  synth.cancel();
-  const utterance = new SpeechSynthesisUtterance(spoken);
+function prepareUtterance(text: string): SpeechSynthesisUtterance {
+  const utterance = new SpeechSynthesisUtterance(text);
   const lang = currentLanguageCode();
   utterance.lang = speechTag(lang);
   utterance.rate = speechRate.value;
@@ -89,14 +81,49 @@ export function speak(id: string, text: string): void {
   const chosen = pool.find((voice) => voiceKey(voice) === speechVoiceId.value);
   const matching = chosen ?? pool.find((voice) => voice.lang.replace("_", "-") === utterance.lang) ?? pool[0];
   if (matching) utterance.voice = matching;
+  return utterance;
+}
 
-  const done = (): void => {
-    if (speakingId.value === id) speakingId.value = null;
-  };
-  utterance.onend = done;
-  utterance.onerror = done;
+export function stopSpeaking(): void {
+  speechGeneration += 1;
+  synthesizer()?.cancel();
+  speakingId.value = null;
+}
+
+export function speak(id: string, text: string): void {
+  speakParts(id, [text]);
+}
+
+/**
+ * Несколько реплик подряд. Каждая — отдельная фраза: длинный чат
+ * не упирается в лимит одного высказывания.
+ */
+export function speakParts(id: string, parts: string[]): void {
+  const synth = synthesizer();
+  if (!synth) return;
+  const spoken = parts.map(stripForSpeech).filter(Boolean);
+  if (spoken.length === 0) return;
+
+  synth.cancel();
+  const generation = ++speechGeneration;
   speakingId.value = id;
-  synth.speak(utterance);
+
+  const next = (index: number): void => {
+    if (generation !== speechGeneration) return;
+    if (index >= spoken.length) {
+      if (speakingId.value === id) speakingId.value = null;
+      return;
+    }
+    const utterance = prepareUtterance(spoken[index] ?? "");
+    const step = (): void => {
+      if (generation !== speechGeneration) return;
+      next(index + 1);
+    };
+    utterance.onend = step;
+    utterance.onerror = step;
+    synth.speak(utterance);
+  };
+  next(0);
 }
 
 export function toggleSpeech(id: string, text: string): void {

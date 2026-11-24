@@ -56,6 +56,7 @@ export const chatMessages = {
   "chat.downloadTxt": "टेक्स्ट डाउनलोड",
   "chat.copied": "कॉपी हो गया",
   "chat.speakReply": "पढ़कर सुनाएँ",
+  "chat.speakChat": "कर्सर से पूरी चैट पढ़ें",
   "chat.stopSpeaking": "पढ़ना रोकें",
   "chat.autoSpeak": "उत्तर पढ़कर सुनाएँ",
   "chat.dictate": "बोलकर लिखें",

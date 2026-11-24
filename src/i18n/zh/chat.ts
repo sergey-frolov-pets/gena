@@ -56,6 +56,7 @@ export const chatMessages = {
   "chat.downloadTxt": "下载文本",
   "chat.copied": "已复制",
   "chat.speakReply": "朗读",
+  "chat.speakChat": "从光标处朗读聊天",
   "chat.stopSpeaking": "停止朗读",
   "chat.autoSpeak": "朗读回复",
   "chat.dictate": "语音输入",

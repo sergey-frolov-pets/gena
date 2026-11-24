@@ -56,6 +56,7 @@ export const chatMessages = {
   "chat.downloadTxt": "テキストを保存",
   "chat.copied": "コピーしました",
   "chat.speakReply": "読み上げ",
+  "chat.speakChat": "カーソルからチャットを読み上げ",
   "chat.stopSpeaking": "読み上げを停止",
   "chat.autoSpeak": "返信を読み上げ",
   "chat.dictate": "音声入力",
