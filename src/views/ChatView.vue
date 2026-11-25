@@ -2690,30 +2690,34 @@ function settleToBottom(): void {
 // Появление сообщений и стрим подтягиваем только если читатель у нижней границы.
 watch([messages, liveStreaming, liveTyping], () => settleToBottom(), { flush: "post" });
 
-/** Растущее поле ввода, как в AiChatPanel (от 1 до 4 строк). */
-async function autoGrow(): Promise<void> {
+/**
+ * Растущее поле ввода, как в AiChatPanel (от 1 до 4 строк).
+ *
+ * keepSelection — для ручного растяжения: поле меняет ширину, и без этого
+ * браузер сбрасывает каретку в начало текста.
+ */
+async function autoGrow(options?: { keepSelection?: boolean }): Promise<void> {
   await nextTick();
   const el = composerEl.value;
   if (!el) return;
+  const selectionStart = options?.keepSelection ? el.selectionStart : null;
+  const selectionEnd = options?.keepSelection ? el.selectionEnd : null;
   const style = window.getComputedStyle(el);
   const padding =
     (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
   // "normal" в computed style — считаем от размера шрифта (line-height 1.4 в CSS).
   const lineHeight =
     parseFloat(style.lineHeight) || Math.round((parseFloat(style.fontSize) || 14.4) * 1.4);
-  // Ширина поля зависит от раскладки кнопок: в многострочном режиме блок кнопок
-  // уже (~69px против ~156px), и поле шире. Меряем всегда в «узком» режиме —
-  // иначе на границе строки текст то влезает, то нет, и поле мерцает 1↔2.
-  const box = el.closest(".chat-panel__composer-box") as HTMLElement | null;
-  const wasMultiline = box?.classList.contains("is-multiline") ?? false;
-  if (wasMultiline) box?.classList.remove("is-multiline");
+  // Ширина поля зависит от раскладки кнопок. Класс is-multiline ставит Vue по
+  // computed composerMultiline, а не этот замер: раньше мы его снимали на время
+  // замера и возвращали обратно — и поле на миг меняло ширину. На телефоне это
+  // сбрасывало выделение, и плашка под полем не появлялась вовсе.
+  //
   // Высоту и max-height снимаем: во flex-ряду scrollHeight иначе равен одной строке,
   // хотя текст уже перенёсся. Ширину фиксируем, чтобы перенос не поехал.
-  // clientWidth — без полосы прокрутки: по ней считаем, сколько строк влезет.
+  // Меряем по полной ширине поля вместе с полосой прокрутки (offsetWidth минус
+  // рамка): clientWidth её вычитает, и на длинном тексте строки считались неверно.
   const width = el.clientWidth;
-  // Но при фиксации высоты полоса прокрутки может исчезнуть — тогда scrollHeight
-  // меряется по более широкому полю, и строк выходит меньше, чем на самом деле.
-  // Поэтому меряем по ширине с полосой (offsetWidth минус рамка и padding).
   const scrollbarWidth = Math.max(0, el.offsetWidth - el.clientWidth);
   const measureWidth = width + scrollbarWidth;
   el.style.maxHeight = "none";
@@ -2729,9 +2733,16 @@ async function autoGrow(): Promise<void> {
   el.style.height = `${
     composerManualHeight.value ?? composerFieldHeight(lines, lineHeight, padding)
   }px`;
-  if (wasMultiline) box?.classList.add("is-multiline");
   // Высота изменилась — полоса прокрутки могла появиться или исчезнуть.
   measureMarksGutter();
+  // Ручное растяжение: возвращаем каретку туда, где она была до замера.
+  if (selectionStart !== null && selectionEnd !== null) {
+    try {
+      el.setSelectionRange(selectionStart, selectionEnd);
+    } catch {
+      // Поле уже не в фокусе — ничего страшного.
+    }
+  }
 }
 watch(draft, () => {
   saveDraftSoon();
@@ -2761,7 +2772,8 @@ function setComposerManualHeight(px: number): void {
   const el = composerEl.value;
   if (el) el.style.height = `${composerManualHeight.value}px`;
   // Столбец кнопок меняет ширину поля — переносы строк надо пересчитать.
-  void autoGrow();
+  // Каретку и выделение при этом не трогаем: человек как раз тянет ручку.
+  void autoGrow({ keepSelection: true });
 }
 
 /**
@@ -6235,6 +6247,45 @@ function onRateChange(event: Event): void {
     width: 36px;
     height: 36px;
   }
+
+  /* Растянутое поле на телефоне: кнопки справа — одна колонка по 26px
+     (правила выше дают 40/44 и раздували столбец в два ряда). */
+  .chat-panel__composer-box.is-multiline .chat-panel__composer-stack .chat-panel__icon-btn,
+  .chat-panel__composer-box.is-multiline .chat-panel__composer-lead .chat-panel__icon-btn {
+    width: 26px;
+    height: 26px;
+    min-width: 26px;
+    min-height: 26px;
+  }
+
+  .chat-panel__composer-box.is-multiline .chat-panel__composer-stack .chat-panel__icon-btn svg,
+  .chat-panel__composer-box.is-multiline .chat-panel__composer-lead .chat-panel__icon-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .chat-panel__composer-box.is-multiline .chat-panel__clear,
+  .chat-panel__composer-box.is-multiline .chat-panel__collapse {
+    width: 22px;
+    height: 22px;
+    border-radius: 8px;
+  }
+
+  .chat-panel__composer-box.is-multiline .chat-panel__clear svg,
+  .chat-panel__composer-box.is-multiline .chat-panel__collapse svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .chat-panel__composer-box.is-multiline .chat-panel__send.is-primary {
+    width: 32px;
+    height: 32px;
+  }
+
+  .chat-panel__composer-box.is-multiline .chat-panel__send.is-stop {
+    width: 26px;
+    height: 26px;
+  }
 }
 
 .chat-panel__icon-btn {
@@ -6878,6 +6929,46 @@ function onRateChange(event: Event): void {
   .chat-panel__selection-arrow svg {
     width: 22px;
     height: 22px;
+  }
+
+  /* Столбец кнопок при растяжении поля: правила выше (40px) перебивали
+     многострочный режим, и кнопки оставались двумя рядами. Держим компактный
+     размер колонки на любой ширине. */
+  .chat-panel__composer-box.is-multiline .chat-panel__composer-stack .chat-panel__icon-btn,
+  .chat-panel__composer-box.is-multiline .chat-panel__composer-lead .chat-panel__icon-btn {
+    width: 26px;
+    height: 26px;
+    min-width: 26px;
+    min-height: 26px;
+  }
+
+  .chat-panel__composer-box.is-multiline .chat-panel__composer-stack .chat-panel__icon-btn svg,
+  .chat-panel__composer-box.is-multiline .chat-panel__composer-lead .chat-panel__icon-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .chat-panel__composer-box.is-multiline .chat-panel__clear,
+  .chat-panel__composer-box.is-multiline .chat-panel__collapse {
+    width: 22px;
+    height: 22px;
+    border-radius: 8px;
+  }
+
+  .chat-panel__composer-box.is-multiline .chat-panel__clear svg,
+  .chat-panel__composer-box.is-multiline .chat-panel__collapse svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .chat-panel__composer-box.is-multiline .chat-panel__send.is-primary {
+    width: 32px;
+    height: 32px;
+  }
+
+  .chat-panel__composer-box.is-multiline .chat-panel__send.is-stop {
+    width: 26px;
+    height: 26px;
   }
 }
 
