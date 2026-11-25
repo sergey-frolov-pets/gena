@@ -732,12 +732,17 @@ function onComposerSelect(): void {
 /**
  * Выделение с задержкой: на телефоне маркеры выделения двигаются после
  * pointerup/touchend, а событие select приходит не во всех WebView.
+ *
+ * Задержка короткая: человек ждёт плашку сразу после того, как отпустил
+ * палец. Ошибка в 120 мс превращалась в «облачко появилось не всегда» —
+ * следующее событие сбрасывало таймер, а последнее приходило уже без
+ * выделения.
  */
 let selectionTimer = 0;
 
 function onComposerSelectSoon(): void {
   window.clearTimeout(selectionTimer);
-  selectionTimer = window.setTimeout(onComposerSelect, 120);
+  selectionTimer = window.setTimeout(onComposerSelect, 40);
 }
 
 
@@ -1340,10 +1345,16 @@ async function replaceAllOccurrences(): Promise<void> {
   if (replaced > 0) notice.value = t("chat.tokens.replaced", { count: replaced });
 }
 
-/** Клик по «галочке»: одно вхождение — как раньше, несколько — сразу меняем. */
+/**
+ * Клик по «галочке» в плашке.
+ *
+ * Одно вхождение — заменяем сразу, без вопроса: подтверждение нужно, когда
+ * меняется несколько мест или значение уже было токеном в этом диалоге.
+ * Несколько вхождений — серия замен, каждый шаг виден в тексте.
+ */
 function onReplaceClick(): void {
   if (occurrenceTotal.value > 1) void replaceCurrentOccurrence();
-  else if (selectionMatch.value) askSelectionReplace();
+  else if (selectionMatch.value) void applySelectionToken(selectionMatch.value.name);
   else void replaceCurrentOccurrence();
 }
 
@@ -1368,10 +1379,14 @@ async function applySelectionToken(name: string): Promise<void> {
   startOccurrences(needle, name);
 }
 
-/** Известное значение: подтверждение есть, карточки с именем нет. */
-function askSelectionReplace(): void {
-  const match = selectionMatch.value;
-  if (match) selectionConfirm.value = match;
+/**
+ * Токен поставлен, других вхождений нет — закрываем плашку сразу.
+ *
+ * Плашка нужна, чтобы заменить остальные вхождения; когда их нет, она
+ * висела бы над полем без дела и закрывала текст.
+ */
+function settleOccurrences(): void {
+  if (occurrenceTotal.value === 0) finishOccurrences();
 }
 
 const selectionCanRename = computed(() => {
@@ -1386,12 +1401,13 @@ async function applySelectionDialogName(): Promise<void> {
   const name = await commitDialogName(selectionName.value, match.name);
   if (!name) return;
   await applySelectionToken(name);
+  settleOccurrences();
 }
 
 function confirmSelectionReplace(): void {
   const entry = selectionConfirm.value;
   clearSelection();
-  if (entry) void applySelectionToken(entry.name);
+  if (entry) void applySelectionToken(entry.name).then(settleOccurrences);
 }
 
 /** Неизвестный фрагмент: имя вводится прямо в плашке под полем. */
@@ -1417,9 +1433,11 @@ async function createTokenFromSelection(): Promise<void> {
         caseSensitive: existing.caseSensitive,
       });
       await applySelectionToken(existing.name);
+      settleOccurrences();
     } else {
       await saveToken({ name, value: range.text, caseSensitive: selectionCaseSensitive.value });
       await applySelectionToken(name);
+      settleOccurrences();
       notice.value = t("chat.tokens.created");
     }
   } catch (e) {
@@ -5138,7 +5156,7 @@ function onRateChange(event: Event): void {
             :aria-label="composerPlaceholder"
             :disabled="composerDisabled"
             @keydown="onComposerKey"
-            @pointerdown="holdVoiceSend"
+            @pointerdown="holdVoiceSend(); onComposerSelectSoon()"
             @input="onComposerInput"
             @select="onComposerSelect"
             @pointerup="onComposerSelectSoon"
@@ -6078,16 +6096,14 @@ function onRateChange(event: Event): void {
 }
 
 .chat-panel__marks .is-token {
-  border-radius: 4px;
+  border-radius: 3px;
   background: var(--token-mark);
-  box-shadow: 0 0 0 2px var(--token-mark);
 }
 
 /* Ещё не заменённая форма справочника: другой цвет, тап решает судьбу. */
 .chat-panel__marks .is-offer {
-  border-radius: 4px;
+  border-radius: 3px;
   background: var(--token-offer);
-  box-shadow: 0 0 0 2px var(--token-offer);
 }
 
 .chat-panel__input {
@@ -6611,14 +6627,13 @@ function onRateChange(event: Event): void {
   box-decoration-break: clone;
 }
 
+/* Только фон: box-shadow «кольцом» раздувал строку и залезал на соседнюю. */
 :deep(.md-token) {
   background: var(--token-mark);
-  box-shadow: 0 0 0 2px var(--token-mark);
 }
 
 :deep(.md-offer) {
   background: var(--token-offer);
-  box-shadow: 0 0 0 2px var(--token-offer);
 }
 
 /* Панель кнопок токенов над полем — прозрачная: под ней видна лента,

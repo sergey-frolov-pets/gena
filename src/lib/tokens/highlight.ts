@@ -50,7 +50,12 @@ export function highlightSegments(
   const counters = new Map<string, number>();
   let last = 0;
   for (const span of marks) {
-    if (span.start < last) continue;
+    if (span.start < last) {
+      // Пересечение с уже подсвеченным: подсветка не должна наползать сама
+      // на себя, поэтому кусок обрезаем по концу предыдущего.
+      if (span.end <= last) continue;
+      span.start = last;
+    }
     if (span.start > last) {
       segments.push({ text: source.slice(last, span.start), token: false });
     }

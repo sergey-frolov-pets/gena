@@ -59,4 +59,16 @@ describe("highlightSegments", () => {
     ]);
     expect(segmentsText(parts)).toBe(text);
   });
+  it("пересекающиеся подсветки не наползают друг на друга", () => {
+    const text = "вклад ВТБ и ещё";
+    const parts = highlightSegments(text, false, restore, [
+      { start: 0, end: 6 },
+      { start: 3, end: 9 },
+    ]);
+    expect(segmentsText(parts)).toBe(text);
+    expect(parts.filter((part) => part.offer).map((part) => part.text)).toEqual([
+      "вклад ",
+      "ВТБ",
+    ]);
+  });
 });
