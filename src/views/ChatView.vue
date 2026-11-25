@@ -160,6 +160,7 @@ import {
   draftText,
   toDraftCaret,
   visibleOffsetForDraft,
+  visiblePieces,
   visibleText,
 } from "@/lib/tokens/display";
 import { contextForms, restoreValuesWithCase } from "@/lib/tokens/context-case";
@@ -444,8 +445,15 @@ function insertTokenName(name: string): void {
   });
 }
 
-/** Ввод в поле: обновляем подсказку токенов (⟦…). Справочник работает в любом диалоге. */
+/**
+ * Ввод в поле: обновляем подсказку токенов (⟦…). Справочник работает в любом диалоге.
+ * Сразу после вставки видимого текста поле не токенизируем: иначе знакомые слова
+ * снова станут ⟦токенами⟧.
+ */
+let keepVisiblePaste = false;
+
 function onComposerInput(event: Event): void {
+  if (keepVisiblePaste) return;
   const el = event.target as HTMLTextAreaElement | null;
   const typed = composerField.value || el?.value || "";
   const visibleCaret = el && el.selectionStart !== null ? el.selectionStart : typed.length;
@@ -4355,6 +4363,78 @@ watch(dictationListening, (listening) => {
   if (!listening) clearSilenceTimer();
 });
 
+/**
+ * Точка в черновике для видимой каретки.
+ *
+ * Внутри расшифрованного токена каретку нельзя ставить «в середину» ⟦имени⟧:
+ * вставка туда разорвала бы токен. Первая половина видимого значения — перед
+ * токеном, вторая — после него.
+ */
+function draftPointForVisibleCaret(visibleOffset: number): number {
+  const show = displayValues.value;
+  const forms = formLookup(tokenForms);
+  if (!show) return Math.min(Math.max(0, visibleOffset), draft.value.length);
+  const pieces = visiblePieces(draft.value, true, forms);
+  for (const piece of pieces) {
+    if (visibleOffset < piece.visibleStart || visibleOffset > piece.visibleEnd) continue;
+    if (!piece.token) return piece.draftStart + (visibleOffset - piece.visibleStart);
+    const mid = piece.visibleStart + (piece.visibleEnd - piece.visibleStart) / 2;
+    return visibleOffset <= mid ? piece.draftStart : piece.draftEnd;
+  }
+  return draft.value.length;
+}
+
+/** Вставить в поле ровно скопированные символы, не прогоняя их через справочник. */
+function insertVisiblePaste(text: string): void {
+  const el = composerEl.value;
+  const field = composerField.value;
+  const startVis = el?.selectionStart ?? field.length;
+  const endVis = el?.selectionEnd ?? startVis;
+  const lo = draftPointForVisibleCaret(Math.min(startVis, endVis));
+  const hi = draftPointForVisibleCaret(Math.max(startVis, endVis));
+  const from = Math.min(lo, hi);
+  const to = Math.max(lo, hi);
+  keepVisiblePaste = true;
+  draft.value = draft.value.slice(0, from) + text + draft.value.slice(to);
+  const caretDraft = from + text.length;
+  void nextTick(() => {
+    syncComposerField();
+    const area = composerEl.value;
+    if (!area) return;
+    const pos = toVisibleOffset(draft.value, caretDraft);
+    area.focus();
+    area.setSelectionRange(pos, pos);
+    window.setTimeout(() => {
+      keepVisiblePaste = false;
+    }, 0);
+  });
+}
+
+/**
+ * Копирование из чата: в буфер попадает только текст, который сейчас виден.
+ *
+ * Иначе вместе с выделением уезжает HTML с именами токенов, а вставка в другой
+ * чат поднимает все ⟦токены⟧, хотя на экране были обычные слова.
+ */
+function onChatCopy(event: ClipboardEvent): void {
+  if (!event.clipboardData) return;
+  const target = event.target;
+  if (target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement) {
+    const start = target.selectionStart ?? 0;
+    const end = target.selectionEnd ?? start;
+    if (end <= start) return;
+    event.preventDefault();
+    event.clipboardData?.setData("text/plain", target.value.slice(start, end));
+    return;
+  }
+  const selected = window.getSelection?.();
+  if (!selected || selected.isCollapsed) return;
+  const text = selected.toString();
+  if (!text) return;
+  event.preventDefault();
+  event.clipboardData?.setData("text/plain", text);
+}
+
 async function copyText(id: string, text: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);
@@ -4370,7 +4450,7 @@ async function copyText(id: string, text: string): Promise<void> {
 async function copyChat(): Promise<void> {
   const lines = messages.value
     .filter((m) => m.kind === undefined || m.kind === "text")
-    .map((m) => `${roleLabel(m)}: ${m.content}`);
+    .map((m) => `${roleLabel(m)}: ${displayContent(m.content, m.id)}`);
   if (lines.length === 0) return;
   await copyText("chat", lines.join("\n\n"));
 }
@@ -4558,9 +4638,18 @@ function onPaste(event: ClipboardEvent): void {
   const files = Array.from(event.clipboardData?.files ?? []).filter((f) =>
     f.type.startsWith("image/"),
   );
-  if (files.length === 0) return;
+  if (files.length > 0) {
+    event.preventDefault();
+    void addFiles(files);
+    return;
+  }
+  // В защищённом чате обычная вставка снова прогоняет текст через справочник
+  // и ставит ⟦токены⟧ на каждое знакомое слово. Нужны только скопированные символы.
+  if (!isTokenSession(activeSession.value)) return;
+  const text = event.clipboardData?.getData("text/plain") ?? "";
+  if (!text) return;
   event.preventDefault();
-  void addFiles(files);
+  insertVisiblePaste(text);
 }
 
 function onDrop(event: DragEvent): void {
@@ -4748,7 +4837,7 @@ function onRateChange(event: Event): void {
 </script>
 
 <template>
-  <section class="chat-panel" :class="{ 'is-tokens': isTokenSession(activeSession) }">
+  <section class="chat-panel" :class="{ 'is-tokens': isTokenSession(activeSession) }" @copy="onChatCopy">
     <div v-if="isTokenSession(activeSession)" class="chat-panel__watermark" aria-hidden="true">
       <svg v-for="n in 3" :key="n" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
         <rect x="4" y="10" width="16" height="10" rx="2.4" />
@@ -5031,7 +5120,7 @@ function onRateChange(event: Event): void {
               entry.message.role === 'assistant' && entry.index === feed.length - 1 && !busy
             "
             @lift="startEdit(entry.message)"
-            @copy="copyText(entry.message.id, entry.message.content)"
+            @copy="copyText(entry.message.id, displayContent(entry.message.content, entry.message.id))"
             @speak="toggleSpeech(entry.message.id, spokenContent(entry.message.content, entry.message.id))"
             @download="(kind, event) => downloadReply(entry.message, kind, event)"
             @regenerate="regenerate(entry.message)"
