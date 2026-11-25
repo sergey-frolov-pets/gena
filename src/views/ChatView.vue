@@ -1387,6 +1387,11 @@ async function applySelectionToken(name: string): Promise<void> {
   draft.value = result.text;
   clearSelection();
   await nextTick();
+  // Поле показывает значение: сразу после вставки в нём оказался бы канон
+  // справочника («вклад ВТБ»), а человек выбрал именно эту форму («вклада ВТБ»).
+  // Возвращаем в поле ровно выбранное написание — иначе следующая правка поля
+  // перезаписала бы форму каноном.
+  syncComposerField();
   const area = composerEl.value;
   if (area) {
     const pos = toVisibleOffset(draft.value, result.caret);
@@ -1450,6 +1455,7 @@ async function createTokenFromSelection(): Promise<void> {
         note: existing.note,
         caseSensitive: existing.caseSensitive,
       });
+      // Выбрано конкретное написание — в поле должно встать оно, а не канон.
       await applySelectionToken(existing.name);
       settleOccurrences();
     } else {
