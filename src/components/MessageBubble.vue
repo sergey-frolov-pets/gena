@@ -354,17 +354,24 @@ const canExport = computed(
 
 .chat-panel__file-badge {
   display: inline-flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 5px;
   max-width: 100%;
-  padding: 4px 8px;
+  padding: 5px 9px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: 10px;
   background: var(--panel-2);
   color: var(--muted);
   font: inherit;
   font-size: 0.75rem;
+  text-align: start;
   cursor: pointer;
+}
+
+/* Значок держим у первой строки имени, а не по центру многострочного блока. */
+.chat-panel__file-badge svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
 }
 
 .chat-panel__file-badge:hover,
@@ -373,16 +380,18 @@ const canExport = computed(
   color: var(--text);
 }
 
+/* Имя файла показываем целиком: длинное — переносится, а не режется многоточием. */
 .chat-panel__file-name {
-  overflow: hidden;
-  max-width: 160px;
+  min-width: 0;
   color: var(--text);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
 }
 
 .chat-panel__file-size {
   flex: 0 0 auto;
+  margin-top: 1px;
+  white-space: nowrap;
   opacity: 0.8;
 }
 
