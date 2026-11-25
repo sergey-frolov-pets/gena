@@ -265,9 +265,6 @@ onBeforeUnmount(() => {
         <LanguageSwitcher />
         <ThemeSwitcher />
         <AppearanceMenu />
-        <div class="menu-row">
-          <InstallButton />
-        </div>
         <button type="button" role="menuitem" @click="openTab('tokens')">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z" />
@@ -544,13 +541,6 @@ onBeforeUnmount(() => {
   font-size: 0.78rem;
   font-variant-numeric: tabular-nums;
   text-align: end;
-}
-
-.menu-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 8px 6px;
 }
 
 .brand {

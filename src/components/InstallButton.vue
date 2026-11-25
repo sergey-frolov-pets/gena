@@ -8,14 +8,19 @@ interface BeforeInstallPromptEvent extends Event {
 }
 
 /**
- * Компактная иконка в шапке меню или полноценный пункт меню.
- * Пункт меню нужен, чтобы установку было видно словами, а не только по иконке.
+ * Компактная иконка в шапке или полноценный пункт меню.
+ *
+ * Пункт меню показывается всегда, пока приложение не установлено: браузер
+ * отдаёт `beforeinstallprompt` не во всех случаях (уже установлено, не выполнены
+ * условия PWA, Safari/Firefox на iOS и т. п.), и раньше пункт просто исчезал —
+ * «установки в меню нет». Если события нет, пункт открывает инструкцию.
  */
 const props = withDefaults(defineProps<{ asMenu?: boolean }>(), { asMenu: false });
 
 const { t } = useLocale();
 const canInstall = ref(false);
 const installed = ref(false);
+const hintOpen = ref(false);
 let deferredPrompt: BeforeInstallPromptEvent | null = null;
 
 function isStandalone(): boolean {
@@ -34,11 +39,16 @@ function onBeforeInstallPrompt(event: Event) {
 function onAppInstalled() {
   installed.value = true;
   canInstall.value = false;
+  hintOpen.value = false;
   deferredPrompt = null;
 }
 
 async function install() {
-  if (!deferredPrompt) return;
+  if (!deferredPrompt) {
+    // Браузер не дал системного диалога — объясняем, где кнопка у него.
+    hintOpen.value = true;
+    return;
+  }
   await deferredPrompt.prompt();
   const choice = await deferredPrompt.userChoice;
   if (choice.outcome === "accepted") {
@@ -61,32 +71,37 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <button
-    v-if="canInstall && !installed"
-    :class="props.asMenu ? 'menu-install' : 'install-btn'"
-    :role="props.asMenu ? 'menuitem' : undefined"
-    type="button"
-    :aria-label="t('app.install')"
-    :v-tip="props.asMenu ? null : t('app.install')"
-    @click="install"
-  >
-    <svg
-      viewBox="0 0 24 24"
-      width="18"
-      height="18"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="2"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      aria-hidden="true"
+  <template v-if="!installed">
+    <button
+      :class="props.asMenu ? 'menu-install' : 'install-btn'"
+      :role="props.asMenu ? 'menuitem' : undefined"
+      type="button"
+      :aria-label="t('app.install')"
+      :v-tip="props.asMenu ? null : t('app.install')"
+      @click="install"
     >
-      <path d="M12 3v11" />
-      <path d="m7 10 5 5 5-5" />
-      <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
-    </svg>
-    <span v-if="props.asMenu">{{ t("app.install") }}</span>
-  </button>
+      <svg
+        viewBox="0 0 24 24"
+        width="18"
+        height="18"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M12 3v11" />
+        <path d="m7 10 5 5 5-5" />
+        <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+      </svg>
+      <span v-if="props.asMenu">{{ t("app.install") }}</span>
+    </button>
+    <!-- Системного диалога нет: показываем, где кнопка установки у браузера. -->
+    <p v-if="hintOpen" class="menu-install__hint" role="status">
+      {{ t("app.installHint") }}
+    </p>
+  </template>
 </template>
 
 <style scoped>
@@ -120,5 +135,13 @@ onBeforeUnmount(() => {
 
 .menu-install:hover {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.menu-install__hint {
+  margin: 0;
+  padding: 0 12px 8px;
+  font-size: 0.85rem;
+  line-height: 1.35;
+  color: var(--muted, color-mix(in srgb, currentColor 65%, transparent));
 }
 </style>

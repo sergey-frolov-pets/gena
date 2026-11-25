@@ -75,6 +75,7 @@ export const appMessages = {
   "about.agent.openclaw": "OpenClaw का गेटवे OpenAI-संगत चैट API दे सकता है। gateway.http.endpoints.chatCompletions.enabled से चालू करें। कनेक्शन में OpenAI-संगत चुनें, नीचे का आधार URL, कुंजी में गेटवे टोकन या पासवर्ड, मॉडल openclaw/default। गेटवे को localhost या निजी नेट पर रखें: यह ऑपरेटर पहुँच है।",
   "about.agent.hermes": "Hermes OpenAI-संगत API सर्वर चलाता है। API_SERVER_ENABLED, API_SERVER_KEY और API_SERVER_CORS_ORIGINS (इस पृष्ठ का मूल) सेट करें, फिर hermes gateway चलाएँ। कनेक्शन में OpenAI-संगत, नीचे का आधार URL, कुंजी में API_SERVER_KEY, मॉडल hermes-agent (या जो नाम आपने रखा)।",
   "app.install": "इंस्टॉल करें",
+  "app.installHint": "ब्राउज़र का मेन्यू खोलें और «ऐप इंस्टॉल करें» या «होम स्क्रीन पर जोड़ें» चुनें",
   "app.footer.discussions": "Discussions",
   "app.footer.license": "लाइसेंस",
   "app.footer.support": "परियोजना का समर्थन करें",

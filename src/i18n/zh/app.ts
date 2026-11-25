@@ -75,6 +75,7 @@ export const appMessages = {
   "about.agent.openclaw": "OpenClaw 网关可以提供 OpenAI 兼容的聊天 API。用 gateway.http.endpoints.chatCompletions.enabled 打开它。在连接里选择 OpenAI 兼容，使用下面的基础 URL，把网关令牌或密码填进密钥，模型填 openclaw/default。网关只放在本机或私网：这个端点等于操作者权限。",
   "about.agent.hermes": "Hermes 提供 OpenAI 兼容的 API。设置 API_SERVER_ENABLED、API_SERVER_KEY，并把 API_SERVER_CORS_ORIGINS 设为本页来源，然后运行 hermes gateway。在连接里选择 OpenAI 兼容，使用下面的基础 URL，密钥填 API_SERVER_KEY，模型填 hermes-agent（或你设置的名字）。",
   "app.install": "安装",
+  "app.installHint": "打开浏览器菜单，选择“安装应用”或“添加到主屏幕”",
   "app.footer.discussions": "Discussions",
   "app.footer.license": "许可证",
   "app.footer.support": "支持项目",

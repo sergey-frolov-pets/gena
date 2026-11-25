@@ -75,6 +75,7 @@ export const appMessages = {
   "about.agent.openclaw": "Das OpenClaw-Gateway kann eine OpenAI-kompatible Chat-API bereitstellen. Schalten Sie gateway.http.endpoints.chatCompletions.enabled ein. Unter Verbindungen OpenAI-kompatibel wählen, die Basis-URL unten nutzen, Gateway-Token oder Passwort als Schlüssel und das Modell openclaw/default. Das Gateway nur auf Loopback oder im privaten Netz lassen: der Endpunkt ist Operatorzugriff.",
   "about.agent.hermes": "Hermes startet einen OpenAI-kompatiblen API-Server. Setzen Sie API_SERVER_ENABLED, API_SERVER_KEY und API_SERVER_CORS_ORIGINS auf den Ursprung dieser Seite, dann hermes gateway. Unter Verbindungen OpenAI-kompatibel, die Basis-URL unten, API_SERVER_KEY als Schlüssel und das Modell hermes-agent (oder den Namen, den Sie gesetzt haben).",
   "app.install": "Installieren",
+  "app.installHint": "Öffnen Sie das Browsermenü und wählen Sie „App installieren“ oder „Zum Startbildschirm hinzufügen“",
   "app.footer.discussions": "Discussions",
   "app.footer.license": "Lizenz",
   "app.footer.support": "Projekt unterstützen",

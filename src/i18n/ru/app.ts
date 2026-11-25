@@ -75,6 +75,7 @@ export const appMessages = {
   "about.agent.openclaw": "Шлюз OpenClaw умеет OpenAI-совместимый chat API. Включите его: gateway.http.endpoints.chatCompletions.enabled. В «Подключениях» выберите OpenAI-совместимый, возьмите базовый URL ниже, в ключ вставьте токен или пароль шлюза, модель — openclaw/default. Держите шлюз на localhost или в частной сети: этот адрес даёт доступ оператора.",
   "about.agent.hermes": "Hermes поднимает OpenAI-совместимый API. Задайте API_SERVER_ENABLED, API_SERVER_KEY и API_SERVER_CORS_ORIGINS равным источнику этой страницы, затем запустите hermes gateway. В «Подключениях» выберите OpenAI-совместимый, возьмите базовый URL ниже, в ключ вставьте API_SERVER_KEY, модель — hermes-agent (или имя, которое вы задали).",
   "app.install": "Установить",
+  "app.installHint": "Откройте меню браузера и выберите «Установить приложение» или «Добавить на главный экран»",
   "app.footer.discussions": "Discussions",
   "app.footer.license": "Лицензия",
   "app.footer.support": "Поддержать проект",
