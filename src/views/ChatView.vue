@@ -4904,6 +4904,7 @@ function onRateChange(event: Event): void {
           role="toolbar"
           :aria-label="t('chat.tokens.bar')"
         >
+          <span class="chat-panel__tokenbar-title">{{ t("chat.tokenMode") }}</span>
           <button
             type="button"
             class="chat-panel__token-btn is-icon"
@@ -6540,6 +6541,18 @@ function onRateChange(event: Event): void {
   inset-inline-start: 0;
   width: max-content;
   max-width: 100%;
+  pointer-events: none;
+}
+
+/* Подпись режима: видно, что диалог защищённый, ещё до нажатия кнопок. */
+.chat-panel__tokenbar-title {
+  flex: 0 0 auto;
+  padding: 0 4px 0 2px;
+  font-size: 0.75rem;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  color: var(--tokens-accent);
   pointer-events: none;
 }
 
