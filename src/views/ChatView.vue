@@ -4764,13 +4764,7 @@ function onRateChange(event: Event): void {
           {{ t("chat.retry") }}
         </button>
       </p>
-      <p v-if="notice" class="chat-panel__notice" role="status">{{ notice }}</p>
-      <p
-        v-if="notice && isTokenSession(activeSession)"
-        class="chat-panel__notice chat-panel__notice--over-tokens"
-        role="status"
-        aria-hidden="true"
-      >{{ notice }}</p>
+      <p v-if="notice && !isTokenSession(activeSession)" class="chat-panel__notice" role="status">{{ notice }}</p>
 
       <SessionQueue
         :items="sessionQueue"
@@ -4911,7 +4905,7 @@ function onRateChange(event: Event): void {
           role="toolbar"
           :aria-label="t('chat.tokens.bar')"
         >
-          <span class="chat-panel__tokenbar-title">{{ t("chat.tokenMode") }}</span>
+          <p v-if="notice" class="chat-panel__notice chat-panel__notice--over-tokens" role="status">{{ notice }}</p>
           <div class="chat-panel__tokenbar-actions">
           <button
             type="button"
@@ -6167,13 +6161,9 @@ function onRateChange(event: Event): void {
 /* В режиме токенов тот же зелёный текст всплывает над кнопками токенов
    (док прозрачный, поэтому копия видна на ленте) и исчезает вместе с notice. */
 .chat-panel__notice--over-tokens {
-  position: absolute;
-  z-index: 7;
-  bottom: calc(100% + 6px);
-  inset-inline-start: 0;
+  margin: 0;
   padding: 0 2px;
   white-space: nowrap;
-  pointer-events: none;
 }
 
 .chat-panel__link {
@@ -6564,17 +6554,6 @@ function onRateChange(event: Event): void {
 }
 
 /* Подпись режима: видно, что диалог защищённый, ещё до нажатия кнопок. */
-.chat-panel__tokenbar-title {
-  flex: 0 0 auto;
-  padding: 0 2px;
-  font-size: 0.75rem;
-  line-height: 1;
-  letter-spacing: 0.01em;
-  white-space: nowrap;
-  color: var(--tokens-accent);
-  pointer-events: none;
-}
-
 /* Строка кнопок под подписью. */
 .chat-panel__tokenbar-actions {
   display: flex;
