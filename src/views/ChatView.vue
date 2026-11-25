@@ -2806,6 +2806,7 @@ async function listenTurn(
   history: Message[],
   windowMs: number,
   since?: number,
+  passive = false,
 ): Promise<ListenOutcome> {
   const key = await getAgentKey(agent);
   const controller = new AbortController();
@@ -2854,7 +2855,9 @@ async function listenTurn(
           if (shown()) showNotice(text);
         },
         onLinkState: (state) => {
-          if (!shown()) return;
+          // Догон после перезагрузки — не тот случай, когда нужна плашка:
+          // «Связь восстановлена» здесь всплывала бы второй раз поверх хода.
+          if (!shown() || passive) return;
           if (state === "restored") {
             showNotice(t("chat.link.restored"), 4_000);
           } else {
@@ -2933,7 +2936,7 @@ async function resumePending(sessionId: string): Promise<void> {
   const deadline = Date.now() + RESUME_LISTEN_MAX_MS;
   try {
     while (!answered && Date.now() < deadline) {
-      const outcome = await listenTurn(session, agent, history, RESUME_LISTEN_MS, pending.at);
+      const outcome = await listenTurn(session, agent, history, RESUME_LISTEN_MS, pending.at, true);
       if (outcome === "answered") {
         answered = true;
         break;
