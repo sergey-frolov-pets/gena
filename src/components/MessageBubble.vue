@@ -61,6 +61,8 @@ const emit = defineEmits<{
   regenerate: [];
   /** Открыть вложение (лайтбокс или документ). */
   openAttachment: [attachment: MessageAttachment];
+  /** Скачать документ из ленты. */
+  openFile: [attachment: MessageAttachment];
   /** Клик по кнопкам внутри markdown (код, таблицы). */
   markdownClick: [event: MouseEvent];
   /** Клик по пузырю: свою реплику забираем в поле ввода. */
@@ -124,11 +126,14 @@ const canExport = computed(
       </button>
     </div>
     <div v-if="files.length" class="chat-panel__file-row">
-      <span
+      <button
         v-for="(a, i) in files"
         :key="`file-${i}`"
+        type="button"
         class="chat-panel__file-badge"
         :title="a.name"
+        :aria-label="a.name"
+        @click="emit('openFile', a)"
       >
         <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
@@ -136,7 +141,7 @@ const canExport = computed(
         </svg>
         <span class="chat-panel__file-name">{{ a.name }}</span>
         <span v-if="a.bytes" class="chat-panel__file-size">{{ formatBytes(a.bytes) }}</span>
-      </span>
+      </button>
     </div>
     <div class="chat-panel__message-actions">
       <button
@@ -357,7 +362,15 @@ const canExport = computed(
   border-radius: 999px;
   background: var(--panel-2);
   color: var(--muted);
+  font: inherit;
   font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.chat-panel__file-badge:hover,
+.chat-panel__file-badge:focus-visible {
+  border-color: var(--accent);
+  color: var(--text);
 }
 
 .chat-panel__file-name {

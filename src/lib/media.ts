@@ -1,5 +1,5 @@
 /**
- * Приём изображений от агента Pico.
+ * Приём вложений от агента Pico.
  *
  * Сервер отдаёт вложения как `message.create.payload.attachments:
  * [{ type, url, filename, content_type }]`, где `url` — относительный путь
@@ -9,6 +9,9 @@
  *
  * В историю кладём только миниатюру и `refUrl` — во время следующей сессии
  * полный размер при необходимости догружается заново.
+ *
+ * Документы (`type: "file"`) не скачиваются заранее: в истории остаётся имя,
+ * размер и `refUrl`, а байты тянутся авторизованным `fetch` по клику.
  */
 
 import type { MessageAttachment } from "@/storage/types";
@@ -19,22 +22,34 @@ export interface IncomingAttachment {
   url: string;
   filename?: string;
   contentType?: string;
+  /** `image` или `file` — как объявил сервер. */
+  kind: "image" | "file";
+  /** Размер в байтах, если сервер прислал. */
+  bytes?: number;
 }
 
-/** Разобрать `payload.attachments`; не-изображения и мусор отбрасываются. */
+/** Разобрать `payload.attachments`; мусор без url отбрасывается. */
 export function parseIncomingAttachments(raw: unknown): IncomingAttachment[] {
   if (!Array.isArray(raw)) return [];
   const result: IncomingAttachment[] = [];
   for (const item of raw) {
     if (!item || typeof item !== "object") continue;
     const obj = item as Record<string, unknown>;
-    if (obj.type !== "image") continue;
     const url = typeof obj.url === "string" ? obj.url.trim() : "";
     if (!url) continue;
+    const contentType = typeof obj.content_type === "string" ? obj.content_type : undefined;
+    const type = typeof obj.type === "string" ? obj.type.trim().toLowerCase() : "";
+    // Сервер помечает картинки `image`, всё остальное — `file`/`audio`/`video`.
+    // Аудио и видео пока не показываем, но и не ломаемся: считаем их файлами.
+    const kind: "image" | "file" =
+      type === "image" || (!type && Boolean(contentType?.startsWith("image/"))) ? "image" : "file";
+    const bytes = typeof obj.bytes === "number" && obj.bytes >= 0 ? obj.bytes : undefined;
     result.push({
       url,
       filename: typeof obj.filename === "string" ? obj.filename : undefined,
-      contentType: typeof obj.content_type === "string" ? obj.content_type : undefined,
+      contentType,
+      kind,
+      bytes,
     });
   }
   return result;
@@ -103,4 +118,50 @@ export async function attachmentFromBlobUrl(
 ): Promise<MessageAttachment> {
   const { thumb, width, height } = await makeThumb(blobUrl);
   return { kind: "image", thumb, width, height, refUrl };
+}
+
+/** Входящий документ → запись истории без загрузки байтов. */
+export function fileAttachmentFromIncoming(item: IncomingAttachment): MessageAttachment {
+  return {
+    kind: "file",
+    name: item.filename?.trim() || "file",
+    bytes: item.bytes,
+    refUrl: item.url,
+  };
+}
+
+/**
+ * Скачать документ с авторизацией и отдать браузеру как файл.
+ *
+ * В истории лежит только `refUrl`, поэтому байты тянутся в момент клика:
+ * ответ → blob → временная ссылка → `a.download`.
+ */
+export async function downloadMediaFile(
+  address: string,
+  apiKey: string,
+  path: string,
+  filename: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<void> {
+  const absolute = absoluteMediaUrl(address, path);
+  const response = await fetchImpl(absolute, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+  if (!response.ok) {
+    throw new Error(`media request failed: ${response.status}`);
+  }
+  const blob = await response.blob();
+  const blobUrl = URL.createObjectURL(blob);
+  try {
+    const link = document.createElement("a");
+    link.href = blobUrl;
+    link.download = filename || "file";
+    link.rel = "noopener";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  } finally {
+    // Дать браузеру время начать загрузку, затем освободить память.
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000);
+  }
 }

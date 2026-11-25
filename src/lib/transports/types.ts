@@ -42,11 +42,15 @@ export interface CancelResult {
   reason?: string;
 }
 
-/** Вложение, пришедшее от агента (Pico: только изображения, путь на сервере). */
+/** Вложение, пришедшее от агента (Pico: изображения и документы, путь на сервере). */
 export interface TransportAttachment {
   url: string;
   filename?: string;
   contentType?: string;
+  /** `image` или `file` — как объявил сервер; без поля считаем изображением. */
+  kind?: "image" | "file";
+  /** Размер в байтах, если сервер прислал. */
+  bytes?: number;
 }
 
 /** Итог хода: текст ответа и вложения финального сообщения. */

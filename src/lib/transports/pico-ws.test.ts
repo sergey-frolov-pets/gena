@@ -185,7 +185,7 @@ describe("pico-ws transport", () => {
     await expect(p).resolves.toMatchObject({ reply: "ответ" });
   });
 
-  it("вложения финального сообщения → attachments в ответе (только изображения)", async () => {
+  it("вложения финального сообщения → attachments в ответе (картинки и файлы)", async () => {
     const { p, ws } = await connect();
 
     ws.frame({
@@ -203,7 +203,10 @@ describe("pico-ws transport", () => {
 
     await expect(p).resolves.toEqual({
       reply: "вот фото",
-      attachments: [{ url: "/pico/media/r1", filename: undefined, contentType: "image/jpeg" }],
+      attachments: [
+        { url: "/pico/media/r1", filename: undefined, contentType: "image/jpeg", kind: "image" },
+        { url: "/pico/media/r2", filename: "doc.pdf", contentType: undefined, kind: "file" },
+      ],
       serverId: "m3",
     });
   });

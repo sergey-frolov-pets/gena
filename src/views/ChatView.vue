@@ -84,7 +84,13 @@ import {
 } from "@/lib/documents";
 import type { Agent, Message, MessageAttachment, Session } from "@/storage/types";
 import { ImageError, prepareImage, type PreparedImage } from "@/lib/images";
-import { attachmentFromBlobUrl, fetchMediaBlob, getCachedMedia } from "@/lib/media";
+import {
+  attachmentFromBlobUrl,
+  downloadMediaFile,
+  fetchMediaBlob,
+  fileAttachmentFromIncoming,
+  getCachedMedia,
+} from "@/lib/media";
 import {
   collectTrailingThoughts,
   collectTurnThoughts,
@@ -3919,6 +3925,13 @@ async function collectIncoming(
   if (list.length === 0) return [];
   const result: MessageAttachment[] = [];
   for (const item of list) {
+    // Сервер может не прислать `kind` (старые версии) — тогда это изображение.
+    const kind = item.kind ?? "image";
+    if (kind === "file") {
+      // Документ: байты не тянем, в истории остаются имя, размер и путь.
+      result.push(fileAttachmentFromIncoming({ ...item, kind }));
+      continue;
+    }
     try {
       const blobUrl = await fetchMediaBlob(agent.address, key, item.url);
       result.push(await attachmentFromBlobUrl(blobUrl, item.url));
@@ -4682,6 +4695,18 @@ async function openAttachment(attachment: MessageAttachment): Promise<void> {
   lightbox.value = attachment.thumb ?? "";
 }
 
+/** Скачать документ из ленты: байты тянутся авторизованным fetch по клику. */
+async function downloadAttachment(attachment: MessageAttachment): Promise<void> {
+  const agent = activeAgent.value;
+  if (!attachment.refUrl || !agent?.address) return;
+  try {
+    const key = await getAgentKey(agent);
+    await downloadMediaFile(agent.address, key, attachment.refUrl, attachment.name ?? "file");
+  } catch {
+    attachError.value = t("chat.attachIncomingError");
+  }
+}
+
 function onLightboxKey(event: KeyboardEvent): void {
   if (event.key === "Escape") lightbox.value = "";
 }
@@ -5109,6 +5134,7 @@ function onRateChange(event: Event): void {
             :edit-texts="(entry.message.edits ?? []).map((text) => displayContent(text))"
             :images="imagesOf(entry.message)"
             :files="filesOf(entry.message)"
+            @openFile="downloadAttachment"
             :role-name="roleLabel(entry.message)"
             :clock="messageClock(entry.message)"
             :elapsed="messageElapsed(entry.index)"
