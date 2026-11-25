@@ -499,6 +499,8 @@ function describeTokenError(code: string): string {
 
 /** Первая отправка в токеновом диалоге ждёт подтверждения. */
 const pendingTokenSend = ref(false);
+/** Подтверждение, данное на экране нового диалога: переносим в запись при создании. */
+let pendingTokenSendAck = false;
 /** Выделенный фрагмент поля ввода — плашка живёт под полем, не у выделения. */
 const selectionRange = ref<{ start: number; end: number; text: string } | null>(null);
 /** Имя нового токена, когда выделенного фрагмента ещё нет в справочнике. */
@@ -569,6 +571,28 @@ const nameSuggestions = computed(() => {
     result.push(name);
   }
   return result;
+});
+
+/**
+ * Подсказки двумя группами, как было раньше: сначала записи справочника
+ * (сплошная рамка), потом имена, которые уже встречаются в этом диалоге
+ * (пунктир). Имя, попавшее в обе группы, показываем только в справочнике.
+ */
+const nameSuggestionGroups = computed(() => {
+  const dictionary: string[] = [];
+  const known = new Set<string>();
+  for (const name of nameSuggestions.value) {
+    known.add(name.toLocaleLowerCase());
+    dictionary.push(name);
+  }
+  const dialog: string[] = [];
+  for (const name of dialogTokenNames.value) {
+    const key = name.toLocaleLowerCase();
+    if (!name || known.has(key)) continue;
+    known.add(key);
+    dialog.push(name);
+  }
+  return { dictionary, dialog };
 });
 
 /** Имена, заданные только в этом диалоге: справочник их не знает. */
@@ -1064,6 +1088,8 @@ const occurrenceCurrent = computed(() => occurrenceList.value[occurrenceIndex.va
 const selectionBanner = computed(() => {
   if (!isTokenSession(activeSession.value)) return false;
   if (pendingTokenSend.value) return false;
+  // Новый диалог: пока не создан, плашке не к чему привязываться.
+  if (activeSessionId.value === null) return false;
   return Boolean(selectionRange.value) || occurrenceTotal.value > 0;
 });
 
@@ -1491,12 +1517,19 @@ async function createTokenFromFeed(): Promise<void> {
 async function confirmTokenSend(): Promise<void> {
   const id = activeSessionId.value;
   pendingTokenSend.value = false;
-  if (id) await ackTokenSend(id);
+  // Новый диалог ещё не создан: пометку «подтверждал» ставим внутри dispatch,
+  // сразу после создания записи, — иначе подтверждение терялось.
+  if (id) {
+    await ackTokenSend(id);
+  } else {
+    pendingTokenSendAck = true;
+  }
   await sendNow();
 }
 
 function cancelTokenSend(): void {
   pendingTokenSend.value = false;
+  pendingTokenSendAck = false;
 }
 
 /** Сколько вызовов сделано сегодня у выбранного агента. */
@@ -1683,7 +1716,15 @@ const emit = defineEmits<{ (e: "open-tokens"): void; (e: "open-about"): void }>(
 const composerEl = ref<HTMLTextAreaElement | null>(null);
 /** Сколько строк сейчас в поле: от этого зависит кнопка «Очистить» и высота. */
 const composerLines = ref(1);
-const composerMultiline = computed(() => composerLines.value > 1);
+/** Ширина поля в режиме «одна строка»: по ней считаем, сколько строк влезет. */
+const composerMeasureWidth = ref(0);
+/**
+ * Кнопки уходят в столбец, когда одной строки мало: в одну строку не влезает
+ * текст или поле растянули ручкой (решение Сергея, 25.11.2026).
+ */
+const composerMultiline = computed(
+  () => composerLines.value > 1 || composerManualHeight.value !== null,
+);
 /** Ручная высота поля ввода в пикселях; null — авторасчёт по строкам. */
 const composerManualHeight = ref<number | null>(null);
 /** Границы ручного растяжения: одна строка и примерно 14 строк. */
@@ -2635,6 +2676,7 @@ async function autoGrow(): Promise<void> {
   el.style.maxHeight = "";
   const lines = Math.max(1, Math.ceil(content / lineHeight - 0.1));
   composerLines.value = lines;
+  if (width > 0) composerMeasureWidth.value = width;
   // Человек растянул поле за ручку — его высота главнее авторасчёта по строкам.
   el.style.height = `${
     composerManualHeight.value ?? composerFieldHeight(lines, lineHeight, padding)
@@ -2660,12 +2702,18 @@ watch(displayValues, () => {
   void autoGrow();
 });
 
+// Раскладка кнопок сменилась (одна строка ⇄ столбец) — ширина поля другая,
+// переносы строк пересчитываем.
+watch(composerMultiline, () => void autoGrow());
+
 /** Выставить ручную высоту поля и запомнить её: авто-рост её не перебьёт. */
 function setComposerManualHeight(px: number): void {
   const value = Math.min(COMPOSER_MANUAL_MAX, Math.max(COMPOSER_MANUAL_MIN, px));
   composerManualHeight.value = Math.round(value);
   const el = composerEl.value;
   if (el) el.style.height = `${composerManualHeight.value}px`;
+  // Столбец кнопок меняет ширину поля — переносы строк надо пересчитать.
+  void autoGrow();
 }
 
 /**
@@ -3163,7 +3211,8 @@ async function send(): Promise<void> {
   const session = activeSession.value;
   // Первая отправка в токеновом диалоге — обязательное подтверждение.
   // Дальше диалог помнит, что агенту уходят только токены.
-  if (session && isTokenSession(session) && !session.tokenSendAck) {
+  // Новый диалог тоже: режим уже включён намерением, подтверждение спрашиваем до отправки.
+  if ((session ? isTokenSession(session) : isTokenSession(null)) && !session?.tokenSendAck) {
     pendingTokenSend.value = true;
     return;
   }
@@ -3244,6 +3293,11 @@ async function dispatch(
     session = await createSession(agent.id, title);
     // Намерение режима токенов переносим в запись до первой записи истории.
     await applyPendingTokenMode(session.id, agent);
+    // Подтверждение отправки, данное на экране нового диалога, тоже переносим.
+    if (pendingTokenSendAck) {
+      await ackTokenSend(session.id);
+      pendingTokenSendAck = false;
+    }
     // Экран «Нового диалога» остаётся тем же — просто открываем созданную запись.
     if (activeSessionId.value === null) {
       await loadMessages(session.id);
@@ -4177,6 +4231,9 @@ onMounted(() => {
       const el = composerEl.value;
       if (!el || el.clientWidth === composerWidth) return;
       composerWidth = el.clientWidth;
+      // Поле расширилось из-за столбца кнопок — это следствие раскладки,
+      // а не повод считать строки заново (иначе кнопки мигают 1↔2).
+      if (el.clientWidth !== composerMeasureWidth.value) return;
       void autoGrow();
     });
     composerObserver.observe(composerEl.value);
@@ -4677,6 +4734,7 @@ function onRateChange(event: Event): void {
             type="text"
             :placeholder="t('chat.tokens.dialogName')"
             :aria-label="t('chat.tokens.dialogName')"
+            @keydown.enter.prevent="applyFeedDialogName()"
           />
           <template v-if="feedAlreadyToken">
             <span class="chat-panel__selection-hint">
@@ -4714,6 +4772,7 @@ function onRateChange(event: Event): void {
             type="text"
             :placeholder="t('tokens.name')"
             :aria-label="t('tokens.name')"
+            @keydown.enter.prevent="createTokenFromFeed()"
           />
           <button
             type="button"
@@ -4727,12 +4786,24 @@ function onRateChange(event: Event): void {
               <path d="M12 5v14M5 12h14" />
             </svg>
           </button>
-          <span v-if="nameSuggestions.length > 0" class="chat-panel__selection-suggest">
+          <span
+            v-if="nameSuggestions.length > 0"
+            class="chat-panel__selection-suggest"
+          >
             <button
-              v-for="name in nameSuggestions"
-              :key="name"
+              v-for="name in nameSuggestionGroups.dictionary"
+              :key="`dict-${name}`"
               type="button"
               class="chat-panel__selection-sug"
+              @click="feedName = name"
+            >
+              ⟦{{ name }}⟧
+            </button>
+            <button
+              v-for="name in nameSuggestionGroups.dialog"
+              :key="`dialog-${name}`"
+              type="button"
+              class="chat-panel__selection-sug is-dialog"
               @click="feedName = name"
             >
               ⟦{{ name }}⟧
@@ -5220,6 +5291,7 @@ function onRateChange(event: Event): void {
               type="text"
               :placeholder="t('chat.tokens.dialogName')"
               :aria-label="t('chat.tokens.dialogName')"
+              @keydown.enter.prevent="applySelectionDialogName()"
             />
             <span v-if="occurrenceTotal > 1" class="chat-panel__selection-nav">
               <button
@@ -5280,6 +5352,7 @@ function onRateChange(event: Event): void {
               type="text"
               :placeholder="t('tokens.name')"
               :aria-label="t('tokens.name')"
+              @keydown.enter.prevent="createTokenFromSelection()"
             />
             <button
               type="button"
@@ -5293,12 +5366,24 @@ function onRateChange(event: Event): void {
                 <path d="M12 5v14M5 12h14" />
               </svg>
             </button>
-            <span v-if="nameSuggestions.length > 0" class="chat-panel__selection-suggest">
+            <span
+              v-if="nameSuggestions.length > 0"
+              class="chat-panel__selection-suggest"
+            >
               <button
-                v-for="name in nameSuggestions"
-                :key="name"
+                v-for="name in nameSuggestionGroups.dictionary"
+                :key="`dict-${name}`"
                 type="button"
                 class="chat-panel__selection-sug"
+                @click="selectionName = name"
+              >
+                ⟦{{ name }}⟧
+              </button>
+              <button
+                v-for="name in nameSuggestionGroups.dialog"
+                :key="`dialog-${name}`"
+                type="button"
+                class="chat-panel__selection-sug is-dialog"
                 @click="selectionName = name"
               >
                 ⟦{{ name }}⟧
@@ -5871,18 +5956,18 @@ function onRateChange(event: Event): void {
   gap: 3px;
 }
 
-/* Две и более строк текста — кнопки в два столбца справа:
-   «очистить» по центру над отправкой, микрофон и молния вплотную к ней. */
-.chat-panel__composer-box.is-multiline .chat-panel__composer-stack {
-  flex-direction: column;
-  justify-content: center;
-  gap: 2px;
+/* Две и более строк текста — все правые кнопки уходят в один столбец
+   у правого края поля: сверху «свернуть» и «очистить», ниже микрофон
+   с молнией, внизу отправка. Слева поле остаётся как было. */
+.chat-panel__composer-box.is-multiline {
+  align-items: stretch;
 }
 
+.chat-panel__composer-box.is-multiline .chat-panel__composer-stack,
 .chat-panel__composer-box.is-multiline .chat-panel__composer-stack--send {
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-end;
   gap: 2px;
 }
 
@@ -5906,6 +5991,18 @@ function onRateChange(event: Event): void {
 .chat-panel__composer-box.is-multiline .chat-panel__send.is-stop {
   width: 26px;
   height: 26px;
+}
+
+/* Столбец правых кнопок не «прыгает» по высоте: он всегда прижат к низу поля. */
+.chat-panel__composer-box.is-multiline .chat-panel__collapse {
+  width: 22px;
+  height: 22px;
+  border-radius: 8px;
+}
+
+.chat-panel__composer-box.is-multiline .chat-panel__collapse svg {
+  width: 14px;
+  height: 14px;
 }
 
 .chat-panel__composer-stack .chat-panel__icon-btn {
@@ -6928,6 +7025,14 @@ function onRateChange(event: Event): void {
 .chat-panel__selection-sug.is-used {
   border-style: solid;
   background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* Имена, которые уже встречаются в этом диалоге, но не в справочнике:
+   второй группой, тем же размером, но пунктиром и без заливки. */
+.chat-panel__selection-sug.is-dialog {
+  border-style: dotted;
+  background: transparent;
+  color: var(--muted);
 }
 
 .chat-panel__selection-text {
