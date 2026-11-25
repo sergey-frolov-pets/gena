@@ -35,6 +35,10 @@ export interface TokenEntry {
   note?: string;
   variants?: string[];
   caseSensitive?: boolean;
+  /** Сессия, где токен создан. Значение живёт в ней, если токен не общий. */
+  sessionId?: string;
+  /** Общий токен: значение подсвечивается в любом диалоге. */
+  shared?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -70,9 +74,41 @@ function toEntry(record: TokenRecord, value: string): TokenEntry {
     ...(record.note ? { note: record.note } : {}),
     ...(record.variants && record.variants.length > 0 ? { variants: record.variants } : {}),
     ...(record.caseSensitive ? { caseSensitive: true } : {}),
+    ...(record.sessionId ? { sessionId: record.sessionId } : {}),
+    ...(record.shared === true ? { shared: true } : record.shared === false ? { shared: false } : {}),
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
+}
+
+/**
+ * Значение этой записи видно в диалоге.
+ *
+ * Общий токен — в любом. Токен с сессией — только в ней. Старая запись без
+ * сессии и без явного «не общий» остаётся общей, как справочник раньше.
+ */
+export function tokenInSession(
+  entry: { sessionId?: string; shared?: boolean },
+  sessionId: string | null | undefined,
+): boolean {
+  if (entry.shared === true) return true;
+  if (entry.sessionId) return entry.sessionId === sessionId;
+  return entry.shared !== false;
+}
+
+/** Запись помечена общей (или это старый справочник без сессии). */
+export function tokenIsCommon(entry: { sessionId?: string; shared?: boolean }): boolean {
+  if (entry.shared === true) return true;
+  if (entry.sessionId) return false;
+  return entry.shared !== false;
+}
+
+/** Записи, чьи значения можно показывать и подсвечивать в этом диалоге. */
+export function entriesForSession(
+  sessionId: string | null | undefined,
+  entries: readonly TokenEntry[] = tokenEntries.value,
+): TokenEntry[] {
+  return entries.filter((entry) => tokenInSession(entry, sessionId));
 }
 
 /** Прочитать справочник из базы и расшифровать значения. */
@@ -101,6 +137,10 @@ export interface TokenInput {
   variants?: string[];
   /** Учитывать регистр при поиске значения (по умолчанию нет). */
   caseSensitive?: boolean;
+  /** Сессия-владелец. Пусто — токен не привязан к диалогу. */
+  sessionId?: string;
+  /** Общий токен подсвечивается в любом диалоге. */
+  shared?: boolean;
 }
 
 function normalizeVariants(input: string[] | undefined): string[] {
@@ -113,6 +153,18 @@ function normalizeVariants(input: string[] | undefined): string[] {
     result.push(value);
   }
   return result;
+}
+
+function sessionFields(
+  input: TokenInput,
+  existing: TokenEntry | undefined,
+): { sessionId?: string; shared?: boolean } {
+  const sessionId = input.sessionId !== undefined ? input.sessionId : existing?.sessionId;
+  const shared = input.shared !== undefined ? input.shared : existing?.shared;
+  return {
+    ...(sessionId ? { sessionId } : {}),
+    ...(shared === true ? { shared: true } : shared === false ? { shared: false } : {}),
+  };
 }
 
 function validate(input: TokenInput): { name: string; nameKey: string; value: string } {
@@ -158,6 +210,7 @@ export async function saveToken(input: TokenInput): Promise<TokenEntry> {
     ...(note ? { note } : {}),
     ...(variants.length > 0 ? { variants } : {}),
     ...(input.caseSensitive ? { caseSensitive: true } : {}),
+    ...sessionFields(input, existing),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };
@@ -199,8 +252,9 @@ export function restoreValues(text: string): string {
 export function replaceValues(
   text: string,
   onHit?: (hit: { name: string; form: string }) => void,
+  entries?: readonly TokenEntry[],
 ): SubstitutionResult {
-  return valuesToTokens(text, withDeclensions(tokenEntries.value), onHit);
+  return valuesToTokens(text, withDeclensions(entries ?? tokenEntries.value), onHit);
 }
 
 export interface ImportSummary {

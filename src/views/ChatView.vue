@@ -37,7 +37,7 @@ import { shouldOpenLastSession } from "@/lib/session-open";
 import { collectTags } from "@/lib/session-tags";
 import { composerFieldHeight, isSendKey } from "@/lib/composer";
 import { measureCaret, placeBubble } from "@/lib/tokens/caret-point";
-import { describeFieldPick, replaceFieldPick, type FieldPick } from "@/lib/tokens/field-pick";
+import { describeFieldPick, replaceFieldPick, tokenAtCaret, type FieldPick } from "@/lib/tokens/field-pick";
 import AppFooter from "@/components/AppFooter.vue";
 import TokenSheet from "@/components/TokenSheet.vue";
 import SessionTabs from "@/components/SessionTabs.vue";
@@ -119,18 +119,19 @@ import {
 } from "@/turn/draft";
 import { idleTurn, stepTurn } from "@/turn/machine";
 import {
+  entriesForSession,
   loadTokens,
   replaceValues,
   saveToken,
   tokenEntries,
   tokenEntryByName,
-  tokenLookup,
+  tokenInSession,
   tokensLoaded,
   TokenError,
   type TokenEntry,
 } from "@/lib/tokens/registry";
 import { formatToken, isValidTokenName, parseTokens, tokenNameKey } from "@/lib/tokens/format";
-import { aliasByName, canRenameInDialog, upsertAlias } from "@/lib/tokens/dialog-alias";
+import { aliasByName, upsertAlias } from "@/lib/tokens/dialog-alias";
 import { findSelectionEntry, replaceRange } from "@/lib/tokens/selection";
 import { loadNameBases, suggestBaseNames } from "@/lib/tokens/name-bases";
 import { replaceSelectionWithToken, replaceTokenWithValue } from "@/lib/tokens/message-replace";
@@ -260,7 +261,10 @@ async function ensureTokens(): Promise<void> {
 
 /** Текст для истории: в режиме токенов значения записываются токенами. */
 function storedContent(text: string, session?: Session | null): string {
-  return isTokenSession(session) ? forAgent(text) : text;
+  if (!isTokenSession(session)) return text;
+  // В историю диалога попадают только его токены и общие. Чужое значение
+  // остаётся текстом: агенту его всё равно закроет forAgent при отправке.
+  return replaceValues(text, undefined, entriesForSession(session?.id ?? null)).text;
 }
 
 /**
@@ -444,7 +448,7 @@ function insertTokenName(name: string): void {
   });
 }
 
-/** Ввод в поле: обновляем подсказку токенов (⟦…). Справочник работает в любом диалоге. */
+/** Ввод в поле: в токены превращаются только значения этого диалога и общие. */
 function onComposerInput(event: Event): void {
   const el = event.target as HTMLTextAreaElement | null;
   const typed = composerField.value || el?.value || "";
@@ -454,7 +458,12 @@ function onComposerInput(event: Event): void {
   // показало значениями, запоминаем: переключение на токены и обратно не должно
   // «переодевать» набранное в канон справочника.
   const typedHits: Array<{ name: string; form: string }> = [];
-  const nextDraft = draftText(typed, displayValues.value, (hit) => typedHits.push(hit));
+  const nextDraft = draftText(
+    typed,
+    displayValues.value,
+    (hit) => typedHits.push(hit),
+    sessionEntries.value,
+  );
   if (typedHits.length > 0) applyForms(tokenForms, nextDraft, typedHits);
   if (nextDraft !== draft.value) {
     draftFromField = true;
@@ -512,6 +521,26 @@ const selectionRange = ref<{ start: number; end: number; text: string } | null>(
 const selectionName = ref("");
 /** Новый токен: искать значение с учётом регистра. Свойство записи, по умолчанию выкл. */
 const selectionCaseSensitive = ref(false);
+/** Новый токен общий: его значение подсвечивается и в других диалогах. */
+const selectionShared = ref(false);
+/**
+ * Токены, созданные на ещё не сохранённом диалоге. После первой отправки
+ * привязываются к новой сессии и больше не светятся в чужих.
+ */
+const pendingSessionTokenIds = ref<string[]>([]);
+
+/** Привязка нового токена: к открытому диалогу либо пометка «общий». */
+function scopeForNewToken(shared: boolean): { sessionId?: string; shared: boolean } {
+  const sessionId = activeSessionId.value ?? undefined;
+  return sessionId ? { sessionId, shared } : { shared };
+}
+
+/** Токен с пустого диалога держим, пока диалог не сохранится. */
+function noteSessionToken(entry: TokenEntry): void {
+  if (entry.shared || entry.sessionId || activeSessionId.value) return;
+  if (pendingSessionTokenIds.value.includes(entry.id)) return;
+  pendingSessionTokenIds.value = [...pendingSessionTokenIds.value, entry.id];
+}
 /** Фрагмент, для которого имя уже предложено: повторные события `select`
  *  не должны затирать то, что человек успел ввести. */
 const selectionSource = ref("");
@@ -537,6 +566,7 @@ function clearSelection(): void {
   selectionRange.value = null;
   selectionName.value = "";
   selectionCaseSensitive.value = false;
+  selectionShared.value = false;
   selectionSource.value = "";
   selectionConfirm.value = null;
 }
@@ -621,11 +651,27 @@ const dialogAliases = computed(() => {
   return session?.tokenAliases ?? pendingAliases.value;
 });
 
+/**
+ * Значения, которые этот диалог имеет право показывать и подсвечивать:
+ * свои токены, общие и токены ещё не сохранённого диалога.
+ */
+const sessionEntries = computed(() => {
+  const sessionId = activeSessionId.value;
+  const pending = new Set(pendingSessionTokenIds.value);
+  return tokenEntries.value.filter((entry) => {
+    if (tokenInSession(entry, sessionId)) return true;
+    return sessionId === null && pending.has(entry.id);
+  });
+});
+
 function dialogTokenLookup(name: string): string | undefined {
-  const direct = tokenLookup(name);
-  if (direct !== undefined) return direct;
+  const key = tokenNameKey(name);
+  const direct = sessionEntries.value.find((entry) => tokenNameKey(entry.name) === key);
+  if (direct) return direct.value;
   const alias = aliasByName(dialogAliases.value, name);
-  return alias ? tokenLookup(alias.source) : undefined;
+  if (!alias) return undefined;
+  const sourceKey = tokenNameKey(alias.source);
+  return sessionEntries.value.find((entry) => tokenNameKey(entry.name) === sourceKey)?.value;
 }
 
 /**
@@ -650,11 +696,6 @@ function dialogTokenLinks(): string[] {
     links.push(name);
   }
   return links;
-}
-
-/** Жёлтое значение можно назвать иначе, только если этого токена ещё нет в диалоге. */
-function offerCanRename(sourceName: string): boolean {
-  return canRenameInDialog(sourceName, dialogTokenNames.value);
 }
 
 async function saveDialogAlias(name: string, source: string): Promise<void> {
@@ -732,8 +773,22 @@ function onComposerSelect(): void {
     void pickComposerFragment();
     return;
   }
-  const from = draftOffsetForVisible(draft.value, startVisible, displayValues.value, formLookup(tokenForms));
-  const to = draftOffsetForVisible(draft.value, endVisible, displayValues.value, formLookup(tokenForms));
+  const forms = formLookup(tokenForms);
+  let from = draftOffsetForVisible(draft.value, startVisible, displayValues.value, forms, dialogTokenLookup);
+  let to = draftOffsetForVisible(draft.value, endVisible, displayValues.value, forms, dialogTokenLookup);
+  // Конец видимого токена в черновике на символ короче: так каретка не
+  // захватывает следующий знак. Выделение всего слова — это весь ⟦токен⟧.
+  if (displayValues.value && endVisible > startVisible) {
+    const token = tokenAtCaret(draft.value, Math.min(from, to));
+    if (token) {
+      const visStart = visibleOffsetForDraft(draft.value, token.start, true, forms, dialogTokenLookup);
+      const visEnd = visibleOffsetForDraft(draft.value, token.end, true, forms, dialogTokenLookup);
+      if (startVisible === visStart && endVisible === visEnd) {
+        from = token.start;
+        to = token.end;
+      }
+    }
+  }
   const lo = Math.min(from, to);
   const hi = Math.max(from, to);
   // Края из пробелов и перевода строки не входят в фрагмент: иначе выделение
@@ -748,13 +803,16 @@ function onComposerSelect(): void {
   let covered = describeFieldPick(draft.value, start, declinedEntries.value);
   if (!covered && start > 0) covered = describeFieldPick(draft.value, start - 1, declinedEntries.value);
   const coveredText = covered ? draft.value.slice(covered.start, covered.end).trim() : "";
-  if (covered && text === coveredText) {
+  // Жёлтое значение в одном месте — облачко с готовым токеном, без переименования.
+  // Токен и жёлтое в нескольких местах — плашка под полем.
+  if (covered && text === coveredText && !covered.tokenized && plainOccurrenceCount(text) <= 1) {
     fieldPick.value = covered;
     clearSelection();
+    finishOccurrences();
     return;
   }
-  // Выделение уже или шире подсветки — плашка добавления токена, облачко не нужно.
   fieldPick.value = null;
+  fieldPickAnchor.value = null;
   if (text.length < 2) {
     clearSelection();
     return;
@@ -769,6 +827,11 @@ function onComposerSelect(): void {
   }
   selectionSource.value = text;
   selectionConfirm.value = null;
+  // Выделен сам токен: панель добавления с переименованием, без серии замен.
+  if (known && text.trim() === formatToken(known.name)) {
+    finishOccurrences();
+    return;
+  }
 
   // Вхождения того же фрагмента: поле ввода и сообщения открытого диалога.
   // Только счёт — текущее вхождение не подсвечиваем, выделение сделал человек.
@@ -862,32 +925,6 @@ const chatPick = ref<{
   /** Красная подсветка: токен уже стоит. Жёлтая — только предложение заменить. */
   tokenized: boolean;
 } | null>(null);
-const chatAliasName = ref("");
-watch(chatPick, (pick) => {
-  chatAliasName.value = pick?.name ?? "";
-});
-const chatCanRename = computed(() => {
-  const pick = chatPick.value;
-  if (!pick) return false;
-  const message = messages.value.find((item) => item.id === pick.messageId);
-  const slice = message?.content.slice(pick.start, pick.end) ?? "";
-  if (!slice || slice.startsWith("⟦")) return false;
-  return offerCanRename(pick.name);
-});
-
-async function applyChatAlias(): Promise<void> {
-  const pick = chatPick.value;
-  if (!pick) return;
-  const name = await commitDialogName(chatAliasName.value || pick.name, pick.name);
-  if (!name) return;
-  const message = messages.value.find((item) => item.id === pick.messageId);
-  chatPick.value = null;
-  if (!message) return;
-  const next =
-    message.content.slice(0, pick.start) + formatToken(name) + message.content.slice(pick.end);
-  await editMessage(pick.messageId, next);
-}
-
 const chatSpellings = computed(() => spellingsOf(chatPick.value?.name ?? ""));
 
 function openChatMark(mark: HTMLElement, messageId: string, x?: number, y?: number): boolean {
@@ -999,6 +1036,8 @@ function onDocSelectionChange(): void {
 const feedSelection = ref<{ messageId: string; text: string } | null>(null);
 /** Имя нового токена для фрагмента из ленты. */
 const feedName = ref("");
+/** Новый токен из ленты — общий для всех диалогов. */
+const feedShared = ref(false);
 
 /** Запись справочника, совпадающая с выделением в ленте. */
 const feedMatch = computed(() => {
@@ -1015,9 +1054,19 @@ const feedAlreadyToken = computed(() => {
   return picked.text.trim() === formatToken(match.name);
 });
 
-const feedCanRename = computed(() => {
-  const match = feedMatch.value;
-  return Boolean(match) && !feedAlreadyToken.value && offerCanRename(match?.name ?? "");
+/**
+ * Плашка ленты.
+ *
+ * Жёлтое значение с одним вхождением закрывает облачко — панель «заменить»
+ * для него не нужна. Несколько вхождений — панель замены без переименования.
+ * Выделенный токен — панель добавления, в ней можно задать имя диалога.
+ */
+const feedPanel = computed(() => {
+  const picked = feedSelection.value;
+  if (!picked || !isTokenSession(activeSession.value)) return false;
+  if (feedAlreadyToken.value) return true;
+  if (!feedMatch.value) return true;
+  return plainOccurrenceCount(picked.text) > 1;
 });
 
 async function applyFeedDialogName(): Promise<void> {
@@ -1031,6 +1080,7 @@ async function applyFeedDialogName(): Promise<void> {
 function clearFeedSelection(): void {
   feedSelection.value = null;
   feedName.value = "";
+  feedShared.value = false;
 }
 
 /** Что выделено в ленте: текст и сообщение, внутри которого он лежит. */
@@ -1058,9 +1108,15 @@ function onFeedSelect(): void {
     return;
   }
   const mark = element?.closest?.(".md-token, .md-offer") as HTMLElement | null;
-  if (mark && openChatMark(mark, messageId)) {
-    clearFeedSelection();
-    return;
+  // Жёлтое одно значение — облачко с готовым токеном, без поля переименования.
+  // Токен и жёлтое с несколькими вхождениями идут в плашку под полем.
+  if (mark?.classList.contains("md-offer") && plainOccurrenceCount(text) <= 1) {
+    if (openChatMark(mark, messageId)) {
+      clearFeedSelection();
+      return;
+    }
+  } else if (mark) {
+    chatPick.value = null;
   }
   void ensureTokens();
   const changed =
@@ -1169,13 +1225,19 @@ let occurrencePicking = false;
 const occurrenceTotal = computed(() => occurrenceList.value.length);
 const occurrenceCurrent = computed(() => occurrenceList.value[occurrenceIndex.value] ?? null);
 
-/** Плашка под полем: выделение в поле или идущая серия замен. */
+/**
+ * Плашка под полем: новое слово, выделенный токен или серия замен.
+ *
+ * Одно известное жёлтое значение панель «заменить» не открывает — его
+ * закрывает облачко. Несколько вхождений — панель замены. Выделенный токен
+ * открывает панель добавления, там же его можно переименовать.
+ */
 const selectionBanner = computed(() => {
   if (!isTokenSession(activeSession.value)) return false;
   if (pendingTokenSend.value) return false;
-  // Новый диалог ещё без записи — токен из выделения всё равно можно завести:
-  // справочник общий, имя только этого диалога держим до первой отправки.
-  return Boolean(selectionRange.value) || occurrenceTotal.value > 0;
+  if (selectionAlreadyToken.value) return true;
+  if (selectionRange.value && !selectionMatch.value) return true;
+  return (Boolean(selectionMatch.value) || Boolean(occurrenceToken.value)) && occurrenceTotal.value > 1;
 });
 
 const bannerFragment = computed(() => selectionRange.value?.text ?? occurrenceNeedle.value);
@@ -1197,6 +1259,25 @@ const occurrenceBlockedHint = computed(() => {
   if (blocked.word > 0) parts.push(t("chat.tokens.blockedWord", { count: blocked.word }));
   return parts.join(" · ");
 });
+
+/** Сколько раз значение встречается в поле и в текстовых сообщениях диалога. */
+function plainOccurrenceCount(needle: string): number {
+  const clean = needle.trim();
+  if (clean.length < 2) return 0;
+  const options = { caseSensitive: false as const };
+  let count = 0;
+  for (const hit of findOccurrences(draft.value, clean, options)) {
+    if (!hit.blocked) count += 1;
+  }
+  if (!isTokenSession(activeSession.value)) return count;
+  for (const message of messages.value) {
+    if ((message.kind && message.kind !== "text") || !message.content) continue;
+    for (const hit of findOccurrences(message.content, clean, options)) {
+      if (!hit.blocked) count += 1;
+    }
+  }
+  return count;
+}
 
 /** Все вхождения значения: поле ввода и текстовые сообщения открытого диалога. */
 function collectOccurrences(needle: string): {
@@ -1242,8 +1323,8 @@ async function highlightOccurrence(): Promise<void> {
     occurrencePicking = true;
     area.focus();
     area.setSelectionRange(
-      visibleOffsetForDraft(draft.value, target.start, displayValues.value, formLookup(tokenForms)),
-      visibleOffsetForDraft(draft.value, target.end, displayValues.value, formLookup(tokenForms)),
+      visibleOffsetForDraft(draft.value, target.start, displayValues.value, formLookup(tokenForms), dialogTokenLookup),
+      visibleOffsetForDraft(draft.value, target.end, displayValues.value, formLookup(tokenForms), dialogTokenLookup),
     );
     window.setTimeout(() => {
       occurrencePicking = false;
@@ -1474,11 +1555,6 @@ function settleOccurrences(): void {
   if (occurrenceTotal.value === 0) finishOccurrences();
 }
 
-const selectionCanRename = computed(() => {
-  const match = selectionMatch.value;
-  return Boolean(match) && !selectionAlreadyToken.value && offerCanRename(match?.name ?? "");
-});
-
 /** Имя только для этого диалога: справочник остаётся со старым названием. */
 async function applySelectionDialogName(): Promise<void> {
   const match = selectionMatch.value;
@@ -1516,12 +1592,20 @@ async function createTokenFromSelection(): Promise<void> {
         variants,
         note: existing.note,
         caseSensitive: existing.caseSensitive,
+        sessionId: existing.sessionId,
+        shared: existing.shared,
       });
       // Выбрано конкретное написание — в поле должно встать оно, а не канон.
       await applySelectionToken(existing.name);
       settleOccurrences();
     } else {
-      await saveToken({ name, value: range.text, caseSensitive: selectionCaseSensitive.value });
+      const created = await saveToken({
+        name,
+        value: range.text,
+        caseSensitive: selectionCaseSensitive.value,
+        ...scopeForNewToken(selectionShared.value),
+      });
+      noteSessionToken(created);
       await applySelectionToken(name);
       settleOccurrences();
       notice.value = t("chat.tokens.created");
@@ -1554,7 +1638,9 @@ async function replaceSelectionInMessage(name?: string): Promise<void> {
   const replaced = replaceSelectionWithToken(shown, picked.text, entryName);
   clearFeedSelection();
   if (!replaced.replaced) return;
-  const nextStored = isTokenSession(session) ? replaceValues(replaced.text).text : replaced.text;
+  const nextStored = isTokenSession(session)
+    ? replaceValues(replaced.text, undefined, entriesForSession(session?.id ?? null)).text
+    : replaced.text;
   if (await editMessage(message.id, nextStored)) {
     notice.value = t("chat.tokens.replaced", { count: 1 });
   }
@@ -1605,10 +1691,17 @@ async function createTokenFromFeed(): Promise<void> {
         variants,
         note: existing.note,
         caseSensitive: existing.caseSensitive,
+        sessionId: existing.sessionId,
+        shared: existing.shared,
       });
       await replaceSelectionInMessage(existing.name);
     } else {
-      await saveToken({ name, value: picked.text });
+      const created = await saveToken({
+        name,
+        value: picked.text,
+        ...scopeForNewToken(feedShared.value),
+      });
+      noteSessionToken(created);
       await replaceSelectionInMessage(name);
       notice.value = t("chat.tokens.created");
     }
@@ -1676,7 +1769,7 @@ const displayValues = computed(() => isTokenSession(activeSession.value) && view
  * не видит, где кончается текст и начинается защищённое значение.
  */
 /** Записи с падежами: облачко и подсветка видят те же формы, что и отправка. */
-const declinedEntries = computed(() => withDeclensions(tokenEntries.value));
+const declinedEntries = computed(() => withDeclensions(sessionEntries.value));
 
 /**
  * Отказ от замены: эту написанную форму больше не подсвечиваем и не предлагаем,
@@ -1738,16 +1831,6 @@ function measureMarksGutter(): void {
  * стороной (токен или исходное значение) и крестиком справа от него.
  */
 const fieldPick = ref<FieldPick | null>(null);
-const fieldAliasName = ref("");
-const fieldCanRename = computed(
-  () =>
-    Boolean(fieldPick.value) &&
-    !fieldPick.value?.tokenized &&
-    offerCanRename(fieldPick.value?.name ?? ""),
-);
-watch(fieldPick, (pick) => {
-  fieldAliasName.value = pick && !pick.tokenized ? pick.name : "";
-});
 /** Номер попытки: пока справочник дочитывался, каретка уже ушла. */
 let fieldPickSeq = 0;
 /** Облачко: где его поставить. Считаем по месту слова, а не по полю целиком. */
@@ -1794,6 +1877,7 @@ async function pickComposerFragment(): Promise<void> {
     start,
     displayValues.value,
     formLookup(tokenForms),
+    dialogTokenLookup,
   );
   let pick = describeFieldPick(draft.value, caret, declinedEntries.value);
   if (!pick && caret > 0) {
@@ -1831,6 +1915,7 @@ async function placeFieldPick(): Promise<void> {
     pick.start,
     displayValues.value,
     formLookup(tokenForms),
+    dialogTokenLookup,
   );
   const point = measureCaret(area, visible);
   if (!point) {
@@ -1855,31 +1940,6 @@ async function placeFieldPick(): Promise<void> {
     return;
   }
   fieldPickAnchor.value = placement;
-}
-
-/** Поставить в поле вторую сторону: токен вместо значения или наоборот. */
-async function applyFieldAlias(): Promise<void> {
-  const pick = fieldPick.value;
-  if (!pick) return;
-  const name = await commitDialogName(fieldAliasName.value || pick.name, pick.name);
-  if (!name) return;
-  if (tokenNameKey(name) === tokenNameKey(pick.name)) {
-    applyFieldPick("token");
-    return;
-  }
-  rememberForm(tokenForms, draft.value, name, pick.start, pick.text);
-  touchForms();
-  const result = replaceRange(draft.value, pick.start, pick.end, formatToken(name));
-  fieldPick.value = null;
-  fieldPickAnchor.value = null;
-  draft.value = result.text;
-  void nextTick(() => {
-    const area = composerEl.value;
-    if (!area) return;
-    const pos = toVisibleOffset(draft.value, result.caret);
-    area.focus();
-    area.setSelectionRange(pos, pos);
-  });
 }
 
 function applyFieldPick(target: "token" | "value"): void {
@@ -1973,7 +2033,7 @@ function syncComposerField(): void {
 
 /** Смещение в видимом тексте поля → смещение в черновике (там всегда токены). */
 function toDraftOffset(visible: string, offset: number): number {
-  return toDraftCaret(visible, offset, displayValues.value);
+  return toDraftCaret(visible, offset, displayValues.value, sessionEntries.value);
 }
 
 /** Смещение в черновике → смещение в видимом тексте поля. */
@@ -1981,7 +2041,7 @@ function toVisibleOffset(tokenText: string, offset: number): number {
   if (!displayValues.value) return offset;
   // Каретка по показанной форме, а не по канону справочника: канон длиннее
   // формы, и каретка уезжает на текст следующей строки.
-  return visibleOffsetForDraft(tokenText, offset, true, formLookup(tokenForms));
+  return visibleOffsetForDraft(tokenText, offset, true, formLookup(tokenForms), dialogTokenLookup);
 }
 /* ── Ходы по диалогам: у каждой сессии свой ход и своя очередь ─────────── */
 
@@ -2056,6 +2116,8 @@ const composerCollapsed = ref(false);
 /** Границы ручного растяжения: одна строка и примерно 14 строк. */
 const COMPOSER_MANUAL_MIN = 38;
 const COMPOSER_MANUAL_MAX = 360;
+/** С этой высоты у колонок появляются «Очистить» и «Свернуть». */
+const COMPOSER_COLUMN_LINES = 3;
 
 /** Сколько строк видно сейчас, а не сколько их в тексте. */
 const composerShownLines = computed(() => {
@@ -2068,7 +2130,7 @@ const composerShownLines = computed(() => {
   return composerLines.value;
 });
 /** Очистить и свернуть появляются, когда видно три строки и больше. */
-const composerTall = computed(() => composerShownLines.value >= 3);
+const composerTall = computed(() => composerShownLines.value >= COMPOSER_COLUMN_LINES);
 /** Шит истории диалогов (как в AiChatPanel). */
 const historyOpen = ref(false);
 /** Режим переименования диалога в шапке. */
@@ -3045,7 +3107,7 @@ async function autoGrow(): Promise<void> {
   composerLineHeight.value = lineHeight;
   composerPad.value = padding;
   if (width > 0) composerMeasureWidth.value = width;
-  const shown = composerCollapsed.value ? 1 : lines;
+  const shown = composerShownLines.value;
   const height =
     !composerCollapsed.value && composerManualHeight.value !== null
       ? composerManualHeight.value
@@ -3154,12 +3216,11 @@ function collapseComposer(): void {
   void nextTick(() => composerEl.value?.focus());
 }
 
-/** Кнопка «Очистить» слева внизу: только когда поле выросло до трёх строк. */
+/** Кнопка «Очистить» сверху левой колонки: только когда поле выросло до трёх строк. */
 function clearComposer(): void {
   draft.value = "";
   error.value = "";
-  // Поле вернулось к одной строке — ручное растяжение больше не нужно,
-  // кнопки снова собираются в один ряд.
+  // Поле вернулось к одной строке — ручное растяжение больше не нужно.
   composerManualHeight.value = null;
   composerCollapsed.value = false;
   clearSelection();
@@ -3168,7 +3229,28 @@ function clearComposer(): void {
 }
 
 /** «Новый диалог» — просто чистый лист: запись в БД появится после первой отправки. */
+/** Токены пустого диалога становятся токенами только что созданной сессии. */
+async function claimPendingTokens(sessionId: string): Promise<void> {
+  const ids = pendingSessionTokenIds.value;
+  pendingSessionTokenIds.value = [];
+  for (const id of ids) {
+    const entry = tokenEntries.value.find((item) => item.id === id);
+    if (!entry || entry.shared || entry.sessionId) continue;
+    await saveToken({
+      id: entry.id,
+      name: entry.name,
+      value: entry.value,
+      note: entry.note,
+      variants: entry.variants,
+      caseSensitive: entry.caseSensitive,
+      sessionId,
+      shared: false,
+    });
+  }
+}
+
 function newSession(): void {
+  pendingSessionTokenIds.value = [];
   if (!agentId.value && agents.value.length > 0) {
     agentId.value = agents.value[0].id;
   }
@@ -3525,8 +3607,7 @@ function takeComposer(): ComposerPayload | null {
   // Формы снимаем до очистки поля: номера вхождений считаются по этому тексту.
   const forms = formsOf(tokenForms, text);
   draft.value = "";
-  // Отправили — поле снова в одну строку: ручное растяжение не держим,
-  // иначе кнопки остались бы в столбце на пустом поле.
+  // Отправили — поле снова в одну строку, ручное растяжение не держим.
   composerManualHeight.value = null;
   composerCollapsed.value = false;
   tokenTrigger.value = null;
@@ -3572,6 +3653,7 @@ async function startSession(text: string): Promise<string | undefined> {
     await setSessionTokenAlias(created.id, alias.name, alias.source);
   }
   pendingAliases.value = [];
+  await claimPendingTokens(created.id);
   await applyPendingTokenMode(created.id, agent);
   await loadMessages(created.id);
   return created.id;
@@ -4338,6 +4420,31 @@ watch(dictationListening, (listening) => {
   if (!listening) clearSilenceTimer();
 });
 
+/**
+ * Копирование из чата кладёт в буфер ровно то, что сейчас на экране.
+ *
+ * Показаны значения — уходит текст. Показаны ⟦токены⟧ — уходят ⟦токены⟧.
+ * HTML с именами не прикладываем: иначе вставка тащит скрытую разметку.
+ */
+function onChatCopy(event: ClipboardEvent): void {
+  if (!event.clipboardData) return;
+  const target = event.target;
+  if (target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement) {
+    const start = target.selectionStart ?? 0;
+    const end = target.selectionEnd ?? start;
+    if (end <= start) return;
+    event.preventDefault();
+    event.clipboardData?.setData("text/plain", target.value.slice(start, end));
+    return;
+  }
+  const selected = window.getSelection?.();
+  if (!selected || selected.isCollapsed) return;
+  const text = selected.toString();
+  if (!text) return;
+  event.preventDefault();
+  event.clipboardData?.setData("text/plain", text);
+}
+
 async function copyText(id: string, text: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);
@@ -4353,7 +4460,7 @@ async function copyText(id: string, text: string): Promise<void> {
 async function copyChat(): Promise<void> {
   const lines = messages.value
     .filter((m) => m.kind === undefined || m.kind === "text")
-    .map((m) => `${roleLabel(m)}: ${m.content}`);
+    .map((m) => `${roleLabel(m)}: ${displayContent(m.content, m.id)}`);
   if (lines.length === 0) return;
   await copyText("chat", lines.join("\n\n"));
 }
@@ -4731,7 +4838,7 @@ function onRateChange(event: Event): void {
 </script>
 
 <template>
-  <section class="chat-panel" :class="{ 'is-tokens': isTokenSession(activeSession) }">
+  <section class="chat-panel" :class="{ 'is-tokens': isTokenSession(activeSession) }" @copy="onChatCopy">
     <div v-if="isTokenSession(activeSession)" class="chat-panel__watermark" aria-hidden="true">
       <svg v-for="n in 3" :key="n" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
         <rect x="4" y="10" width="16" height="10" rx="2.4" />
@@ -5014,7 +5121,7 @@ function onRateChange(event: Event): void {
               entry.message.role === 'assistant' && entry.index === feed.length - 1 && !busy
             "
             @lift="startEdit(entry.message)"
-            @copy="copyText(entry.message.id, entry.message.content)"
+            @copy="copyText(entry.message.id, displayContent(entry.message.content, entry.message.id))"
             @speak="toggleSpeech(entry.message.id, spokenContent(entry.message.content, entry.message.id))"
             @download="(kind, event) => downloadReply(entry.message, kind, event)"
             @regenerate="regenerate(entry.message)"
@@ -5139,7 +5246,7 @@ function onRateChange(event: Event): void {
           }"
         >
       <div
-        v-if="feedSelection && isTokenSession(activeSession)"
+        v-if="feedPanel && feedSelection"
         class="chat-panel__selection is-feed"
         role="group"
         :aria-label="t('chat.tokens.selection')"
@@ -5147,13 +5254,22 @@ function onRateChange(event: Event): void {
         <span class="chat-panel__selection-text" :title="feedSelection.text">
           «{{ feedSelection.text }}»
         </span>
-          <template v-if="feedMatch">
-          <span v-if="feedAlreadyToken" class="chat-panel__selection-target">
-            {{ feedMatch.value }}
-          </span>
-          <span v-else-if="!feedCanRename" class="chat-panel__selection-target">⟦{{ feedMatch.name }}⟧</span>
+          <template v-if="feedMatch && !feedAlreadyToken">
+          <span class="chat-panel__selection-target">⟦{{ feedMatch.name }}⟧</span>
+          <button
+            type="button"
+            class="chat-panel__token-btn is-icon"
+            v-tip="t('chat.tokens.replaceSelection')"
+            :aria-label="t('chat.tokens.replaceSelection')"
+            @click="replaceSelectionInMessage()"
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m5 13 4 4L19 7" />
+            </svg>
+          </button>
+        </template>
+        <template v-else-if="feedAlreadyToken">
           <input
-            v-if="feedCanRename"
             v-model="feedName"
             class="chat-panel__selection-input"
             type="text"
@@ -5161,32 +5277,27 @@ function onRateChange(event: Event): void {
             :aria-label="t('chat.tokens.dialogName')"
             @keydown.enter.prevent="applyFeedDialogName()"
           />
-          <template v-if="feedAlreadyToken">
-            <span class="chat-panel__selection-hint">
-              {{ t("chat.tokens.alreadyToken") }}
-            </span>
-            <button
-              type="button"
-              class="chat-panel__token-btn is-icon"
-              v-tip="t('chat.tokens.untokenize')"
-              :aria-label="t('chat.tokens.untokenize')"
-              @click="untokenizeSelectionInMessage"
-            >
-              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-                <path d="M6 6l12 12M18 6L6 18" />
-              </svg>
-            </button>
-          </template>
           <button
-            v-else
             type="button"
             class="chat-panel__token-btn is-icon"
-            v-tip="t('chat.tokens.replaceSelection')"
-            :aria-label="t('chat.tokens.replaceSelection')"
-            @click="feedCanRename ? applyFeedDialogName() : replaceSelectionInMessage()"
+            v-tip="t('chat.tokens.dialogName')"
+            :aria-label="t('chat.tokens.dialogName')"
+            :disabled="!feedName.trim()"
+            @click="applyFeedDialogName()"
           >
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="m5 13 4 4L19 7" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="chat-panel__token-btn is-icon"
+            v-tip="t('chat.tokens.untokenize')"
+            :aria-label="t('chat.tokens.untokenize')"
+            @click="untokenizeSelectionInMessage"
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+              <path d="M6 6l12 12M18 6L6 18" />
             </svg>
           </button>
         </template>
@@ -5233,7 +5344,11 @@ function onRateChange(event: Event): void {
             >
               ⟦{{ name }}⟧
             </button>
-          </span>
+            </span>
+          <label class="chat-panel__selection-case">
+            <input v-model="feedShared" type="checkbox" />
+            <span>{{ t("tokens.shared") }}</span>
+          </label>
         </template>
         <button
           type="button"
@@ -5474,22 +5589,11 @@ function onRateChange(event: Event): void {
         />
         <div
           class="chat-panel__composer-box"
-          :class="{ 'is-recording': dictationListening, 'is-tall': composerTall }"
+          :class="{ 'is-recording': dictationListening }"
         >
-          <button
-            v-if="composerTall"
-            type="button"
-            class="chat-panel__icon-btn chat-panel__collapse is-corner"
-            v-tip="t('chat.collapseInput')"
-            :aria-label="t('chat.collapseInput')"
-            @click="guardBlur(); collapseComposer()"
-          >
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="m6 9 6 6 6-6" />
-            </svg>
-          </button>
           <div class="chat-panel__composer-side">
           <div class="chat-panel__composer-lead">
+          <div class="chat-panel__composer-edge">
           <button
             v-if="composerTall"
             type="button"
@@ -5502,6 +5606,8 @@ function onRateChange(event: Event): void {
               <path d="M6 6l12 12M18 6L6 18" />
             </svg>
           </button>
+          </div>
+          <div class="chat-panel__composer-edge">
           <button
             type="button"
             class="chat-panel__icon-btn"
@@ -5551,6 +5657,7 @@ function onRateChange(event: Event): void {
             </div>
           </div>
           </div>
+          </div>
           <div class="chat-panel__field">
           <div
             v-if="isTokenSession(activeSession)"
@@ -5596,6 +5703,21 @@ function onRateChange(event: Event): void {
           </div>
           </div>
           <div class="chat-panel__composer-actions">
+          <div class="chat-panel__composer-edge">
+          <button
+            v-if="composerTall"
+            type="button"
+            class="chat-panel__icon-btn chat-panel__collapse"
+            v-tip="t('chat.collapseInput')"
+            :aria-label="t('chat.collapseInput')"
+            @click="guardBlur(); collapseComposer()"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </button>
+          </div>
+          <div class="chat-panel__composer-edge">
           <div class="chat-panel__composer-stack chat-panel__composer-stack--voice">
             <button
               v-if="dictationAvailable"
@@ -5658,6 +5780,7 @@ function onRateChange(event: Event): void {
             </button>
           </div>
           </div>
+          </div>
           <div
             v-if="fieldPick"
             ref="fieldPickEl"
@@ -5673,15 +5796,6 @@ function onRateChange(event: Event): void {
           >
             <div class="chat-panel__pick-col">
               <div class="chat-panel__pick-head">
-                <input
-                  v-if="fieldCanRename"
-                  v-model="fieldAliasName"
-                  class="chat-panel__selection-input"
-                  type="text"
-                  :placeholder="t('chat.tokens.dialogName')"
-                  :aria-label="t('chat.tokens.dialogName')"
-                  @keydown.enter.prevent="guardBlur(); applyFieldAlias()"
-                />
                 <button
                   v-if="!fieldPick.tokenized"
                   type="button"
@@ -5689,9 +5803,9 @@ function onRateChange(event: Event): void {
                   :title="fieldPick.text"
                   v-tip="t('chat.tokens.replaceSelection')"
                   :aria-label="t('chat.tokens.replaceSelection')"
-                  @click="guardBlur(); fieldCanRename ? applyFieldAlias() : applyFieldPick('token')"
+                  @click="guardBlur(); applyFieldPick('token')"
                 >
-                  ⟦{{ fieldCanRename ? fieldAliasName || fieldPick.name : fieldPick.name }}⟧
+                  ⟦{{ fieldPick.name }}⟧
                 </button>
                 <span v-else class="chat-panel__pick-bubble is-token">⟦{{ fieldPick.name }}⟧</span>
                 <button
@@ -5775,17 +5889,8 @@ function onRateChange(event: Event): void {
           <span class="chat-panel__selection-text" :title="bannerFragment">
             «{{ bannerFragment }}»
           </span>
-          <template v-if="selectionMatch || occurrenceToken">
-            <span v-if="!selectionCanRename" class="chat-panel__selection-target">⟦{{ bannerToken }}⟧</span>
-            <input
-              v-if="selectionCanRename"
-              v-model="selectionName"
-              class="chat-panel__selection-input"
-              type="text"
-              :placeholder="t('chat.tokens.dialogName')"
-              :aria-label="t('chat.tokens.dialogName')"
-              @keydown.enter.prevent="applySelectionDialogName()"
-            />
+          <template v-if="(selectionMatch || occurrenceToken) && !selectionAlreadyToken">
+            <span class="chat-panel__selection-target">⟦{{ bannerToken }}⟧</span>
             <span v-if="occurrenceTotal > 1" class="chat-panel__selection-nav">
               <button
                 type="button"
@@ -5814,16 +5919,13 @@ function onRateChange(event: Event): void {
               </button>
             </span>
             <span v-if="bannerScope" class="chat-panel__selection-scope">{{ bannerScope }}</span>
-            <span v-if="selectionAlreadyToken" class="chat-panel__selection-hint">
-              {{ t("chat.tokens.alreadyToken") }}
-            </span>
             <button
               v-if="!selectionAlreadyToken"
               type="button"
               class="chat-panel__token-btn is-icon"
               v-tip="t('chat.tokens.replaceSelection')"
               :aria-label="t('chat.tokens.replaceSelection')"
-              @click="selectionCanRename ? applySelectionDialogName() : onReplaceClick"
+              @click="onReplaceClick"
             >
               <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="m5 13 4 4L19 7" />
@@ -5843,19 +5945,22 @@ function onRateChange(event: Event): void {
               v-model="selectionName"
               class="chat-panel__selection-input"
               type="text"
-              :placeholder="t('tokens.name')"
-              :aria-label="t('tokens.name')"
-              @keydown.enter.prevent="createTokenFromSelection()"
+              :placeholder="selectionAlreadyToken ? t('chat.tokens.dialogName') : t('tokens.name')"
+              :aria-label="selectionAlreadyToken ? t('chat.tokens.dialogName') : t('tokens.name')"
+              @keydown.enter.prevent="selectionAlreadyToken ? applySelectionDialogName() : createTokenFromSelection()"
             />
             <button
               type="button"
               class="chat-panel__token-btn is-icon"
-              v-tip="t('chat.tokens.makeToken')"
-              :aria-label="t('chat.tokens.makeToken')"
+              v-tip="selectionAlreadyToken ? t('chat.tokens.dialogName') : t('chat.tokens.makeToken')"
+              :aria-label="selectionAlreadyToken ? t('chat.tokens.dialogName') : t('chat.tokens.makeToken')"
               :disabled="!selectionName.trim()"
-              @click="createTokenFromSelection"
+              @click="selectionAlreadyToken ? applySelectionDialogName() : createTokenFromSelection()"
             >
-              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+              <svg v-if="selectionAlreadyToken" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m5 13 4 4L19 7" />
+              </svg>
+              <svg v-else viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
                 <path d="M12 5v14M5 12h14" />
               </svg>
             </button>
@@ -5882,9 +5987,13 @@ function onRateChange(event: Event): void {
                 ⟦{{ name }}⟧
               </button>
             </span>
-            <label class="chat-panel__selection-case">
+            <label v-if="!selectionAlreadyToken" class="chat-panel__selection-case">
               <input v-model="selectionCaseSensitive" type="checkbox" />
               <span>{{ t("tokens.caseSensitive") }}</span>
+            </label>
+            <label v-if="!selectionAlreadyToken" class="chat-panel__selection-case">
+              <input v-model="selectionShared" type="checkbox" />
+              <span>{{ t("tokens.shared") }}</span>
             </label>
           </template>
           <span v-if="occurrenceBlockedHint" class="chat-panel__selection-hint">
@@ -5917,22 +6026,13 @@ function onRateChange(event: Event): void {
     >
       <div class="chat-panel__pick-col">
         <div class="chat-panel__pick-head">
-          <input
-            v-if="chatCanRename"
-            v-model="chatAliasName"
-            class="chat-panel__selection-input"
-            type="text"
-            :placeholder="t('chat.tokens.dialogName')"
-            :aria-label="t('chat.tokens.dialogName')"
-            @keydown.enter.prevent="applyChatAlias()"
-          />
           <button
             v-if="!chatPick.tokenized"
             type="button"
             class="chat-panel__pick-bubble is-token"
-            @click="chatCanRename ? applyChatAlias() : applyChatToken()"
+            @click="applyChatToken()"
           >
-            ⟦{{ chatCanRename ? chatAliasName || chatPick.name : chatPick.name }}⟧
+            ⟦{{ chatPick.name }}⟧
           </button>
           <span v-else class="chat-panel__pick-bubble is-token">⟦{{ chatPick.name }}⟧</span>
           <button
@@ -6364,8 +6464,8 @@ function onRateChange(event: Event): void {
 .chat-panel__composer-box {
   position: relative;
   display: flex;
-  /* Подсказка и кнопки — по центру высоты поля, а не прижаты к низу. */
-  align-items: center;
+  /* Кнопки колонкой сверху: текст занимает всю ширину между ними. */
+  align-items: flex-start;
   gap: 6px;
   padding: 5px 6px 5px 10px;
   border: 1px solid var(--border);
@@ -6415,48 +6515,46 @@ function onRateChange(event: Event): void {
   border-color: var(--accent);
 }
 
-/* ── Поле ввода: высота по строкам текста, кнопки в один ряд ─────────
-   Колонку кнопок больше не собираем: она растягивала рамку сразу на свою
-   высоту, и поле прыгало, а не росло по одной строке.
+/* ── Поле ввода: кнопки слева и справа стоят колонкой ────────────────
+   Так текст получает всю ширину между двумя узкими столбцами.
+   Высоту рамки задаёт текст (и не ниже колонки кнопок). «Очистить» и
+   «Свернуть» — первые в своей колонке, когда видно три строки и больше.
+   «Свернуть» уменьшает поле до одной строки и не прячет его. */
 
-   • одна и две строки: [скрепка][агент] [поле] [микрофон][молния] [отправить]
-   • три и больше: слева снизу ещё «очистить», справа сверху «свернуть».
-     «Свернуть» уменьшает поле до одной строки и не прячет его. */
-
-/* Левая часть: скрепка и выбор агента + поле. */
+/* Левая часть: колонка кнопок и поле. */
 .chat-panel__composer-side {
   display: flex;
   flex: 1 1 auto;
-  align-items: center;
-  gap: 6px;
+  align-items: flex-start;
+  gap: 4px;
   min-width: 0;
 }
 
-/* Скрепка и агент в один ряд, пока поле в одну строку. */
+/* Левая колонка: очистить, скрепка, агент — сверху вниз. */
 .chat-panel__composer-lead {
   display: flex;
   flex: 0 0 auto;
-  flex-direction: row;
+  flex-direction: column;
   align-items: center;
-  gap: 0;
+  gap: 2px;
 }
 
-/* Правая часть: все кнопки действия. В одну строку — только в обычном режиме. */
+/* Правая колонка: свернуть, микрофон, отправка — сверху вниз. */
 .chat-panel__composer-actions {
   display: flex;
   flex: 0 0 auto;
-  flex-direction: row;
+  flex-direction: column;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
 }
 
-/* Кнопки — в один ряд с полем: по умолчанию ввод ровно в одну строку. */
+/* Группы внутри колонки тоже вертикальные, без своего ряда. */
 .chat-panel__composer-stack {
   display: flex;
   flex: 0 0 auto;
-  flex-direction: row;
+  flex-direction: column;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
 }
 
 .chat-panel__composer-stack .chat-panel__icon-btn {
@@ -6470,27 +6568,29 @@ function onRateChange(event: Event): void {
   height: 16px;
 }
 
-/* Три строки и больше: кнопки сидят у нижней кромки, высота — только у текста. */
-.chat-panel__composer-box.is-tall {
-  align-items: flex-end;
+/* Группа кнопок в колонке — тоже столбец, не ряд. */
+.chat-panel__composer-edge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
 }
 
-.chat-panel__composer-box.is-tall .chat-panel__composer-side,
-.chat-panel__composer-box.is-tall .chat-panel__composer-actions,
-.chat-panel__composer-box.is-tall .chat-panel__composer-lead,
-.chat-panel__composer-box.is-tall .chat-panel__composer-stack {
-  align-items: flex-end;
+/* Узкие кнопки: колонка не съедает ширину текста. */
+.chat-panel__composer-box .chat-panel__icon-btn,
+.chat-panel__composer-box .chat-panel__send,
+.chat-panel__composer-box .chat-panel__send.is-stop {
+  width: 28px;
+  height: 28px;
 }
 
-/* «Свернуть» — справа у верхней кромки, поверх пустого угла, не над текстом. */
-.chat-panel__collapse.is-corner {
-  position: absolute;
-  z-index: 4;
-  top: 4px;
-  inset-inline-end: 4px;
+.chat-panel__composer-box .chat-panel__icon-btn svg,
+.chat-panel__composer-box .chat-panel__send svg {
+  width: 16px;
+  height: 16px;
 }
 
-/* «Очистить» — левая кнопка нижнего ряда, только вместе с классом is-tall. */
+/* «Очистить» — верх левой колонки. */
 .chat-panel__clear {
   color: var(--muted);
   opacity: 0.75;
@@ -6515,7 +6615,7 @@ function onRateChange(event: Event): void {
   display: flex;
   flex: 1 1 auto;
   /* Высота — по полю, иначе подложка выше текста и подсветка съезжает. */
-  align-self: center;
+  align-self: flex-start;
   min-width: 0;
 }
 
@@ -6604,19 +6704,13 @@ function onRateChange(event: Event): void {
     font-size: 0.84rem;
     line-height: 1.4;
   }
-  /* Композер на телефоне: кнопки крупные, чтобы попадать пальцем.
-     «Свернуть» в углу остаётся компактным и не налезает на отправку. */
-  .chat-panel__composer-box .chat-panel__icon-btn:not(.is-corner) {
-    width: 40px;
-    height: 40px;
-  }
-  .chat-panel__composer-box:not(.is-multiline) .chat-panel__send {
-    width: 44px;
-    height: 44px;
-  }
-  .chat-panel__composer-box:not(.is-multiline) .chat-panel__send.is-stop {
-    width: 36px;
-    height: 36px;
+  /* Колонка остаётся узкой и на телефоне: иначе кнопки снова встают в ряд
+     и отнимают ширину у текста. */
+  .chat-panel__composer-box .chat-panel__icon-btn,
+  .chat-panel__composer-box .chat-panel__send,
+  .chat-panel__composer-box .chat-panel__send.is-stop {
+    width: 28px;
+    height: 28px;
   }
 }
 
@@ -7264,16 +7358,17 @@ function onRateChange(event: Event): void {
     height: 22px;
   }
 
-  .chat-panel__composer-lead .chat-panel__icon-btn,
-  .chat-panel__composer-stack .chat-panel__icon-btn {
-    width: 32px;
-    height: 32px;
+  .chat-panel__composer-box .chat-panel__icon-btn,
+  .chat-panel__composer-box .chat-panel__send,
+  .chat-panel__composer-box .chat-panel__send.is-stop {
+    width: 28px;
+    height: 28px;
   }
 
-  .chat-panel__composer-lead .chat-panel__icon-btn svg,
-  .chat-panel__composer-stack .chat-panel__icon-btn svg {
-    width: 18px;
-    height: 18px;
+  .chat-panel__composer-box .chat-panel__icon-btn svg,
+  .chat-panel__composer-box .chat-panel__send svg {
+    width: 16px;
+    height: 16px;
   }
 }
 

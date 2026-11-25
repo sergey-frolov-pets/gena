@@ -14,6 +14,7 @@ import {
   removeToken,
   saveToken,
   tokenEntries,
+  tokenIsCommon,
   tokensBroken,
   tokensLoaded,
   transferEntries,
@@ -44,7 +45,14 @@ const error = ref("");
 const notice = ref("");
 
 const editingId = ref<string | null>(null);
-const form = reactive({ name: "", value: "", variants: "", note: "", caseSensitive: false });
+const form = reactive({
+  name: "",
+  value: "",
+  variants: "",
+  note: "",
+  caseSensitive: false,
+  shared: false,
+});
 const revealed = ref<Set<string>>(new Set());
 const savedId = ref("");
 
@@ -119,6 +127,7 @@ function resetForm(): void {
   form.variants = "";
   form.note = "";
   form.caseSensitive = false;
+  form.shared = false;
 }
 
 function startEdit(entry: TokenEntry): void {
@@ -130,6 +139,7 @@ function startEdit(entry: TokenEntry): void {
   form.variants = (entry.variants ?? []).join("\n");
   form.note = entry.note ?? "";
   form.caseSensitive = entry.caseSensitive === true;
+  form.shared = tokenIsCommon(entry);
   revealed.value = new Set([...revealed.value, entry.id]);
 }
 
@@ -144,6 +154,7 @@ async function submit(): Promise<void> {
       variants: form.variants.split("\n"),
       note: form.note,
       caseSensitive: form.caseSensitive,
+      shared: form.shared,
     });
     savedId.value = saved.id;
     resetForm();
@@ -420,6 +431,10 @@ function setDecision(key: string, policy: MergePolicy): void {
       <label class="tokens-field tokens-field--check">
         <input v-model="form.caseSensitive" type="checkbox" />
         <span>{{ t("tokens.caseSensitive") }}</span>
+      </label>
+      <label class="tokens-field tokens-field--check">
+        <input v-model="form.shared" type="checkbox" />
+        <span>{{ t("tokens.shared") }}</span>
       </label>
       <div class="tokens-actions">
         <button type="submit" class="is-primary">{{ t("tokens.save") }}</button>
