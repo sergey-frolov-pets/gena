@@ -5121,6 +5121,7 @@ function onRateChange(event: Event): void {
           class="chat-panel__composer-box"
           :class="{ 'is-recording': dictationListening, 'is-multiline': composerMultiline }"
         >
+          <div class="chat-panel__composer-side">
           <div class="chat-panel__composer-lead">
           <button
             type="button"
@@ -5214,6 +5215,8 @@ function onRateChange(event: Event): void {
             @scroll="onComposerScroll"
           />
           </div>
+          </div>
+          <div class="chat-panel__composer-actions">
           <div class="chat-panel__composer-stack chat-panel__composer-stack--voice">
             <button
               v-if="dictationAvailable"
@@ -5297,6 +5300,7 @@ function onRateChange(event: Event): void {
                 <path d="m13 6 6 6-6 6" />
               </svg>
             </button>
+          </div>
           </div>
           <span
             class="chat-panel__grip"
@@ -5993,29 +5997,41 @@ function onRateChange(event: Event): void {
   border-color: var(--accent);
 }
 
+/* ── Поле ввода: одна строка ⇄ столбец кнопок ─────────────────────────
+   Раскладка одна на все ширины, никаких переопределений в медиа-запросах:
+   раньше правила @media (min-width: 721px) перебивали многострочный режим
+   (все .chat-panel__icon-btn становились 40×40), и кнопки не собирались
+   в колонку ни на телефоне, ни на компьютере.
+
+   • одна строка: [скрепка][агент] [поле] [микрофон][молния] [свернуть][отправить]
+   • две и более строк / ручное растяжение: слева столбец [скрепка][агент],
+     справа один столбец [свернуть][очистить][микрофон][молния][отправить]. */
+
+/* Левая часть: скрепка и выбор агента + поле. */
+.chat-panel__composer-side {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 /* Скрепка и агент в один ряд, пока поле в одну строку. */
 .chat-panel__composer-lead {
   display: flex;
   flex: 0 0 auto;
+  flex-direction: row;
   align-items: center;
   gap: 0;
 }
 
-/* С двух строк выбор агента уходит под скрепку. */
-.chat-panel__composer-box.is-multiline .chat-panel__composer-lead {
-  flex-direction: column;
-  justify-content: center;
-  gap: 2px;
-}
-
-.chat-panel__composer-box.is-multiline .chat-panel__composer-lead .chat-panel__icon-btn {
-  width: 26px;
-  height: 26px;
-}
-
-.chat-panel__composer-box.is-multiline .chat-panel__composer-lead .chat-panel__icon-btn svg {
-  width: 16px;
-  height: 16px;
+/* Правая часть: все кнопки действия. В одну строку — только в обычном режиме. */
+.chat-panel__composer-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: row;
+  align-items: center;
+  gap: 3px;
 }
 
 /* Кнопки — в один ряд с полем: по умолчанию ввод ровно в одну строку. */
@@ -6027,16 +6043,28 @@ function onRateChange(event: Event): void {
   gap: 3px;
 }
 
-/* Две и более строк текста — все правые кнопки уходят в один столбец
-   у правого края поля: сверху «свернуть» и «очистить», ниже микрофон
-   с молнией, внизу отправка. Слева поле остаётся как было. */
+.chat-panel__composer-stack .chat-panel__icon-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 9px;
+}
+
+.chat-panel__composer-stack .chat-panel__icon-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ── Многострочный режим и ручное растяжение ───────────────────────── */
+
+/* Поле занимает всю высоту, кнопки — по центру высоты столбца. */
 .chat-panel__composer-box.is-multiline {
   align-items: stretch;
 }
 
-/* Ручное растяжение: поле занимает всю высоту, а кнопки справа собираются
-   в одну вертикальную колонку у правого края (раньше оставались двумя
-   рядами и «не вытягивались»). */
+.chat-panel__composer-box.is-multiline .chat-panel__composer-side {
+  align-items: stretch;
+}
+
 .chat-panel__composer-box.is-multiline .chat-panel__field {
   align-self: stretch;
 }
@@ -6044,6 +6072,22 @@ function onRateChange(event: Event): void {
 .chat-panel__composer-box.is-multiline .chat-panel__input {
   align-self: stretch;
   height: 100%;
+}
+
+/* Левая колонка: скрепка и агент сверху, друг под другом. */
+.chat-panel__composer-box.is-multiline .chat-panel__composer-lead {
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 2px;
+}
+
+/* Правая колонка: одна вертикальная линия кнопок у правого края. */
+.chat-panel__composer-box.is-multiline .chat-panel__composer-actions {
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
 }
 
 .chat-panel__composer-box.is-multiline .chat-panel__composer-stack,
@@ -6055,16 +6099,8 @@ function onRateChange(event: Event): void {
   gap: 2px;
 }
 
-/* Колонка одна: «свернуть», «очистить», микрофон с молнией и отправка идут
-   сверху вниз, а не двумя отдельными рядами. */
-.chat-panel__composer-box.is-multiline .chat-panel__composer-lead {
-  flex-direction: column;
-  justify-content: flex-end;
-  gap: 2px;
-}
-
-/* В столбце кнопки не должны раздуваться правилами мобильной вёрстки. */
-.chat-panel__composer-box.is-multiline .chat-panel__composer-stack .chat-panel__icon-btn,
+/* Размеры в столбце: компактные и одинаковые, чтобы колонка не раздувалась. */
+.chat-panel__composer-box.is-multiline .chat-panel__composer-actions .chat-panel__icon-btn,
 .chat-panel__composer-box.is-multiline .chat-panel__composer-lead .chat-panel__icon-btn {
   width: 26px;
   height: 26px;
@@ -6072,55 +6108,39 @@ function onRateChange(event: Event): void {
   min-height: 26px;
 }
 
-.chat-panel__composer-box.is-multiline .chat-panel__composer-stack .chat-panel__icon-btn svg,
+.chat-panel__composer-box.is-multiline .chat-panel__composer-actions .chat-panel__icon-btn svg,
 .chat-panel__composer-box.is-multiline .chat-panel__composer-lead .chat-panel__icon-btn svg {
   width: 16px;
   height: 16px;
 }
 
-.chat-panel__composer-box.is-multiline .chat-panel__clear {
-  width: 22px;
-  height: 22px;
-  border-radius: 8px;
-}
-
-.chat-panel__composer-box.is-multiline .chat-panel__clear svg {
-  width: 14px;
-  height: 14px;
-}
-
-/* В многострочном режиме отправка чуть компактнее — столбец кнопок ниже. */
-.chat-panel__composer-box.is-multiline .chat-panel__send.is-primary {
-  width: 32px;
-  height: 32px;
-}
-
-.chat-panel__composer-box.is-multiline .chat-panel__send.is-stop {
-  width: 26px;
-  height: 26px;
-}
-
-/* Столбец правых кнопок не «прыгает» по высоте: он всегда прижат к низу поля. */
+.chat-panel__composer-box.is-multiline .chat-panel__clear,
 .chat-panel__composer-box.is-multiline .chat-panel__collapse {
   width: 22px;
   height: 22px;
+  min-width: 22px;
+  min-height: 22px;
   border-radius: 8px;
 }
 
+.chat-panel__composer-box.is-multiline .chat-panel__clear svg,
 .chat-panel__composer-box.is-multiline .chat-panel__collapse svg {
   width: 14px;
   height: 14px;
 }
 
-.chat-panel__composer-stack .chat-panel__icon-btn {
-  width: 26px;
-  height: 26px;
-  border-radius: 9px;
+.chat-panel__composer-box.is-multiline .chat-panel__send.is-primary {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
 }
 
-.chat-panel__composer-stack .chat-panel__icon-btn svg {
-  width: 16px;
-  height: 16px;
+.chat-panel__composer-box.is-multiline .chat-panel__send.is-stop {
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  min-height: 26px;
 }
 
 /* «Очистить» появляется над отправкой, когда в поле больше одной строки. */
@@ -6235,56 +6255,20 @@ function onRateChange(event: Event): void {
     font-size: 0.84rem;
     line-height: 1.4;
   }
-  .chat-panel__icon-btn {
+  /* Композер на телефоне: в одну строку кнопки крупные (палец), в столбце —
+     компактные. Без :not(.is-multiline) эти правила перебивали столбец,
+     и кнопки справа не собирались в одну колонку. */
+  .chat-panel__composer-box:not(.is-multiline) .chat-panel__icon-btn {
     width: 40px;
     height: 40px;
   }
-  .chat-panel__send {
+  .chat-panel__composer-box:not(.is-multiline) .chat-panel__send {
     width: 44px;
     height: 44px;
   }
-  .chat-panel__send.is-stop {
+  .chat-panel__composer-box:not(.is-multiline) .chat-panel__send.is-stop {
     width: 36px;
     height: 36px;
-  }
-
-  /* Растянутое поле на телефоне: кнопки справа — одна колонка по 26px
-     (правила выше дают 40/44 и раздували столбец в два ряда). */
-  .chat-panel__composer-box.is-multiline .chat-panel__composer-stack .chat-panel__icon-btn,
-  .chat-panel__composer-box.is-multiline .chat-panel__composer-lead .chat-panel__icon-btn {
-    width: 26px;
-    height: 26px;
-    min-width: 26px;
-    min-height: 26px;
-  }
-
-  .chat-panel__composer-box.is-multiline .chat-panel__composer-stack .chat-panel__icon-btn svg,
-  .chat-panel__composer-box.is-multiline .chat-panel__composer-lead .chat-panel__icon-btn svg {
-    width: 16px;
-    height: 16px;
-  }
-
-  .chat-panel__composer-box.is-multiline .chat-panel__clear,
-  .chat-panel__composer-box.is-multiline .chat-panel__collapse {
-    width: 22px;
-    height: 22px;
-    border-radius: 8px;
-  }
-
-  .chat-panel__composer-box.is-multiline .chat-panel__clear svg,
-  .chat-panel__composer-box.is-multiline .chat-panel__collapse svg {
-    width: 14px;
-    height: 14px;
-  }
-
-  .chat-panel__composer-box.is-multiline .chat-panel__send.is-primary {
-    width: 32px;
-    height: 32px;
-  }
-
-  .chat-panel__composer-box.is-multiline .chat-panel__send.is-stop {
-    width: 26px;
-    height: 26px;
   }
 }
 
@@ -6910,10 +6894,12 @@ function onRateChange(event: Event): void {
   font-size: 0.82rem;
 }
 
+/* Кнопки шапки и панели токенов — крупнее на компьютере. Композер сюда
+   НЕ входит: у него свои размеры (32px в строку, 26px в столбце), и общее
+   правило 40×40 раньше перебивало столбец — кнопки не сжимались. */
 @media (min-width: 721px) {
   .chat-panel__token-btn.is-icon,
   .chat-panel__tokenbar .chat-panel__token-btn.is-icon,
-  .chat-panel__icon-btn,
   .chat-panel__selection-close,
   .chat-panel__pick-close,
   .chat-panel__selection-arrow {
@@ -6923,7 +6909,6 @@ function onRateChange(event: Event): void {
 
   .chat-panel__token-btn.is-icon svg,
   .chat-panel__tokenbar .chat-panel__token-btn.is-icon svg,
-  .chat-panel__icon-btn svg,
   .chat-panel__selection-close svg,
   .chat-panel__pick-close svg,
   .chat-panel__selection-arrow svg {
@@ -6931,44 +6916,16 @@ function onRateChange(event: Event): void {
     height: 22px;
   }
 
-  /* Столбец кнопок при растяжении поля: правила выше (40px) перебивали
-     многострочный режим, и кнопки оставались двумя рядами. Держим компактный
-     размер колонки на любой ширине. */
-  .chat-panel__composer-box.is-multiline .chat-panel__composer-stack .chat-panel__icon-btn,
-  .chat-panel__composer-box.is-multiline .chat-panel__composer-lead .chat-panel__icon-btn {
-    width: 26px;
-    height: 26px;
-    min-width: 26px;
-    min-height: 26px;
-  }
-
-  .chat-panel__composer-box.is-multiline .chat-panel__composer-stack .chat-panel__icon-btn svg,
-  .chat-panel__composer-box.is-multiline .chat-panel__composer-lead .chat-panel__icon-btn svg {
-    width: 16px;
-    height: 16px;
-  }
-
-  .chat-panel__composer-box.is-multiline .chat-panel__clear,
-  .chat-panel__composer-box.is-multiline .chat-panel__collapse {
-    width: 22px;
-    height: 22px;
-    border-radius: 8px;
-  }
-
-  .chat-panel__composer-box.is-multiline .chat-panel__clear svg,
-  .chat-panel__composer-box.is-multiline .chat-panel__collapse svg {
-    width: 14px;
-    height: 14px;
-  }
-
-  .chat-panel__composer-box.is-multiline .chat-panel__send.is-primary {
+  .chat-panel__composer-lead .chat-panel__icon-btn,
+  .chat-panel__composer-stack .chat-panel__icon-btn {
     width: 32px;
     height: 32px;
   }
 
-  .chat-panel__composer-box.is-multiline .chat-panel__send.is-stop {
-    width: 26px;
-    height: 26px;
+  .chat-panel__composer-lead .chat-panel__icon-btn svg,
+  .chat-panel__composer-stack .chat-panel__icon-btn svg {
+    width: 18px;
+    height: 18px;
   }
 }
 
