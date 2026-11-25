@@ -446,10 +446,6 @@ function insertTokenName(name: string): void {
 
 /** Ввод в поле: обновляем подсказку токенов (⟦…). Справочник работает в любом диалоге. */
 function onComposerInput(event: Event): void {
-  // Выделение сдвинулось — плашка под полем больше не про этот фрагмент.
-  if (selectionRange.value) clearSelection();
-  if (fieldPick.value) fieldPick.value = null;
-  if (occurrenceTotal.value > 0) finishOccurrences();
   const el = event.target as HTMLTextAreaElement | null;
   const typed = composerField.value || el?.value || "";
   const visibleCaret = el && el.selectionStart !== null ? el.selectionStart : typed.length;
@@ -471,6 +467,11 @@ function onComposerInput(event: Event): void {
   const caret = toDraftOffset(typed, visibleCaret);
   tokenTrigger.value = findTokenTrigger(draft.value, caret);
   if (tokenTrigger.value) void ensureTokens();
+  // Выделение пересчитываем ПОСЛЕ того, как черновик обновился: плашка живёт
+  // на смещениях в черновике, и пересчёт по прежнему тексту сдвигал её.
+  // Раньше здесь стоял clearSelection() — на телефоне ввод и выделение идут
+  // вместе (двойной тап, «выделить всё», правка), и плашка не появлялась.
+  if (selectionRange.value || hasComposerSelection()) onComposerSelectSoon();
 }
 
 /** Открыть выезжающую таблицу соответствий прямо в чате. */
@@ -538,6 +539,19 @@ function clearSelection(): void {
   selectionCaseSensitive.value = false;
   selectionSource.value = "";
   selectionConfirm.value = null;
+}
+
+/**
+ * В поле реально что-то выделено.
+ *
+ * Плашка живёт на смещениях в черновике, а не на живом выделении: после
+ * программной вставки токена поле перерисовывается и выделение пропадает,
+ * хотя действовать ещё есть над чем. Поэтому при вводе смотрим и на поле.
+ */
+function hasComposerSelection(): boolean {
+  const el = composerEl.value;
+  if (!el) return false;
+  return (el.selectionEnd ?? 0) > (el.selectionStart ?? 0);
 }
 
 /** Токены, которые уже стоят в этом диалоге: ими можно закрыть другое слово. */
@@ -1703,9 +1717,7 @@ const marksGutter = ref(0);
 
 /** Поле прокрутилось: подложку ставим на место. */
 function onComposerScroll(): void {
-  const el = composerEl.value;
-  marksScroll.value = { left: el?.scrollLeft ?? 0, top: el?.scrollTop ?? 0 };
-  measureMarksGutter();
+  syncMarksScroll();
 }
 
 /** Запомнить, сколько места съедает полоса прокрутки поля. */
@@ -2366,9 +2378,14 @@ function onComposerBlur(event: FocusEvent): void {
   if (Date.now() < blurGuardUntil) return;
   const next = event.relatedTarget as Node | null;
   if (next && dockEl.value?.contains(next)) return;
+  // В поле есть выделение — плашка над ним нужна, а сворачивание ввода её
+  // прятало бы: человек выделил слово, тапнул мимо поля (в ленту), а действий
+  // так и не увидел. Пока выделение живо, ввод не закрываем.
+  if (selectionRange.value) return;
   window.setTimeout(() => {
     const active = document.activeElement;
     if (active && dockEl.value?.contains(active)) return;
+    if (selectionRange.value) return;
     closeComposer();
   }, 150);
 }
@@ -3034,7 +3051,6 @@ async function autoGrow(): Promise<void> {
       ? composerManualHeight.value
       : composerFieldHeight(shown, lineHeight, padding);
   el.style.height = `${height}px`;
-  measureMarksGutter();
   if (document.activeElement === el && selectionStart !== null && selectionEnd !== null) {
     try {
       el.setSelectionRange(selectionStart, selectionEnd);
@@ -3043,6 +3059,16 @@ async function autoGrow(): Promise<void> {
     }
   }
   measuringComposer = false;
+  // Поле стало ниже — подложка подсветки едет за текстом. Прокрутка при этом
+  // остаётся прежней, и подсветка «отставала» от текста: пересчитываем её.
+  syncMarksScroll();
+}
+
+/** Прокрутка поля → смещение подложки подсветки (и запас под полосу). */
+function syncMarksScroll(): void {
+  const el = composerEl.value;
+  marksScroll.value = { left: el?.scrollLeft ?? 0, top: el?.scrollTop ?? 0 };
+  measureMarksGutter();
 }
 watch(draft, () => {
   saveDraftSoon();
@@ -3132,6 +3158,11 @@ function collapseComposer(): void {
 function clearComposer(): void {
   draft.value = "";
   error.value = "";
+  // Поле вернулось к одной строке — ручное растяжение больше не нужно,
+  // кнопки снова собираются в один ряд.
+  composerManualHeight.value = null;
+  composerCollapsed.value = false;
+  clearSelection();
   void autoGrow();
   void nextTick(() => composerEl.value?.focus());
 }
@@ -3494,6 +3525,10 @@ function takeComposer(): ComposerPayload | null {
   // Формы снимаем до очистки поля: номера вхождений считаются по этому тексту.
   const forms = formsOf(tokenForms, text);
   draft.value = "";
+  // Отправили — поле снова в одну строку: ручное растяжение не держим,
+  // иначе кнопки остались бы в столбце на пустом поле.
+  composerManualHeight.value = null;
+  composerCollapsed.value = false;
   tokenTrigger.value = null;
   pendingImages.value = [];
   pendingDocs.value = [];
@@ -3573,6 +3608,9 @@ function onComposerKey(event: KeyboardEvent): void {
     tokenTrigger.value = null;
     return;
   }
+  // Enter — перенос строки. После него выделение в поле сдвигается, и плашка
+  // должна пересчитаться на новом месте, а не остаться на прежнем.
+  if (event.key === "Enter" && !isSendKey(event)) onComposerSelectSoon();
   if (!isSendKey(event)) return;
   event.preventDefault();
   void send();
