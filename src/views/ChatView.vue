@@ -36,6 +36,8 @@ import { newId } from "@/lib/id";
 import { shouldOpenLastSession } from "@/lib/session-open";
 import { collectTags } from "@/lib/session-tags";
 import { composerFieldHeight, isSendKey } from "@/lib/composer";
+import { measureCaret, placeBubble } from "@/lib/tokens/caret-point";
+import { describeFieldPick, replaceFieldPick, type FieldPick } from "@/lib/tokens/field-pick";
 import AppFooter from "@/components/AppFooter.vue";
 import TokenSheet from "@/components/TokenSheet.vue";
 import SessionTabs from "@/components/SessionTabs.vue";
@@ -138,6 +140,7 @@ import {
   formAt,
   formLookup,
   formsOf,
+  lookupForm,
   keepForms,
   keptForms,
   preferForms,
@@ -445,6 +448,7 @@ function insertTokenName(name: string): void {
 function onComposerInput(event: Event): void {
   // Выделение сдвинулось — плашка под полем больше не про этот фрагмент.
   if (selectionRange.value) clearSelection();
+  if (fieldPick.value) fieldPick.value = null;
   if (occurrenceTotal.value > 0) finishOccurrences();
   const el = event.target as HTMLTextAreaElement | null;
   const typed = composerField.value || el?.value || "";
@@ -668,12 +672,33 @@ async function commitDialogName(name: string, source: string): Promise<string | 
  * Плашка только в защищённом режиме. В обычном диалоге выделение текста
  * ничего не предлагает.
  */
+/**
+ * Замер высоты поля на мгновение обнуляет textarea. Событие select в этот
+ * момент видит пустое выделение и закрывало плашку, которую только что открыли.
+ */
+let measuringComposer = false;
+/** Палец ещё на поле: пустое выделение в начале жеста — не тап и не сброс плашки. */
+let composerPointerDown = false;
+
+function onComposerPointerDown(): void {
+  composerPointerDown = true;
+  holdVoiceSend();
+}
+
+function onComposerPointerUp(): void {
+  composerPointerDown = false;
+  onComposerRelease();
+}
+
 function onComposerSelect(): void {
   // Вхождение выбрано программно стрелкой плашки — серию не сбрасываем.
-  if (occurrencePicking) return;
+  // Замер высоты тоже двигает выделение сам и не должен закрывать плашку.
+  if (occurrencePicking || measuringComposer) return;
   if (!isTokenSession(activeSession.value)) {
     clearSelection();
     finishOccurrences();
+    fieldPick.value = null;
+    fieldPickAnchor.value = null;
     return;
   }
   const el = composerEl.value;
@@ -685,8 +710,12 @@ function onComposerSelect(): void {
   const startVisible = el.selectionStart ?? 0;
   const endVisible = el.selectionEnd ?? 0;
   if (endVisible <= startVisible) {
+    // Жест ещё не закончен: маркеры выделения двигаются после pointerup.
+    if (composerPointerDown) return;
     // Выделения нет — закрываем серию только если плашка и была про серию.
     if (occurrenceTotal.value === 0) clearSelection();
+    // Тап по полю без выделения: что под пальцем — токен или значение?
+    void pickComposerFragment();
     return;
   }
   const from = draftOffsetForVisible(draft.value, startVisible, displayValues.value, formLookup(tokenForms));
@@ -701,6 +730,17 @@ function onComposerSelect(): void {
   const start = lo + lead;
   const end = hi - trail;
   const text = draft.value.slice(start, end);
+  // Выделение ровно подсвеченного блока — то же облачко, что и по клику.
+  let covered = describeFieldPick(draft.value, start, declinedEntries.value);
+  if (!covered && start > 0) covered = describeFieldPick(draft.value, start - 1, declinedEntries.value);
+  const coveredText = covered ? draft.value.slice(covered.start, covered.end).trim() : "";
+  if (covered && text === coveredText) {
+    fieldPick.value = covered;
+    clearSelection();
+    return;
+  }
+  // Выделение уже или шире подсветки — плашка добавления токена, облачко не нужно.
+  fieldPick.value = null;
   if (text.length < 2) {
     clearSelection();
     return;
@@ -771,6 +811,11 @@ function onComposerRelease(): void {
  * справочника. Живёт в памяти экрана: на диск значения не попадают.
  */
 const tokenForms: FormStore = new Map<string, string>();
+/** Map сам по себе не реактивен: без этого подсветка не видит смену написания. */
+const formRevision = ref(0);
+function touchForms(): void {
+  formRevision.value += 1;
+}
 
 
 /** Все написания записи: значение и варианты, без падежей словаря. */
@@ -912,11 +957,14 @@ function dismissChatPick(): void {
 
 /** Спрятать облачко, не меняя текст: Esc и клик мимо. */
 function hideTokenPicks(): void {
+  fieldPick.value = null;
+  fieldPickAnchor.value = null;
   chatPick.value = null;
 }
 
 /** Перетаскивание выделения мышью/пальцем: поле ввода или лента сообщений. */
 function onDocSelectionChange(): void {
+  if (measuringComposer) return;
   const el = composerEl.value;
   if (el && document.activeElement === el) {
     onComposerSelectSoon();
@@ -1111,8 +1159,8 @@ const occurrenceCurrent = computed(() => occurrenceList.value[occurrenceIndex.va
 const selectionBanner = computed(() => {
   if (!isTokenSession(activeSession.value)) return false;
   if (pendingTokenSend.value) return false;
-  // Новый диалог: пока не создан, плашке не к чему привязываться.
-  if (activeSessionId.value === null) return false;
+  // Новый диалог ещё без записи — токен из выделения всё равно можно завести:
+  // справочник общий, имя только этого диалога держим до первой отправки.
   return Boolean(selectionRange.value) || occurrenceTotal.value > 0;
 });
 
@@ -1634,16 +1682,17 @@ const offerSpans = computed(() => {
   );
 });
 
-const highlightParts = computed(() =>
-  isTokenSession(activeSession.value)
+const highlightParts = computed(() => {
+  formRevision.value;
+  return isTokenSession(activeSession.value)
     ? highlightSegments(
         draft.value,
         displayValues.value,
         (raw, name, index) => formAt(tokenForms, name, index) ?? restoreValuesWithCase(raw, dialogTokenLookup),
         offerSpans.value,
       )
-    : [],
-);
+    : [];
+});
 /** Прокрутка поля: подложка едет вместе с текстом. */
 const marksScroll = ref({ left: 0, top: 0 });
 /**
@@ -1665,6 +1714,228 @@ function measureMarksGutter(): void {
   if (!el) return;
   const gutter = Math.max(0, el.offsetWidth - el.clientWidth);
   if (gutter !== marksGutter.value) marksGutter.value = gutter;
+}
+
+/* ── Тап по полю: токен ⇄ значение прямо в поле ввода ─────────────────── */
+
+/**
+ * Что нашли под пальцем в поле ввода.
+ *
+ * На телефоне тап не создаёт выделения, поэтому плашка выделения молчит.
+ * Ткнул в ⟦имя⟧ или в сумму — над самим словом появляется облачко со второй
+ * стороной (токен или исходное значение) и крестиком справа от него.
+ */
+const fieldPick = ref<FieldPick | null>(null);
+const fieldAliasName = ref("");
+const fieldCanRename = computed(
+  () =>
+    Boolean(fieldPick.value) &&
+    !fieldPick.value?.tokenized &&
+    offerCanRename(fieldPick.value?.name ?? ""),
+);
+watch(fieldPick, (pick) => {
+  fieldAliasName.value = pick && !pick.tokenized ? pick.name : "";
+});
+/** Номер попытки: пока справочник дочитывался, каретка уже ушла. */
+let fieldPickSeq = 0;
+/** Облачко: где его поставить. Считаем по месту слова, а не по полю целиком. */
+const fieldPickAnchor = ref<{ left: number; top: number; below: boolean } | null>(null);
+const fieldPickEl = ref<HTMLElement | null>(null);
+
+/** Значение токена в его исходной форме — то, что было в тексте до замены. */
+const fieldPickOriginal = computed(() => {
+  const pick = fieldPick.value;
+  if (!pick) return "";
+  if (!pick.tokenized) return pick.value;
+  return lookupForm(tokenForms, draft.value, pick.name, pick.start) ?? pick.value;
+});
+
+/** Ищем фрагмент по каретке в точке тапа. */
+async function pickComposerFragment(): Promise<void> {
+  const seq = ++fieldPickSeq;
+  if (!isTokenSession(activeSession.value)) {
+    fieldPick.value = null;
+    fieldPickAnchor.value = null;
+    return;
+  }
+  const el = composerEl.value;
+  if (!el) {
+    fieldPick.value = null;
+    return;
+  }
+  if (tokenEntries.value.length === 0) {
+    await ensureTokens();
+    if (seq !== fieldPickSeq) return;
+  }
+  await nextTick();
+  if (seq !== fieldPickSeq) return;
+  const area = composerEl.value;
+  if (!area) return;
+  const start = area.selectionStart ?? 0;
+  const end = area.selectionEnd ?? 0;
+  if (end > start) {
+    fieldPick.value = null;
+    return;
+  }
+  const caret = draftOffsetForVisible(
+    draft.value,
+    start,
+    displayValues.value,
+    formLookup(tokenForms),
+  );
+  let pick = describeFieldPick(draft.value, caret, declinedEntries.value);
+  if (!pick && caret > 0) {
+    pick = describeFieldPick(draft.value, caret - 1, declinedEntries.value);
+  }
+  if (pick && !pick.tokenized && refusedOffers.value.includes(offerKey(pick.text))) {
+    fieldPick.value = null;
+    return;
+  }
+  fieldPick.value = pick;
+}
+
+/**
+ * Поставить облачко над словом.
+ *
+ * Координаты слова берём замером зеркала (у textarea нет такой карты),
+ * размеры облачка — по факту его отрисовки. Считаем от рамки поля ввода.
+ */
+async function placeFieldPick(): Promise<void> {
+  const pick = fieldPick.value;
+  if (!pick) {
+    fieldPickAnchor.value = null;
+    return;
+  }
+  await nextTick();
+  const area = composerEl.value;
+  const bubble = fieldPickEl.value;
+  const box = area?.closest(".chat-panel__composer-box") as HTMLElement | null;
+  if (!area || !bubble || !box) {
+    fieldPickAnchor.value = null;
+    return;
+  }
+  const visible = visibleOffsetForDraft(
+    draft.value,
+    pick.start,
+    displayValues.value,
+    formLookup(tokenForms),
+  );
+  const point = measureCaret(area, visible);
+  if (!point) {
+    fieldPickAnchor.value = null;
+    return;
+  }
+  const areaRect = area.getBoundingClientRect();
+  const boxRect = box.getBoundingClientRect();
+  const baseLeft = areaRect.left - boxRect.left - box.clientLeft + area.clientLeft;
+  const baseTop = areaRect.top - boxRect.top - box.clientTop + area.clientTop;
+  const placement = placeBubble({
+    wordLeft: baseLeft + point.left,
+    wordTop: baseTop + point.top,
+    lineHeight: point.lineHeight,
+    bubbleWidth: bubble.offsetWidth,
+    bubbleHeight: bubble.offsetHeight,
+    boxWidth: box.clientWidth,
+  });
+  // На телефоне место под словом занимает клавиатура: список держим над полем.
+  if (compact.value && placement.below) {
+    fieldPickAnchor.value = { left: placement.left, top: 4, below: false };
+    return;
+  }
+  fieldPickAnchor.value = placement;
+}
+
+/** Поставить в поле вторую сторону: токен вместо значения или наоборот. */
+async function applyFieldAlias(): Promise<void> {
+  const pick = fieldPick.value;
+  if (!pick) return;
+  const name = await commitDialogName(fieldAliasName.value || pick.name, pick.name);
+  if (!name) return;
+  if (tokenNameKey(name) === tokenNameKey(pick.name)) {
+    applyFieldPick("token");
+    return;
+  }
+  rememberForm(tokenForms, draft.value, name, pick.start, pick.text);
+  touchForms();
+  const result = replaceRange(draft.value, pick.start, pick.end, formatToken(name));
+  fieldPick.value = null;
+  fieldPickAnchor.value = null;
+  draft.value = result.text;
+  void nextTick(() => {
+    const area = composerEl.value;
+    if (!area) return;
+    const pos = toVisibleOffset(draft.value, result.caret);
+    area.focus();
+    area.setSelectionRange(pos, pos);
+  });
+}
+
+function applyFieldPick(target: "token" | "value"): void {
+  const pick = fieldPick.value;
+  if (!pick) return;
+  const form =
+    target === "value"
+      ? lookupForm(tokenForms, draft.value, pick.name, pick.start)
+      : null;
+  if (target === "token" && !pick.tokenized) {
+    rememberForm(tokenForms, draft.value, pick.name, pick.start, pick.text);
+    touchForms();
+  }
+  const result = replaceFieldPick(draft.value, pick, target, form);
+  fieldPick.value = null;
+  fieldPickAnchor.value = null;
+  if (!result.changed) return;
+  draft.value = result.text;
+  void nextTick(() => {
+    syncComposerField();
+    const area = composerEl.value;
+    if (!area) return;
+    const pos = toVisibleOffset(draft.value, result.caret);
+    area.focus();
+    area.setSelectionRange(pos, pos);
+    void autoGrow();
+  });
+}
+
+const fieldSpellings = computed(() => spellingsOf(fieldPick.value?.name ?? ""));
+
+/** Поставить в это место другое написание той же записи. В поле остаётся оно, не канон. */
+function applyFieldSpelling(spelling: string): void {
+  const pick = fieldPick.value;
+  const text = spelling.trim();
+  if (!pick || !text) return;
+  if (pick.tokenized) {
+    rememberForm(tokenForms, draft.value, pick.name, pick.start, text);
+    touchForms();
+    fieldPick.value = null;
+    fieldPickAnchor.value = null;
+    syncComposerField();
+    return;
+  }
+  draft.value = draft.value.slice(0, pick.start) + text + draft.value.slice(pick.end);
+  fieldPick.value = null;
+  fieldPickAnchor.value = null;
+  syncComposerField();
+}
+
+/**
+ * Крестик: у токена — отмена токенизации (возвращаем значение),
+ * у значения — просто закрыть облачко и больше не предлагать эту форму.
+ */
+function closeFieldPick(): void {
+  const pick = fieldPick.value;
+  if (pick && pick.tokenized && fieldPickOriginal.value.trim()) {
+    applyFieldPick("value");
+    return;
+  }
+  if (pick && !pick.tokenized) {
+    const key = offerKey(pick.text);
+    if (key && !refusedOffers.value.includes(key)) {
+      refusedOffers.value = [...refusedOffers.value, key];
+    }
+  }
+  fieldPick.value = null;
+  fieldPickAnchor.value = null;
 }
 
 /**
@@ -1756,22 +2027,36 @@ let composerWidth = 0;
 const emit = defineEmits<{ (e: "open-tokens"): void; (e: "open-about"): void }>();
 
 const composerEl = ref<HTMLTextAreaElement | null>(null);
-/** Сколько строк сейчас в поле: от этого зависит кнопка «Очистить» и высота. */
+/** Сколько строк занимает текст. Высота шагает ровно на одну строку за раз. */
 const composerLines = ref(1);
-/** Ширина поля в режиме «одна строка»: по ней считаем, сколько строк влезет. */
+/** Ширина поля на последнем замере: по ней видно, что переносы надо пересчитать. */
 const composerMeasureWidth = ref(0);
-/**
- * Кнопки уходят в столбец, когда одной строки мало: в одну строку не влезает
- * текст или поле растянули ручкой (решение Сергея, 25.11.2026).
- */
-const composerMultiline = computed(
-  () => composerLines.value > 1 || composerManualHeight.value !== null,
-);
+/** line-height и padding последнего замера — чтобы ручная высота переводилась в строки. */
+const composerLineHeight = ref(20);
+const composerPad = ref(12);
 /** Ручная высота поля ввода в пикселях; null — авторасчёт по строкам. */
 const composerManualHeight = ref<number | null>(null);
+/**
+ * «Свернуть» не прячет поле: текст остаётся, видно одну строку, остальное в прокрутке.
+ * Снимается ручкой или когда текста снова хватает на одну строку.
+ */
+const composerCollapsed = ref(false);
 /** Границы ручного растяжения: одна строка и примерно 14 строк. */
 const COMPOSER_MANUAL_MIN = 38;
 const COMPOSER_MANUAL_MAX = 360;
+
+/** Сколько строк видно сейчас, а не сколько их в тексте. */
+const composerShownLines = computed(() => {
+  if (composerCollapsed.value) return 1;
+  if (composerManualHeight.value !== null) {
+    const line = composerLineHeight.value > 0 ? composerLineHeight.value : 20;
+    const content = Math.max(0, composerManualHeight.value - composerPad.value);
+    return Math.max(1, Math.round(content / line));
+  }
+  return composerLines.value;
+});
+/** Очистить и свернуть появляются, когда видно три строки и больше. */
+const composerTall = computed(() => composerShownLines.value >= 3);
 /** Шит истории диалогов (как в AiChatPanel). */
 const historyOpen = ref(false);
 /** Режим переименования диалога в шапке. */
@@ -1983,7 +2268,7 @@ function onQuickOutside(event: Event): void {
   }
   // Облачко в ленте закрывает только тап мимо него: клик по самому токену
   // приходит со stopPropagation, а клик внутри облачка — по его кнопкам.
-  if (chatPick.value && !target.closest(".chat-panel__pick")) {
+  if ((fieldPick.value || chatPick.value) && !target.closest(".chat-panel__pick")) {
     hideTokenPicks();
   }
 }
@@ -1992,7 +2277,7 @@ function onQuickKey(event: KeyboardEvent): void {
   if (event.key !== "Escape") return;
   quickOpen.value = false;
   agentMenuOpen.value = false;
-  if (chatPick.value) {
+  if (fieldPick.value || chatPick.value) {
     event.preventDefault();
     hideTokenPicks();
   }
@@ -2045,6 +2330,8 @@ function openComposer(): void {
 /** Кнопка «Токены» в свёрнутом доке: включает режим (если надо) и открывает ввод. */
 function closeComposer(): void {
   composerOpen.value = false;
+  fieldPick.value = null;
+  fieldPickAnchor.value = null;
 }
 
 /** Тап по полотну чата прячет открытый ввод и снова показывает его. */
@@ -2580,6 +2867,8 @@ watch(
     if (on) return;
     clearSelection();
     finishOccurrences();
+    fieldPick.value = null;
+    fieldPickAnchor.value = null;
     clearFeedSelection();
   },
 );
@@ -2697,58 +2986,63 @@ function settleToBottom(): void {
 watch([messages, liveStreaming, liveTyping], () => settleToBottom(), { flush: "post" });
 
 /**
- * Растущее поле ввода, как в AiChatPanel (от 1 до 4 строк).
+ * Растущее поле ввода: ровно столько строк, сколько занял текст (потолок — 4).
  *
- * keepSelection — для ручного растяжения: поле меняет ширину, и без этого
- * браузер сбрасывает каретку в начало текста.
+ * Замер не должен сбрасывать выделение: иначе плашка добавления токена
+ * закрывается в тот же жест, которым её открыли.
  */
-async function autoGrow(options?: { keepSelection?: boolean }): Promise<void> {
+async function autoGrow(): Promise<void> {
   await nextTick();
   const el = composerEl.value;
   if (!el) return;
-  const selectionStart = options?.keepSelection ? el.selectionStart : null;
-  const selectionEnd = options?.keepSelection ? el.selectionEnd : null;
+  // Замер на мгновение схлопывает поле. Без флага событие select видело пустое
+  // выделение и тут же закрывало плашку добавления токена.
+  measuringComposer = true;
+  const selectionStart = el.selectionStart;
+  const selectionEnd = el.selectionEnd;
   const style = window.getComputedStyle(el);
   const padding =
     (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
   // "normal" в computed style — считаем от размера шрифта (line-height 1.4 в CSS).
   const lineHeight =
     parseFloat(style.lineHeight) || Math.round((parseFloat(style.fontSize) || 14.4) * 1.4);
-  // Ширина поля зависит от раскладки кнопок. Класс is-multiline ставит Vue по
-  // computed composerMultiline, а не этот замер: раньше мы его снимали на время
-  // замера и возвращали обратно — и поле на миг меняло ширину. На телефоне это
-  // сбрасывало выделение, и плашка под полем не появлялась вовсе.
-  //
-  // Высоту и max-height снимаем: во flex-ряду scrollHeight иначе равен одной строке,
-  // хотя текст уже перенёсся. Ширину фиксируем, чтобы перенос не поехал.
-  // Меряем по полной ширине поля вместе с полосой прокрутки (offsetWidth минус
-  // рамка): clientWidth её вычитает, и на длинном тексте строки считались неверно.
+  // Высоту снимаем, но поле не растягиваем родителем: иначе scrollHeight равен
+  // колонке кнопок, и высота прыгает сразу на несколько строк.
+  // Ширину фиксируем вместе с полосой прокрутки: clientWidth её вычитает,
+  // и на длинном тексте строки считались короче, чем есть.
   const width = el.clientWidth;
   const scrollbarWidth = Math.max(0, el.offsetWidth - el.clientWidth);
   const measureWidth = width + scrollbarWidth;
+  el.style.alignSelf = "flex-start";
   el.style.maxHeight = "none";
   el.style.height = "0px";
   if (measureWidth > 0) el.style.width = `${measureWidth}px`;
   const content = Math.max(0, el.scrollHeight - padding);
   el.style.width = "";
   el.style.maxHeight = "";
+  el.style.alignSelf = "";
   const lines = Math.max(1, Math.ceil(content / lineHeight - 0.1));
+  // Текст снова в одну строку — свёрнутое состояние больше не нужно.
+  if (composerCollapsed.value && lines <= 1) composerCollapsed.value = false;
   composerLines.value = lines;
+  composerLineHeight.value = lineHeight;
+  composerPad.value = padding;
   if (width > 0) composerMeasureWidth.value = width;
-  // Человек растянул поле за ручку — его высота главнее авторасчёта по строкам.
-  el.style.height = `${
-    composerManualHeight.value ?? composerFieldHeight(lines, lineHeight, padding)
-  }px`;
-  // Высота изменилась — полоса прокрутки могла появиться или исчезнуть.
+  const shown = composerCollapsed.value ? 1 : lines;
+  const height =
+    !composerCollapsed.value && composerManualHeight.value !== null
+      ? composerManualHeight.value
+      : composerFieldHeight(shown, lineHeight, padding);
+  el.style.height = `${height}px`;
   measureMarksGutter();
-  // Ручное растяжение: возвращаем каретку туда, где она была до замера.
-  if (selectionStart !== null && selectionEnd !== null) {
+  if (document.activeElement === el && selectionStart !== null && selectionEnd !== null) {
     try {
       el.setSelectionRange(selectionStart, selectionEnd);
     } catch {
       // Поле уже не в фокусе — ничего страшного.
     }
   }
+  measuringComposer = false;
 }
 watch(draft, () => {
   saveDraftSoon();
@@ -2757,6 +3051,9 @@ watch(draft, () => {
     draftFromField = false;
   } else {
     syncComposerField();
+    // Черновик переписали программно — облачко тапа про старый фрагмент.
+    const pick = fieldPick.value;
+    if (pick && draft.value.slice(pick.start, pick.end) !== pick.text) fieldPick.value = null;
   }
   void autoGrow();
 }, { flush: "pre" });
@@ -2767,19 +3064,23 @@ watch(displayValues, () => {
   void autoGrow();
 });
 
-// Раскладка кнопок сменилась (одна строка ⇄ столбец) — ширина поля другая,
-// переносы строк пересчитываем.
-watch(composerMultiline, () => void autoGrow());
+// Кнопка «Очистить» появляется с трёх строк и чуть сужает поле — переносы пересчитываем.
+watch(composerTall, () => void autoGrow());
+
+/** Облачко тапа стоит над словом: пересчитываем, когда поле или фрагмент меняются. */
+watch(fieldPick, () => void placeFieldPick(), { flush: "post" });
+watch([displayValues, composerTall, composerCollapsed], () => {
+  if (fieldPick.value) void placeFieldPick();
+}, { flush: "post" });
 
 /** Выставить ручную высоту поля и запомнить её: авто-рост её не перебьёт. */
 function setComposerManualHeight(px: number): void {
+  composerCollapsed.value = false;
   const value = Math.min(COMPOSER_MANUAL_MAX, Math.max(COMPOSER_MANUAL_MIN, px));
   composerManualHeight.value = Math.round(value);
   const el = composerEl.value;
   if (el) el.style.height = `${composerManualHeight.value}px`;
-  // Столбец кнопок меняет ширину поля — переносы строк надо пересчитать.
-  // Каретку и выделение при этом не трогаем: человек как раз тянет ручку.
-  void autoGrow({ keepSelection: true });
+  void autoGrow();
 }
 
 /**
@@ -2813,10 +3114,21 @@ function onComposerGripDown(event: PointerEvent): void {
 /** Двойной клик по ручке возвращает авторасчёт по строкам. */
 function resetComposerHeight(): void {
   composerManualHeight.value = null;
+  composerCollapsed.value = false;
   void autoGrow();
 }
 
-/** Кнопка «Очистить» над отправкой: появляется, когда в поле больше одной строки. */
+/** «Свернуть»: поле остаётся, высота становится в одну строку. */
+function collapseComposer(): void {
+  composerManualHeight.value = null;
+  composerCollapsed.value = true;
+  fieldPick.value = null;
+  fieldPickAnchor.value = null;
+  void autoGrow();
+  void nextTick(() => composerEl.value?.focus());
+}
+
+/** Кнопка «Очистить» слева внизу: только когда поле выросло до трёх строк. */
 function clearComposer(): void {
   draft.value = "";
   error.value = "";
@@ -4252,6 +4564,7 @@ function syncViewport(): void {
   document.documentElement.style.setProperty("--app-vvh", `${Math.round(height)}px`);
   void scrollToBottom();
   void nextTick(updateJumpHints);
+  if (fieldPick.value) void placeFieldPick();
 }
 
 onMounted(() => {
@@ -4307,9 +4620,7 @@ onMounted(() => {
       const el = composerEl.value;
       if (!el || el.clientWidth === composerWidth) return;
       composerWidth = el.clientWidth;
-      // Поле расширилось из-за столбца кнопок — это следствие раскладки,
-      // а не повод считать строки заново (иначе кнопки мигают 1↔2).
-      if (el.clientWidth !== composerMeasureWidth.value) return;
+      if (measuringComposer) return;
       void autoGrow();
     });
     composerObserver.observe(composerEl.value);
@@ -5125,10 +5436,34 @@ function onRateChange(event: Event): void {
         />
         <div
           class="chat-panel__composer-box"
-          :class="{ 'is-recording': dictationListening, 'is-multiline': composerMultiline }"
+          :class="{ 'is-recording': dictationListening, 'is-tall': composerTall }"
         >
+          <button
+            v-if="composerTall"
+            type="button"
+            class="chat-panel__icon-btn chat-panel__collapse is-corner"
+            v-tip="t('chat.collapseInput')"
+            :aria-label="t('chat.collapseInput')"
+            @click="guardBlur(); collapseComposer()"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </button>
           <div class="chat-panel__composer-side">
           <div class="chat-panel__composer-lead">
+          <button
+            v-if="composerTall"
+            type="button"
+            class="chat-panel__icon-btn chat-panel__clear"
+            v-tip="t('chat.clearInput')"
+            :aria-label="t('chat.clearInput')"
+            @click="guardBlur(); clearComposer()"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
           <button
             type="button"
             class="chat-panel__icon-btn"
@@ -5209,11 +5544,11 @@ function onRateChange(event: Event): void {
             :aria-label="composerPlaceholder"
             :disabled="composerDisabled"
             @keydown="onComposerKey"
-            @pointerdown="holdVoiceSend()"
+            @pointerdown="onComposerPointerDown"
             @input="onComposerInput"
             @select="onComposerSelect"
-            @pointerup="onComposerRelease"
-            @touchend="onComposerRelease"
+            @pointerup="onComposerPointerUp"
+            @touchend="onComposerPointerUp"
             @keyup="onComposerRelease"
             @mouseup="onComposerRelease"
             @focus="onComposerSelectSoon"
@@ -5259,29 +5594,6 @@ function onRateChange(event: Event): void {
           </div>
           <div class="chat-panel__composer-stack chat-panel__composer-stack--send">
             <button
-              type="button"
-              class="chat-panel__icon-btn chat-panel__collapse"
-              v-tip="t('chat.collapseInput')"
-              :aria-label="t('chat.collapseInput')"
-              @click="guardBlur(); closeComposer()"
-            >
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="m6 9 6 6 6-6" />
-              </svg>
-            </button>
-            <button
-              v-if="composerMultiline"
-              type="button"
-              class="chat-panel__icon-btn chat-panel__clear"
-              v-tip="t('chat.clearInput')"
-              :aria-label="t('chat.clearInput')"
-              @click="guardBlur(); clearComposer()"
-            >
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
-                <path d="M6 6l12 12M18 6L6 18" />
-              </svg>
-            </button>
-            <button
               v-if="busy"
               type="button"
               class="chat-panel__send is-stop"
@@ -5307,6 +5619,68 @@ function onRateChange(event: Event): void {
               </svg>
             </button>
           </div>
+          </div>
+          <div
+            v-if="fieldPick"
+            ref="fieldPickEl"
+            class="chat-panel__pick"
+            :class="{ 'is-placed': fieldPickAnchor, 'is-below': fieldPickAnchor?.below }"
+            :style="
+              fieldPickAnchor
+                ? { left: `${fieldPickAnchor.left}px`, top: `${fieldPickAnchor.top}px` }
+                : undefined
+            "
+            role="group"
+            :aria-label="t('chat.tokens.selection')"
+          >
+            <div class="chat-panel__pick-col">
+              <div class="chat-panel__pick-head">
+                <input
+                  v-if="fieldCanRename"
+                  v-model="fieldAliasName"
+                  class="chat-panel__selection-input"
+                  type="text"
+                  :placeholder="t('chat.tokens.dialogName')"
+                  :aria-label="t('chat.tokens.dialogName')"
+                  @keydown.enter.prevent="guardBlur(); applyFieldAlias()"
+                />
+                <button
+                  v-if="!fieldPick.tokenized"
+                  type="button"
+                  class="chat-panel__pick-bubble is-token"
+                  :title="fieldPick.text"
+                  v-tip="t('chat.tokens.replaceSelection')"
+                  :aria-label="t('chat.tokens.replaceSelection')"
+                  @click="guardBlur(); fieldCanRename ? applyFieldAlias() : applyFieldPick('token')"
+                >
+                  ⟦{{ fieldCanRename ? fieldAliasName || fieldPick.name : fieldPick.name }}⟧
+                </button>
+                <span v-else class="chat-panel__pick-bubble is-token">⟦{{ fieldPick.name }}⟧</span>
+                <button
+                  v-if="fieldPick.tokenized"
+                  type="button"
+                  class="chat-panel__pick-close"
+                  v-tip="t('chat.tokens.untokenize')"
+                  :aria-label="t('chat.tokens.untokenize')"
+                  @click="guardBlur(); closeFieldPick()"
+                >
+                  <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                    <path d="M6 6l12 12M18 6L6 18" />
+                  </svg>
+                </button>
+              </div>
+              <span v-if="fieldPick.tokenized && fieldSpellings.length > 0" class="chat-panel__pick-list">
+                <button
+                  v-for="spelling in fieldSpellings"
+                  :key="spelling"
+                  type="button"
+                  class="chat-panel__pick-bubble"
+                  @click="guardBlur(); applyFieldSpelling(spelling)"
+                >
+                  {{ spelling }}
+                </button>
+              </span>
+            </div>
           </div>
           <span
             class="chat-panel__grip"
@@ -6003,15 +6377,13 @@ function onRateChange(event: Event): void {
   border-color: var(--accent);
 }
 
-/* ── Поле ввода: одна строка ⇄ столбец кнопок ─────────────────────────
-   Раскладка одна на все ширины, никаких переопределений в медиа-запросах:
-   раньше правила @media (min-width: 721px) перебивали многострочный режим
-   (все .chat-panel__icon-btn становились 40×40), и кнопки не собирались
-   в колонку ни на телефоне, ни на компьютере.
+/* ── Поле ввода: высота по строкам текста, кнопки в один ряд ─────────
+   Колонку кнопок больше не собираем: она растягивала рамку сразу на свою
+   высоту, и поле прыгало, а не росло по одной строке.
 
-   • одна строка: [скрепка][агент] [поле] [микрофон][молния] [свернуть][отправить]
-   • две и более строк / ручное растяжение: слева столбец [скрепка][агент],
-     справа один столбец [свернуть][очистить][микрофон][молния][отправить]. */
+   • одна и две строки: [скрепка][агент] [поле] [микрофон][молния] [отправить]
+   • три и больше: слева снизу ещё «очистить», справа сверху «свернуть».
+     «Свернуть» уменьшает поле до одной строки и не прячет его. */
 
 /* Левая часть: скрепка и выбор агента + поле. */
 .chat-panel__composer-side {
@@ -6060,96 +6432,27 @@ function onRateChange(event: Event): void {
   height: 16px;
 }
 
-/* ── Многострочный режим и ручное растяжение ───────────────────────── */
-
-/* Поле занимает всю высоту, кнопки — по центру высоты столбца. */
-.chat-panel__composer-box.is-multiline {
-  align-items: stretch;
+/* Три строки и больше: кнопки сидят у нижней кромки, высота — только у текста. */
+.chat-panel__composer-box.is-tall {
+  align-items: flex-end;
 }
 
-.chat-panel__composer-box.is-multiline .chat-panel__composer-side {
-  align-items: stretch;
+.chat-panel__composer-box.is-tall .chat-panel__composer-side,
+.chat-panel__composer-box.is-tall .chat-panel__composer-actions,
+.chat-panel__composer-box.is-tall .chat-panel__composer-lead,
+.chat-panel__composer-box.is-tall .chat-panel__composer-stack {
+  align-items: flex-end;
 }
 
-.chat-panel__composer-box.is-multiline .chat-panel__field {
-  align-self: stretch;
+/* «Свернуть» — справа у верхней кромки, поверх пустого угла, не над текстом. */
+.chat-panel__collapse.is-corner {
+  position: absolute;
+  z-index: 4;
+  top: 4px;
+  inset-inline-end: 4px;
 }
 
-.chat-panel__composer-box.is-multiline .chat-panel__input {
-  align-self: stretch;
-  height: 100%;
-}
-
-/* Левая колонка: скрепка и агент сверху, друг под другом. */
-.chat-panel__composer-box.is-multiline .chat-panel__composer-lead {
-  flex-direction: column;
-  justify-content: flex-start;
-  align-items: center;
-  gap: 2px;
-}
-
-/* Правая колонка: одна вертикальная линия кнопок у правого края. */
-.chat-panel__composer-box.is-multiline .chat-panel__composer-actions {
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 2px;
-}
-
-.chat-panel__composer-box.is-multiline .chat-panel__composer-stack,
-.chat-panel__composer-box.is-multiline .chat-panel__composer-stack--send,
-.chat-panel__composer-box.is-multiline .chat-panel__composer-stack--voice {
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 2px;
-}
-
-/* Размеры в столбце: компактные и одинаковые, чтобы колонка не раздувалась. */
-.chat-panel__composer-box.is-multiline .chat-panel__composer-actions .chat-panel__icon-btn,
-.chat-panel__composer-box.is-multiline .chat-panel__composer-lead .chat-panel__icon-btn {
-  width: 26px;
-  height: 26px;
-  min-width: 26px;
-  min-height: 26px;
-}
-
-.chat-panel__composer-box.is-multiline .chat-panel__composer-actions .chat-panel__icon-btn svg,
-.chat-panel__composer-box.is-multiline .chat-panel__composer-lead .chat-panel__icon-btn svg {
-  width: 16px;
-  height: 16px;
-}
-
-.chat-panel__composer-box.is-multiline .chat-panel__clear,
-.chat-panel__composer-box.is-multiline .chat-panel__collapse {
-  width: 22px;
-  height: 22px;
-  min-width: 22px;
-  min-height: 22px;
-  border-radius: 8px;
-}
-
-.chat-panel__composer-box.is-multiline .chat-panel__clear svg,
-.chat-panel__composer-box.is-multiline .chat-panel__collapse svg {
-  width: 14px;
-  height: 14px;
-}
-
-.chat-panel__composer-box.is-multiline .chat-panel__send.is-primary {
-  width: 32px;
-  height: 32px;
-  min-width: 32px;
-  min-height: 32px;
-}
-
-.chat-panel__composer-box.is-multiline .chat-panel__send.is-stop {
-  width: 26px;
-  height: 26px;
-  min-width: 26px;
-  min-height: 26px;
-}
-
-/* «Очистить» появляется над отправкой, когда в поле больше одной строки. */
+/* «Очистить» — левая кнопка нижнего ряда, только вместе с классом is-tall. */
 .chat-panel__clear {
   color: var(--muted);
   opacity: 0.75;
@@ -6224,6 +6527,8 @@ function onRateChange(event: Event): void {
   width: 100%;
   min-width: 0;
   min-height: 32px;
+  user-select: text;
+  -webkit-user-select: text;
   /* Высоту считает autoGrow() по замеру строк; field-sizing: content
      конфликтует с ним и даёт мерцание на границе строк. */
   padding: 6px 0;
@@ -6261,10 +6566,9 @@ function onRateChange(event: Event): void {
     font-size: 0.84rem;
     line-height: 1.4;
   }
-  /* Композер на телефоне: в одну строку кнопки крупные (палец), в столбце —
-     компактные. Без :not(.is-multiline) эти правила перебивали столбец,
-     и кнопки справа не собирались в одну колонку. */
-  .chat-panel__composer-box:not(.is-multiline) .chat-panel__icon-btn {
+  /* Композер на телефоне: кнопки крупные, чтобы попадать пальцем.
+     «Свернуть» в углу остаётся компактным и не налезает на отправку. */
+  .chat-panel__composer-box .chat-panel__icon-btn:not(.is-corner) {
     width: 40px;
     height: 40px;
   }
@@ -7007,7 +7311,7 @@ function onRateChange(event: Event): void {
 /* Плашка действий с выделением — над полем, не двигает его. */
 .chat-panel__selection {
   position: absolute;
-  z-index: 6;
+  z-index: 8;
   left: 0;
   right: 0;
   bottom: calc(100% + 4px);
