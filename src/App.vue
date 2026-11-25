@@ -278,6 +278,7 @@ onBeforeUnmount(() => {
           </svg>
           {{ t("app.nav.about") }}
         </button>
+        <InstallButton as-menu />
       </div>
       </div>
     </header>

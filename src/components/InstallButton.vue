@@ -7,6 +7,12 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 }
 
+/**
+ * Компактная иконка в шапке меню или полноценный пункт меню.
+ * Пункт меню нужен, чтобы установку было видно словами, а не только по иконке.
+ */
+const props = withDefaults(defineProps<{ asMenu?: boolean }>(), { asMenu: false });
+
 const { t } = useLocale();
 const canInstall = ref(false);
 const installed = ref(false);
@@ -57,10 +63,11 @@ onBeforeUnmount(() => {
 <template>
   <button
     v-if="canInstall && !installed"
-    class="install-btn"
+    :class="props.asMenu ? 'menu-install' : 'install-btn'"
+    :role="props.asMenu ? 'menuitem' : undefined"
     type="button"
     :aria-label="t('app.install')"
-    v-tip="t('app.install')"
+    :v-tip="props.asMenu ? null : t('app.install')"
     @click="install"
   >
     <svg
@@ -78,6 +85,7 @@ onBeforeUnmount(() => {
       <path d="m7 10 5 5 5-5" />
       <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
     </svg>
+    <span v-if="props.asMenu">{{ t("app.install") }}</span>
   </button>
 </template>
 
@@ -88,5 +96,29 @@ onBeforeUnmount(() => {
   justify-content: center;
   padding: 6px 8px;
   line-height: 0;
+}
+
+/* Пункт меню: иконка + подпись, поведение как у остальных пунктов. */
+.menu-install {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.menu-install svg {
+  flex: none;
+}
+
+.menu-install:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 </style>
