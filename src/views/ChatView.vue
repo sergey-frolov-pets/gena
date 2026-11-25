@@ -1841,7 +1841,6 @@ const OVERHANG_SELECTOR = [
   ".chat-panel__selection",
   ".chat-panel__tokenbar",
   ".chat-panel__token-pick",
-  ".chat-panel__lift",
 ].join(",");
 
 /** На сколько верхняя из плашек выступает над доком (px) — ровно столько
@@ -4939,13 +4938,6 @@ function onRateChange(event: Event): void {
         <p v-if="activeAgent" class="chat-panel__quick-agent">{{ activeAgent.name }}</p>
       </div>
 
-      <p v-if="lifted" class="chat-panel__lift" role="status">
-        <span>{{ t("chat.lifted") }}</span>
-        <button type="button" class="chat-panel__link" @click="cancelLift">
-          {{ t("chat.cancel") }}
-        </button>
-      </p>
-
       <p v-if="turnElapsed && (!compact || composerOpen)" class="chat-panel__turn" role="status">
         <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
           <circle cx="12" cy="12" r="9" />
@@ -4979,6 +4971,12 @@ function onRateChange(event: Event): void {
         @submit.prevent="send"
         @focusout="onComposerBlur"
       >
+        <p v-if="lifted" class="chat-panel__lift" role="status">
+          <span>{{ t("chat.lifted") }}</span>
+          <button type="button" class="chat-panel__link" @click="cancelLift">
+            {{ t("chat.cancel") }}
+          </button>
+        </p>
         <div
           v-if="isTokenSession(activeSession)"
           class="chat-panel__tokenbar"
@@ -6284,6 +6282,8 @@ function onRateChange(event: Event): void {
 }
 
 /* --- Реплика, забранная в поле ввода ------------------------------------ */
+/* Плашка стоит в потоке формы: выше кнопок токенов (они висят абсолютно
+   над полем), поэтому ничего её не перекрывает. */
 .chat-panel__lift {
   display: flex;
   align-items: center;
@@ -7360,8 +7360,7 @@ function onRateChange(event: Event): void {
 
 /* Служебные плашки над лентой не должны теряться на тексте сообщений. */
 .chat-panel__dock.is-float .chat-panel__warning,
-.chat-panel__dock.is-float .chat-panel__notice,
-.chat-panel__dock.is-float .chat-panel__lift {
+.chat-panel__dock.is-float .chat-panel__notice {
   padding: 4px 8px;
   border-radius: 10px;
   background: var(--panel);
