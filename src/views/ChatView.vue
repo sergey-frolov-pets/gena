@@ -2709,10 +2709,16 @@ async function autoGrow(): Promise<void> {
   if (wasMultiline) box?.classList.remove("is-multiline");
   // Высоту и max-height снимаем: во flex-ряду scrollHeight иначе равен одной строке,
   // хотя текст уже перенёсся. Ширину фиксируем, чтобы перенос не поехал.
+  // clientWidth — без полосы прокрутки: по ней считаем, сколько строк влезет.
   const width = el.clientWidth;
+  // Но при фиксации высоты полоса прокрутки может исчезнуть — тогда scrollHeight
+  // меряется по более широкому полю, и строк выходит меньше, чем на самом деле.
+  // Поэтому меряем по ширине с полосой (offsetWidth минус рамка и padding).
+  const scrollbarWidth = Math.max(0, el.offsetWidth - el.clientWidth);
+  const measureWidth = width + scrollbarWidth;
   el.style.maxHeight = "none";
   el.style.height = "0px";
-  if (width > 0) el.style.width = `${width}px`;
+  if (measureWidth > 0) el.style.width = `${measureWidth}px`;
   const content = Math.max(0, el.scrollHeight - padding);
   el.style.width = "";
   el.style.maxHeight = "";
@@ -3875,10 +3881,20 @@ function startEdit(m: Message): void {
   showTokenText(m.content, keptForms(m.id));
   error.value = "";
   notice.value = "";
-  if (compact.value) composerOpen.value = true;
+  // «Редактировать» открывает поле ввода сразу на любой ширине: на телефоне
+  // оно свёрнуто в док, без этого реплика уходила в невидимый композер.
+  openComposer();
   void nextTick(() => {
-    composerEl.value?.focus();
     void autoGrow();
+    // Поле открылось не мгновенно (v-if + анимация дока) — фокус ставим ещё раз.
+    window.setTimeout(() => {
+      if (!composerOpen.value) return;
+      const el = composerEl.value;
+      if (!el) return;
+      el.focus();
+      const end = el.value.length;
+      el.setSelectionRange(end, end);
+    }, 60);
   });
 }
 
