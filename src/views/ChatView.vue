@@ -745,6 +745,24 @@ function onComposerSelectSoon(): void {
   selectionTimer = window.setTimeout(onComposerSelect, 40);
 }
 
+/**
+ * Второй шанс для выделения: на телефоне маркеры двигаются ещё какое-то
+ * время после отпускания пальца. Через 180 мс перечитываем выделение один
+ * раз — без этого плашка иногда не появлялась вовсе.
+ */
+let selectionRetry = 0;
+
+function onComposerSelectLater(): void {
+  window.clearTimeout(selectionRetry);
+  selectionRetry = window.setTimeout(onComposerSelect, 180);
+}
+
+/** Любое отпускание в поле: короткая проверка и одна отложенная. */
+function onComposerRelease(): void {
+  onComposerSelectSoon();
+  onComposerSelectLater();
+}
+
 
 /**
  * Исходная форма каждого токена: «вклада ВТБ» → ⟦вклад⟧.
@@ -5156,17 +5174,19 @@ function onRateChange(event: Event): void {
             :aria-label="composerPlaceholder"
             :disabled="composerDisabled"
             @keydown="onComposerKey"
-            @pointerdown="holdVoiceSend(); onComposerSelectSoon()"
+            @pointerdown="holdVoiceSend()"
             @input="onComposerInput"
             @select="onComposerSelect"
-            @pointerup="onComposerSelectSoon"
-            @touchend="onComposerSelectSoon"
-            @keyup="onComposerSelectSoon"
+            @pointerup="onComposerRelease"
+            @touchend="onComposerRelease"
+            @keyup="onComposerRelease"
+            @mouseup="onComposerRelease"
+            @focus="onComposerSelectSoon"
             @paste="onPaste"
             @scroll="onComposerScroll"
           />
           </div>
-          <div class="chat-panel__composer-stack">
+          <div class="chat-panel__composer-stack chat-panel__composer-stack--voice">
             <button
               v-if="dictationAvailable"
               type="button"
@@ -5986,12 +6006,48 @@ function onRateChange(event: Event): void {
   align-items: stretch;
 }
 
+/* Ручное растяжение: поле занимает всю высоту, а кнопки справа собираются
+   в одну вертикальную колонку у правого края (раньше оставались двумя
+   рядами и «не вытягивались»). */
+.chat-panel__composer-box.is-multiline .chat-panel__field {
+  align-self: stretch;
+}
+
+.chat-panel__composer-box.is-multiline .chat-panel__input {
+  align-self: stretch;
+  height: 100%;
+}
+
 .chat-panel__composer-box.is-multiline .chat-panel__composer-stack,
-.chat-panel__composer-box.is-multiline .chat-panel__composer-stack--send {
+.chat-panel__composer-box.is-multiline .chat-panel__composer-stack--send,
+.chat-panel__composer-box.is-multiline .chat-panel__composer-stack--voice {
   flex-direction: column;
   align-items: center;
   justify-content: flex-end;
   gap: 2px;
+}
+
+/* Колонка одна: «свернуть», «очистить», микрофон с молнией и отправка идут
+   сверху вниз, а не двумя отдельными рядами. */
+.chat-panel__composer-box.is-multiline .chat-panel__composer-lead {
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+/* В столбце кнопки не должны раздуваться правилами мобильной вёрстки. */
+.chat-panel__composer-box.is-multiline .chat-panel__composer-stack .chat-panel__icon-btn,
+.chat-panel__composer-box.is-multiline .chat-panel__composer-lead .chat-panel__icon-btn {
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  min-height: 26px;
+}
+
+.chat-panel__composer-box.is-multiline .chat-panel__composer-stack .chat-panel__icon-btn svg,
+.chat-panel__composer-box.is-multiline .chat-panel__composer-lead .chat-panel__icon-btn svg {
+  width: 16px;
+  height: 16px;
 }
 
 .chat-panel__composer-box.is-multiline .chat-panel__clear {
