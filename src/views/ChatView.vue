@@ -1841,6 +1841,7 @@ const OVERHANG_SELECTOR = [
   ".chat-panel__selection",
   ".chat-panel__tokenbar",
   ".chat-panel__token-pick",
+  ".chat-panel__lift",
 ].join(",");
 
 /** На сколько верхняя из плашек выступает над доком (px) — ровно столько
@@ -2537,7 +2538,7 @@ watch(
 );
 
 watch(
-  [compact, composerOpen, selectionBanner, feedSelection, tokenSessionNow],
+  [compact, composerOpen, selectionBanner, feedSelection, tokenSessionNow, lifted],
   () => void nextTick(syncDockSpace),
   { flush: "post" },
 );
