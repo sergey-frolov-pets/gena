@@ -15,6 +15,7 @@ import {
   removeToken,
   saveToken,
   tokenEntries,
+  tokenIsCommon,
   TokenError,
   tokensBroken,
   type TokenEntry,
@@ -34,7 +35,14 @@ const { t } = useLocale();
 
 const editingId = ref<string | null>(null);
 const creating = ref(false);
-const form = reactive({ name: "", value: "", variants: "", note: "", caseSensitive: false });
+const form = reactive({
+  name: "",
+  value: "",
+  variants: "",
+  note: "",
+  caseSensitive: false,
+  shared: false,
+});
 const error = ref("");
 const notice = ref("");
 const revealed = ref<Set<string>>(new Set());
@@ -77,6 +85,7 @@ function startEdit(entry?: TokenEntry): void {
     form.variants = (entry.variants ?? []).join("\n");
     form.note = entry.note ?? "";
     form.caseSensitive = entry.caseSensitive === true;
+    form.shared = tokenIsCommon(entry);
   } else {
     editingId.value = null;
     creating.value = true;
@@ -85,6 +94,7 @@ function startEdit(entry?: TokenEntry): void {
     form.variants = "";
     form.note = "";
     form.caseSensitive = false;
+    form.shared = false;
   }
 }
 
@@ -96,6 +106,7 @@ function cancelEdit(): void {
   form.variants = "";
   form.note = "";
   form.caseSensitive = false;
+  form.shared = false;
   error.value = "";
 }
 
@@ -111,6 +122,7 @@ async function save(): Promise<void> {
         .filter((item) => item.length > 0),
       note: form.note,
       caseSensitive: form.caseSensitive,
+      shared: form.shared,
       ...(editingId.value ? { id: editingId.value } : {}),
     };
     await saveToken(input);
@@ -259,6 +271,10 @@ onBeforeUnmount(() => {
         <label class="token-sheet__check">
           <input v-model="form.caseSensitive" type="checkbox" />
           <span>{{ t("tokens.caseSensitive") }}</span>
+        </label>
+        <label class="token-sheet__check">
+          <input v-model="form.shared" type="checkbox" />
+          <span>{{ t("tokens.shared") }}</span>
         </label>
         <p v-if="error" class="token-sheet__error" role="alert">{{ error }}</p>
         <div class="token-sheet__form-actions">

@@ -119,12 +119,13 @@ import {
 } from "@/turn/draft";
 import { idleTurn, stepTurn } from "@/turn/machine";
 import {
+  entriesForSession,
   loadTokens,
   replaceValues,
   saveToken,
   tokenEntries,
   tokenEntryByName,
-  tokenLookup,
+  tokenInSession,
   tokensLoaded,
   TokenError,
   type TokenEntry,
@@ -160,7 +161,6 @@ import {
   draftText,
   toDraftCaret,
   visibleOffsetForDraft,
-  visiblePieces,
   visibleText,
 } from "@/lib/tokens/display";
 import { contextForms, restoreValuesWithCase } from "@/lib/tokens/context-case";
@@ -261,7 +261,10 @@ async function ensureTokens(): Promise<void> {
 
 /** Текст для истории: в режиме токенов значения записываются токенами. */
 function storedContent(text: string, session?: Session | null): string {
-  return isTokenSession(session) ? forAgent(text) : text;
+  if (!isTokenSession(session)) return text;
+  // В историю диалога попадают только его токены и общие. Чужое значение
+  // остаётся текстом: агенту его всё равно закроет forAgent при отправке.
+  return replaceValues(text, undefined, entriesForSession(session?.id ?? null)).text;
 }
 
 /**
@@ -445,15 +448,8 @@ function insertTokenName(name: string): void {
   });
 }
 
-/**
- * Ввод в поле: обновляем подсказку токенов (⟦…). Справочник работает в любом диалоге.
- * Сразу после вставки видимого текста поле не токенизируем: иначе знакомые слова
- * снова станут ⟦токенами⟧.
- */
-let keepVisiblePaste = false;
-
+/** Ввод в поле: в токены превращаются только значения этого диалога и общие. */
 function onComposerInput(event: Event): void {
-  if (keepVisiblePaste) return;
   const el = event.target as HTMLTextAreaElement | null;
   const typed = composerField.value || el?.value || "";
   const visibleCaret = el && el.selectionStart !== null ? el.selectionStart : typed.length;
@@ -462,7 +458,12 @@ function onComposerInput(event: Event): void {
   // показало значениями, запоминаем: переключение на токены и обратно не должно
   // «переодевать» набранное в канон справочника.
   const typedHits: Array<{ name: string; form: string }> = [];
-  const nextDraft = draftText(typed, displayValues.value, (hit) => typedHits.push(hit));
+  const nextDraft = draftText(
+    typed,
+    displayValues.value,
+    (hit) => typedHits.push(hit),
+    sessionEntries.value,
+  );
   if (typedHits.length > 0) applyForms(tokenForms, nextDraft, typedHits);
   if (nextDraft !== draft.value) {
     draftFromField = true;
@@ -520,6 +521,26 @@ const selectionRange = ref<{ start: number; end: number; text: string } | null>(
 const selectionName = ref("");
 /** Новый токен: искать значение с учётом регистра. Свойство записи, по умолчанию выкл. */
 const selectionCaseSensitive = ref(false);
+/** Новый токен общий: его значение подсвечивается и в других диалогах. */
+const selectionShared = ref(false);
+/**
+ * Токены, созданные на ещё не сохранённом диалоге. После первой отправки
+ * привязываются к новой сессии и больше не светятся в чужих.
+ */
+const pendingSessionTokenIds = ref<string[]>([]);
+
+/** Привязка нового токена: к открытому диалогу либо пометка «общий». */
+function scopeForNewToken(shared: boolean): { sessionId?: string; shared: boolean } {
+  const sessionId = activeSessionId.value ?? undefined;
+  return sessionId ? { sessionId, shared } : { shared };
+}
+
+/** Токен с пустого диалога держим, пока диалог не сохранится. */
+function noteSessionToken(entry: TokenEntry): void {
+  if (entry.shared || entry.sessionId || activeSessionId.value) return;
+  if (pendingSessionTokenIds.value.includes(entry.id)) return;
+  pendingSessionTokenIds.value = [...pendingSessionTokenIds.value, entry.id];
+}
 /** Фрагмент, для которого имя уже предложено: повторные события `select`
  *  не должны затирать то, что человек успел ввести. */
 const selectionSource = ref("");
@@ -545,6 +566,7 @@ function clearSelection(): void {
   selectionRange.value = null;
   selectionName.value = "";
   selectionCaseSensitive.value = false;
+  selectionShared.value = false;
   selectionSource.value = "";
   selectionConfirm.value = null;
 }
@@ -629,11 +651,27 @@ const dialogAliases = computed(() => {
   return session?.tokenAliases ?? pendingAliases.value;
 });
 
+/**
+ * Значения, которые этот диалог имеет право показывать и подсвечивать:
+ * свои токены, общие и токены ещё не сохранённого диалога.
+ */
+const sessionEntries = computed(() => {
+  const sessionId = activeSessionId.value;
+  const pending = new Set(pendingSessionTokenIds.value);
+  return tokenEntries.value.filter((entry) => {
+    if (tokenInSession(entry, sessionId)) return true;
+    return sessionId === null && pending.has(entry.id);
+  });
+});
+
 function dialogTokenLookup(name: string): string | undefined {
-  const direct = tokenLookup(name);
-  if (direct !== undefined) return direct;
+  const key = tokenNameKey(name);
+  const direct = sessionEntries.value.find((entry) => tokenNameKey(entry.name) === key);
+  if (direct) return direct.value;
   const alias = aliasByName(dialogAliases.value, name);
-  return alias ? tokenLookup(alias.source) : undefined;
+  if (!alias) return undefined;
+  const sourceKey = tokenNameKey(alias.source);
+  return sessionEntries.value.find((entry) => tokenNameKey(entry.name) === sourceKey)?.value;
 }
 
 /**
@@ -736,15 +774,15 @@ function onComposerSelect(): void {
     return;
   }
   const forms = formLookup(tokenForms);
-  let from = draftOffsetForVisible(draft.value, startVisible, displayValues.value, forms);
-  let to = draftOffsetForVisible(draft.value, endVisible, displayValues.value, forms);
+  let from = draftOffsetForVisible(draft.value, startVisible, displayValues.value, forms, dialogTokenLookup);
+  let to = draftOffsetForVisible(draft.value, endVisible, displayValues.value, forms, dialogTokenLookup);
   // Конец видимого токена в черновике на символ короче: так каретка не
   // захватывает следующий знак. Выделение всего слова — это весь ⟦токен⟧.
   if (displayValues.value && endVisible > startVisible) {
     const token = tokenAtCaret(draft.value, Math.min(from, to));
     if (token) {
-      const visStart = visibleOffsetForDraft(draft.value, token.start, true, forms);
-      const visEnd = visibleOffsetForDraft(draft.value, token.end, true, forms);
+      const visStart = visibleOffsetForDraft(draft.value, token.start, true, forms, dialogTokenLookup);
+      const visEnd = visibleOffsetForDraft(draft.value, token.end, true, forms, dialogTokenLookup);
       if (startVisible === visStart && endVisible === visEnd) {
         from = token.start;
         to = token.end;
@@ -998,6 +1036,8 @@ function onDocSelectionChange(): void {
 const feedSelection = ref<{ messageId: string; text: string } | null>(null);
 /** Имя нового токена для фрагмента из ленты. */
 const feedName = ref("");
+/** Новый токен из ленты — общий для всех диалогов. */
+const feedShared = ref(false);
 
 /** Запись справочника, совпадающая с выделением в ленте. */
 const feedMatch = computed(() => {
@@ -1040,6 +1080,7 @@ async function applyFeedDialogName(): Promise<void> {
 function clearFeedSelection(): void {
   feedSelection.value = null;
   feedName.value = "";
+  feedShared.value = false;
 }
 
 /** Что выделено в ленте: текст и сообщение, внутри которого он лежит. */
@@ -1282,8 +1323,8 @@ async function highlightOccurrence(): Promise<void> {
     occurrencePicking = true;
     area.focus();
     area.setSelectionRange(
-      visibleOffsetForDraft(draft.value, target.start, displayValues.value, formLookup(tokenForms)),
-      visibleOffsetForDraft(draft.value, target.end, displayValues.value, formLookup(tokenForms)),
+      visibleOffsetForDraft(draft.value, target.start, displayValues.value, formLookup(tokenForms), dialogTokenLookup),
+      visibleOffsetForDraft(draft.value, target.end, displayValues.value, formLookup(tokenForms), dialogTokenLookup),
     );
     window.setTimeout(() => {
       occurrencePicking = false;
@@ -1551,12 +1592,20 @@ async function createTokenFromSelection(): Promise<void> {
         variants,
         note: existing.note,
         caseSensitive: existing.caseSensitive,
+        sessionId: existing.sessionId,
+        shared: existing.shared,
       });
       // Выбрано конкретное написание — в поле должно встать оно, а не канон.
       await applySelectionToken(existing.name);
       settleOccurrences();
     } else {
-      await saveToken({ name, value: range.text, caseSensitive: selectionCaseSensitive.value });
+      const created = await saveToken({
+        name,
+        value: range.text,
+        caseSensitive: selectionCaseSensitive.value,
+        ...scopeForNewToken(selectionShared.value),
+      });
+      noteSessionToken(created);
       await applySelectionToken(name);
       settleOccurrences();
       notice.value = t("chat.tokens.created");
@@ -1589,7 +1638,9 @@ async function replaceSelectionInMessage(name?: string): Promise<void> {
   const replaced = replaceSelectionWithToken(shown, picked.text, entryName);
   clearFeedSelection();
   if (!replaced.replaced) return;
-  const nextStored = isTokenSession(session) ? replaceValues(replaced.text).text : replaced.text;
+  const nextStored = isTokenSession(session)
+    ? replaceValues(replaced.text, undefined, entriesForSession(session?.id ?? null)).text
+    : replaced.text;
   if (await editMessage(message.id, nextStored)) {
     notice.value = t("chat.tokens.replaced", { count: 1 });
   }
@@ -1640,10 +1691,17 @@ async function createTokenFromFeed(): Promise<void> {
         variants,
         note: existing.note,
         caseSensitive: existing.caseSensitive,
+        sessionId: existing.sessionId,
+        shared: existing.shared,
       });
       await replaceSelectionInMessage(existing.name);
     } else {
-      await saveToken({ name, value: picked.text });
+      const created = await saveToken({
+        name,
+        value: picked.text,
+        ...scopeForNewToken(feedShared.value),
+      });
+      noteSessionToken(created);
       await replaceSelectionInMessage(name);
       notice.value = t("chat.tokens.created");
     }
@@ -1711,7 +1769,7 @@ const displayValues = computed(() => isTokenSession(activeSession.value) && view
  * не видит, где кончается текст и начинается защищённое значение.
  */
 /** Записи с падежами: облачко и подсветка видят те же формы, что и отправка. */
-const declinedEntries = computed(() => withDeclensions(tokenEntries.value));
+const declinedEntries = computed(() => withDeclensions(sessionEntries.value));
 
 /**
  * Отказ от замены: эту написанную форму больше не подсвечиваем и не предлагаем,
@@ -1819,6 +1877,7 @@ async function pickComposerFragment(): Promise<void> {
     start,
     displayValues.value,
     formLookup(tokenForms),
+    dialogTokenLookup,
   );
   let pick = describeFieldPick(draft.value, caret, declinedEntries.value);
   if (!pick && caret > 0) {
@@ -1856,6 +1915,7 @@ async function placeFieldPick(): Promise<void> {
     pick.start,
     displayValues.value,
     formLookup(tokenForms),
+    dialogTokenLookup,
   );
   const point = measureCaret(area, visible);
   if (!point) {
@@ -1973,7 +2033,7 @@ function syncComposerField(): void {
 
 /** Смещение в видимом тексте поля → смещение в черновике (там всегда токены). */
 function toDraftOffset(visible: string, offset: number): number {
-  return toDraftCaret(visible, offset, displayValues.value);
+  return toDraftCaret(visible, offset, displayValues.value, sessionEntries.value);
 }
 
 /** Смещение в черновике → смещение в видимом тексте поля. */
@@ -1981,7 +2041,7 @@ function toVisibleOffset(tokenText: string, offset: number): number {
   if (!displayValues.value) return offset;
   // Каретка по показанной форме, а не по канону справочника: канон длиннее
   // формы, и каретка уезжает на текст следующей строки.
-  return visibleOffsetForDraft(tokenText, offset, true, formLookup(tokenForms));
+  return visibleOffsetForDraft(tokenText, offset, true, formLookup(tokenForms), dialogTokenLookup);
 }
 /* ── Ходы по диалогам: у каждой сессии свой ход и своя очередь ─────────── */
 
@@ -2053,16 +2113,10 @@ const composerManualHeight = ref<number | null>(null);
  * Снимается ручкой или когда текста снова хватает на одну строку.
  */
 const composerCollapsed = ref(false);
-/**
- * Колонки кнопок включаются с трёх строк и не выключаются, пока текст
- * снова не уместится в одну: иначе сужение поля от колонок роняет число
- * строк, и раскладка мигает.
- */
-const composerColumnLock = ref(false);
 /** Границы ручного растяжения: одна строка и примерно 14 строк. */
 const COMPOSER_MANUAL_MIN = 38;
 const COMPOSER_MANUAL_MAX = 360;
-/** С этой высоты кнопки слева и справа стоят колонкой. */
+/** С этой высоты у колонок появляются «Очистить» и «Свернуть». */
 const COMPOSER_COLUMN_LINES = 3;
 
 /** Сколько строк видно сейчас, а не сколько их в тексте. */
@@ -2073,9 +2127,7 @@ const composerShownLines = computed(() => {
     const content = Math.max(0, composerManualHeight.value - composerPad.value);
     return Math.max(1, Math.round(content / line));
   }
-  const lines = composerLines.value;
-  if (composerColumnLock.value) return Math.max(lines, COMPOSER_COLUMN_LINES);
-  return lines;
+  return composerLines.value;
 });
 /** Очистить и свернуть появляются, когда видно три строки и больше. */
 const composerTall = computed(() => composerShownLines.value >= COMPOSER_COLUMN_LINES);
@@ -3051,19 +3103,6 @@ async function autoGrow(): Promise<void> {
   const lines = Math.max(1, Math.ceil(content / lineHeight - 0.1));
   // Текст снова в одну строку — свёрнутое состояние больше не нужно.
   if (composerCollapsed.value && lines <= 1) composerCollapsed.value = false;
-  if (!composerCollapsed.value) {
-    if (composerManualHeight.value !== null) {
-      const manualLines = Math.max(
-        1,
-        Math.round((composerManualHeight.value - padding) / (lineHeight || 20)),
-      );
-      composerColumnLock.value = manualLines >= COMPOSER_COLUMN_LINES;
-    } else if (lines >= COMPOSER_COLUMN_LINES) {
-      composerColumnLock.value = true;
-    } else if (lines <= 1) {
-      composerColumnLock.value = false;
-    }
-  }
   composerLines.value = lines;
   composerLineHeight.value = lineHeight;
   composerPad.value = padding;
@@ -3181,18 +3220,37 @@ function collapseComposer(): void {
 function clearComposer(): void {
   draft.value = "";
   error.value = "";
-  // Поле вернулось к одной строке — ручное растяжение больше не нужно,
-  // кнопки снова собираются в один ряд.
+  // Поле вернулось к одной строке — ручное растяжение больше не нужно.
   composerManualHeight.value = null;
   composerCollapsed.value = false;
-  composerColumnLock.value = false;
   clearSelection();
   void autoGrow();
   void nextTick(() => composerEl.value?.focus());
 }
 
 /** «Новый диалог» — просто чистый лист: запись в БД появится после первой отправки. */
+/** Токены пустого диалога становятся токенами только что созданной сессии. */
+async function claimPendingTokens(sessionId: string): Promise<void> {
+  const ids = pendingSessionTokenIds.value;
+  pendingSessionTokenIds.value = [];
+  for (const id of ids) {
+    const entry = tokenEntries.value.find((item) => item.id === id);
+    if (!entry || entry.shared || entry.sessionId) continue;
+    await saveToken({
+      id: entry.id,
+      name: entry.name,
+      value: entry.value,
+      note: entry.note,
+      variants: entry.variants,
+      caseSensitive: entry.caseSensitive,
+      sessionId,
+      shared: false,
+    });
+  }
+}
+
 function newSession(): void {
+  pendingSessionTokenIds.value = [];
   if (!agentId.value && agents.value.length > 0) {
     agentId.value = agents.value[0].id;
   }
@@ -3549,11 +3607,9 @@ function takeComposer(): ComposerPayload | null {
   // Формы снимаем до очистки поля: номера вхождений считаются по этому тексту.
   const forms = formsOf(tokenForms, text);
   draft.value = "";
-  // Отправили — поле снова в одну строку: ручное растяжение не держим,
-  // иначе кнопки остались бы в столбце на пустом поле.
+  // Отправили — поле снова в одну строку, ручное растяжение не держим.
   composerManualHeight.value = null;
   composerCollapsed.value = false;
-  composerColumnLock.value = false;
   tokenTrigger.value = null;
   pendingImages.value = [];
   pendingDocs.value = [];
@@ -3597,6 +3653,7 @@ async function startSession(text: string): Promise<string | undefined> {
     await setSessionTokenAlias(created.id, alias.name, alias.source);
   }
   pendingAliases.value = [];
+  await claimPendingTokens(created.id);
   await applyPendingTokenMode(created.id, agent);
   await loadMessages(created.id);
   return created.id;
@@ -4364,57 +4421,10 @@ watch(dictationListening, (listening) => {
 });
 
 /**
- * Точка в черновике для видимой каретки.
+ * Копирование из чата кладёт в буфер ровно то, что сейчас на экране.
  *
- * Внутри расшифрованного токена каретку нельзя ставить «в середину» ⟦имени⟧:
- * вставка туда разорвала бы токен. Первая половина видимого значения — перед
- * токеном, вторая — после него.
- */
-function draftPointForVisibleCaret(visibleOffset: number): number {
-  const show = displayValues.value;
-  const forms = formLookup(tokenForms);
-  if (!show) return Math.min(Math.max(0, visibleOffset), draft.value.length);
-  const pieces = visiblePieces(draft.value, true, forms);
-  for (const piece of pieces) {
-    if (visibleOffset < piece.visibleStart || visibleOffset > piece.visibleEnd) continue;
-    if (!piece.token) return piece.draftStart + (visibleOffset - piece.visibleStart);
-    const mid = piece.visibleStart + (piece.visibleEnd - piece.visibleStart) / 2;
-    return visibleOffset <= mid ? piece.draftStart : piece.draftEnd;
-  }
-  return draft.value.length;
-}
-
-/** Вставить в поле ровно скопированные символы, не прогоняя их через справочник. */
-function insertVisiblePaste(text: string): void {
-  const el = composerEl.value;
-  const field = composerField.value;
-  const startVis = el?.selectionStart ?? field.length;
-  const endVis = el?.selectionEnd ?? startVis;
-  const lo = draftPointForVisibleCaret(Math.min(startVis, endVis));
-  const hi = draftPointForVisibleCaret(Math.max(startVis, endVis));
-  const from = Math.min(lo, hi);
-  const to = Math.max(lo, hi);
-  keepVisiblePaste = true;
-  draft.value = draft.value.slice(0, from) + text + draft.value.slice(to);
-  const caretDraft = from + text.length;
-  void nextTick(() => {
-    syncComposerField();
-    const area = composerEl.value;
-    if (!area) return;
-    const pos = toVisibleOffset(draft.value, caretDraft);
-    area.focus();
-    area.setSelectionRange(pos, pos);
-    window.setTimeout(() => {
-      keepVisiblePaste = false;
-    }, 0);
-  });
-}
-
-/**
- * Копирование из чата: в буфер попадает только текст, который сейчас виден.
- *
- * Иначе вместе с выделением уезжает HTML с именами токенов, а вставка в другой
- * чат поднимает все ⟦токены⟧, хотя на экране были обычные слова.
+ * Показаны значения — уходит текст. Показаны ⟦токены⟧ — уходят ⟦токены⟧.
+ * HTML с именами не прикладываем: иначе вставка тащит скрытую разметку.
  */
 function onChatCopy(event: ClipboardEvent): void {
   if (!event.clipboardData) return;
@@ -4638,18 +4648,9 @@ function onPaste(event: ClipboardEvent): void {
   const files = Array.from(event.clipboardData?.files ?? []).filter((f) =>
     f.type.startsWith("image/"),
   );
-  if (files.length > 0) {
-    event.preventDefault();
-    void addFiles(files);
-    return;
-  }
-  // В защищённом чате обычная вставка снова прогоняет текст через справочник
-  // и ставит ⟦токены⟧ на каждое знакомое слово. Нужны только скопированные символы.
-  if (!isTokenSession(activeSession.value)) return;
-  const text = event.clipboardData?.getData("text/plain") ?? "";
-  if (!text) return;
+  if (files.length === 0) return;
   event.preventDefault();
-  insertVisiblePaste(text);
+  void addFiles(files);
 }
 
 function onDrop(event: DragEvent): void {
@@ -5343,7 +5344,11 @@ function onRateChange(event: Event): void {
             >
               ⟦{{ name }}⟧
             </button>
-          </span>
+            </span>
+          <label class="chat-panel__selection-case">
+            <input v-model="feedShared" type="checkbox" />
+            <span>{{ t("tokens.shared") }}</span>
+          </label>
         </template>
         <button
           type="button"
@@ -5584,7 +5589,7 @@ function onRateChange(event: Event): void {
         />
         <div
           class="chat-panel__composer-box"
-          :class="{ 'is-recording': dictationListening, 'is-columns': composerTall }"
+          :class="{ 'is-recording': dictationListening }"
         >
           <div class="chat-panel__composer-side">
           <div class="chat-panel__composer-lead">
@@ -5985,6 +5990,10 @@ function onRateChange(event: Event): void {
             <label v-if="!selectionAlreadyToken" class="chat-panel__selection-case">
               <input v-model="selectionCaseSensitive" type="checkbox" />
               <span>{{ t("tokens.caseSensitive") }}</span>
+            </label>
+            <label v-if="!selectionAlreadyToken" class="chat-panel__selection-case">
+              <input v-model="selectionShared" type="checkbox" />
+              <span>{{ t("tokens.shared") }}</span>
             </label>
           </template>
           <span v-if="occurrenceBlockedHint" class="chat-panel__selection-hint">
@@ -6455,8 +6464,8 @@ function onRateChange(event: Event): void {
 .chat-panel__composer-box {
   position: relative;
   display: flex;
-  /* Подсказка и кнопки — по центру высоты поля, а не прижаты к низу. */
-  align-items: center;
+  /* Кнопки колонкой сверху: текст занимает всю ширину между ними. */
+  align-items: flex-start;
   gap: 6px;
   padding: 5px 6px 5px 10px;
   border: 1px solid var(--border);
@@ -6506,47 +6515,46 @@ function onRateChange(event: Event): void {
   border-color: var(--accent);
 }
 
-/* ── Поле ввода: высота по строкам текста ────────────────────────────
-   Одна и две строки — кнопки в один ряд.
-   С трёх строк (и когда поле растянули ручкой) слева и справа по колонке.
-   Колонки стоят поверх рамки и не задают ей высоту, иначе поле прыгает.
-   «Очистить» и «Свернуть» прижаты к верху колонок, остальные кнопки — к низу.
+/* ── Поле ввода: кнопки слева и справа стоят колонкой ────────────────
+   Так текст получает всю ширину между двумя узкими столбцами.
+   Высоту рамки задаёт текст (и не ниже колонки кнопок). «Очистить» и
+   «Свернуть» — первые в своей колонке, когда видно три строки и больше.
    «Свернуть» уменьшает поле до одной строки и не прячет его. */
 
-/* Левая часть: скрепка и выбор агента + поле. */
+/* Левая часть: колонка кнопок и поле. */
 .chat-panel__composer-side {
   display: flex;
   flex: 1 1 auto;
-  align-items: center;
-  gap: 6px;
+  align-items: flex-start;
+  gap: 4px;
   min-width: 0;
 }
 
-/* Скрепка и агент в один ряд, пока поле в одну строку. */
+/* Левая колонка: очистить, скрепка, агент — сверху вниз. */
 .chat-panel__composer-lead {
   display: flex;
   flex: 0 0 auto;
-  flex-direction: row;
+  flex-direction: column;
   align-items: center;
-  gap: 0;
+  gap: 2px;
 }
 
-/* Правая часть: все кнопки действия. В одну строку — только в обычном режиме. */
+/* Правая колонка: свернуть, микрофон, отправка — сверху вниз. */
 .chat-panel__composer-actions {
   display: flex;
   flex: 0 0 auto;
-  flex-direction: row;
+  flex-direction: column;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
 }
 
-/* Кнопки — в один ряд с полем: по умолчанию ввод ровно в одну строку. */
+/* Группы внутри колонки тоже вертикальные, без своего ряда. */
 .chat-panel__composer-stack {
   display: flex;
   flex: 0 0 auto;
-  flex-direction: row;
+  flex-direction: column;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
 }
 
 .chat-panel__composer-stack .chat-panel__icon-btn {
@@ -6560,75 +6568,26 @@ function onRateChange(event: Event): void {
   height: 16px;
 }
 
-/* В обычной высоте группы кнопок не рисуют свою коробку: кнопки остаются в ряду. */
+/* Группа кнопок в колонке — тоже столбец, не ряд. */
 .chat-panel__composer-edge {
-  display: contents;
-}
-
-/* Три строки и больше: колонки по бокам, высота рамки — только у текста. */
-.chat-panel__composer-box.is-columns {
-  align-items: stretch;
-  padding-left: 40px;
-  padding-right: 40px;
-}
-
-.chat-panel__composer-box.is-columns .chat-panel__composer-lead,
-.chat-panel__composer-box.is-columns .chat-panel__composer-actions {
-  position: absolute;
-  top: 4px;
-  bottom: 4px;
-  z-index: 3;
-  flex-direction: column;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0;
-  width: 32px;
-  min-height: 0;
-  margin: 0;
-}
-
-.chat-panel__composer-box.is-columns .chat-panel__composer-lead {
-  left: 4px;
-}
-
-.chat-panel__composer-box.is-columns .chat-panel__composer-actions {
-  right: 4px;
-  left: auto;
-}
-
-.chat-panel__composer-box.is-columns .chat-panel__composer-edge,
-.chat-panel__composer-box.is-columns .chat-panel__composer-stack {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
 }
 
-/* Верхняя группа прижата к верху колонки, нижняя — к низу, даже на трёх строках. */
-.chat-panel__composer-box.is-columns .chat-panel__composer-edge:first-child {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
+/* Узкие кнопки: колонка не съедает ширину текста. */
+.chat-panel__composer-box .chat-panel__icon-btn,
+.chat-panel__composer-box .chat-panel__send,
+.chat-panel__composer-box .chat-panel__send.is-stop {
+  width: 28px;
+  height: 28px;
 }
 
-.chat-panel__composer-box.is-columns .chat-panel__composer-edge:last-child {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-}
-
-.chat-panel__composer-box.is-columns .chat-panel__icon-btn,
-.chat-panel__composer-box.is-columns .chat-panel__send {
-  width: 22px;
-  height: 22px;
-}
-
-.chat-panel__composer-box.is-columns .chat-panel__icon-btn svg,
-.chat-panel__composer-box.is-columns .chat-panel__send svg {
-  width: 15px;
-  height: 15px;
+.chat-panel__composer-box .chat-panel__icon-btn svg,
+.chat-panel__composer-box .chat-panel__send svg {
+  width: 16px;
+  height: 16px;
 }
 
 /* «Очистить» — верх левой колонки. */
@@ -6656,7 +6615,7 @@ function onRateChange(event: Event): void {
   display: flex;
   flex: 1 1 auto;
   /* Высота — по полю, иначе подложка выше текста и подсветка съезжает. */
-  align-self: center;
+  align-self: flex-start;
   min-width: 0;
 }
 
@@ -6745,26 +6704,13 @@ function onRateChange(event: Event): void {
     font-size: 0.84rem;
     line-height: 1.4;
   }
-  /* Композер на телефоне: кнопки крупные, чтобы попадать пальцем.
-     «Свернуть» в углу остаётся компактным и не налезает на отправку. */
-  .chat-panel__composer-box .chat-panel__icon-btn:not(.is-corner) {
-    width: 40px;
-    height: 40px;
-  }
-  .chat-panel__composer-box:not(.is-multiline) .chat-panel__send {
-    width: 44px;
-    height: 44px;
-  }
-  .chat-panel__composer-box:not(.is-multiline) .chat-panel__send.is-stop {
-    width: 36px;
-    height: 36px;
-  }
-  /* Колонка не раздувается до пальцевых 40px: иначе кнопки выше самого поля. */
-  .chat-panel__composer-box.is-columns .chat-panel__icon-btn,
-  .chat-panel__composer-box.is-columns .chat-panel__send,
-  .chat-panel__composer-box.is-columns .chat-panel__send.is-stop {
-    width: 22px;
-    height: 22px;
+  /* Колонка остаётся узкой и на телефоне: иначе кнопки снова встают в ряд
+     и отнимают ширину у текста. */
+  .chat-panel__composer-box .chat-panel__icon-btn,
+  .chat-panel__composer-box .chat-panel__send,
+  .chat-panel__composer-box .chat-panel__send.is-stop {
+    width: 28px;
+    height: 28px;
   }
 }
 
@@ -7412,16 +7358,17 @@ function onRateChange(event: Event): void {
     height: 22px;
   }
 
-  .chat-panel__composer-lead .chat-panel__icon-btn,
-  .chat-panel__composer-stack .chat-panel__icon-btn {
-    width: 32px;
-    height: 32px;
+  .chat-panel__composer-box .chat-panel__icon-btn,
+  .chat-panel__composer-box .chat-panel__send,
+  .chat-panel__composer-box .chat-panel__send.is-stop {
+    width: 28px;
+    height: 28px;
   }
 
-  .chat-panel__composer-lead .chat-panel__icon-btn svg,
-  .chat-panel__composer-stack .chat-panel__icon-btn svg {
-    width: 18px;
-    height: 18px;
+  .chat-panel__composer-box .chat-panel__icon-btn svg,
+  .chat-panel__composer-box .chat-panel__send svg {
+    width: 16px;
+    height: 16px;
   }
 }
 

@@ -13,7 +13,7 @@
  */
 
 import { parseTokens, normalizeTokenName, tokensToValues, type TokenLookup } from "./format";
-import { replaceValues, restoreValues } from "./registry";
+import { replaceValues, restoreValues, type TokenEntry } from "./registry";
 
 /** Исходная форма токена: имя и номер вхождения среди одноимённых. */
 export type FormLookup = (name: string, index: number) => string | null;
@@ -61,9 +61,10 @@ export function draftText(
   visible: string,
   showValues: boolean,
   onHit?: (hit: { name: string; form: string }) => void,
+  entries?: readonly TokenEntry[],
 ): string {
   if (!showValues) return visible;
-  return replaceValues(visible, onHit).text;
+  return replaceValues(visible, onHit, entries).text;
 }
 
 /**
@@ -72,9 +73,14 @@ export function draftText(
  * Считаем по префиксу: то, что человек уже набрал до каретки, перекодируется
  * тем же движком, и длина префикса в токенах даёт позицию в черновике.
  */
-export function toDraftCaret(visible: string, offset: number, showValues: boolean): number {
+export function toDraftCaret(
+  visible: string,
+  offset: number,
+  showValues: boolean,
+  entries?: readonly TokenEntry[],
+): number {
   if (!showValues) return offset;
-  return replaceValues(visible.slice(0, offset)).text.length;
+  return replaceValues(visible.slice(0, offset), undefined, entries).text.length;
 }
 
 /** Смещение каретки из черновика в видимый текст (обратная перекодировка). */
@@ -102,6 +108,7 @@ export function visiblePieces(
   tokenText: string,
   showValues: boolean,
   formFor?: FormLookup,
+  lookup?: TokenLookup,
 ): VisiblePiece[] {
   const source = String(tokenText ?? "");
   if (!showValues) {
@@ -130,7 +137,8 @@ export function visiblePieces(
     const index = counters.get(key) ?? 0;
     counters.set(key, index + 1);
     const form = formFor?.(token.name, index) ?? null;
-    const shown = form && form.trim() ? form : restoreValues(token.raw);
+    const read = lookup ? tokensToValues(token.raw, lookup) : restoreValues(token.raw);
+    const shown = form && form.trim() ? form : read;
     pieces.push({
       draftStart: token.start,
       draftEnd: token.end,
@@ -165,11 +173,12 @@ export function draftOffsetForVisible(
   visibleOffset: number,
   showValues: boolean,
   formFor?: FormLookup,
+  lookup?: TokenLookup,
 ): number {
   const source = String(tokenText ?? "");
   const at = Math.max(0, Math.trunc(visibleOffset) || 0);
   if (!showValues) return Math.min(at, source.length);
-  const pieces = visiblePieces(source, true, formFor);
+  const pieces = visiblePieces(source, true, formFor, lookup);
   for (const piece of pieces) {
     if (at < piece.visibleStart || at > piece.visibleEnd) continue;
     if (piece.token) {
@@ -187,11 +196,12 @@ export function visibleOffsetForDraft(
   draftOffset: number,
   showValues: boolean,
   formFor?: FormLookup,
+  lookup?: TokenLookup,
 ): number {
   const source = String(tokenText ?? "");
   const at = Math.max(0, Math.trunc(draftOffset) || 0);
   if (!showValues) return Math.min(at, source.length);
-  const pieces = visiblePieces(source, true, formFor);
+  const pieces = visiblePieces(source, true, formFor, lookup);
   for (const piece of pieces) {
     if (at < piece.draftStart || at > piece.draftEnd) continue;
     // Конец куска — конец показанной формы. Иначе каретка конца токена
