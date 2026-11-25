@@ -1800,6 +1800,7 @@ const OVERHANG_SELECTOR = [
   ".chat-panel__selection",
   ".chat-panel__tokenbar",
   ".chat-panel__token-pick",
+  ".chat-panel__notice--over-tokens",
 ].join(",");
 
 /** На сколько верхняя из плашек выступает над доком (px) — ровно столько
@@ -4764,6 +4765,12 @@ function onRateChange(event: Event): void {
         </button>
       </p>
       <p v-if="notice" class="chat-panel__notice" role="status">{{ notice }}</p>
+      <p
+        v-if="notice && isTokenSession(activeSession)"
+        class="chat-panel__notice chat-panel__notice--over-tokens"
+        role="status"
+        aria-hidden="true"
+      >{{ notice }}</p>
 
       <SessionQueue
         :items="sessionQueue"
@@ -6157,6 +6164,18 @@ function onRateChange(event: Event): void {
   font-size: 0.75rem;
 }
 
+/* В режиме токенов тот же зелёный текст всплывает над кнопками токенов
+   (док прозрачный, поэтому копия видна на ленте) и исчезает вместе с notice. */
+.chat-panel__notice--over-tokens {
+  position: absolute;
+  z-index: 7;
+  bottom: calc(100% + 6px);
+  inset-inline-start: 0;
+  padding: 0 2px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .chat-panel__link {
   padding: 0 4px;
   border: 0;
@@ -7248,6 +7267,13 @@ function onRateChange(event: Event): void {
   padding: 4px 8px;
   border-radius: 10px;
   background: var(--panel);
+}
+
+/* Копия над кнопками токенов — без подложки, как и в обычном доке. */
+.chat-panel__dock.is-float .chat-panel__notice--over-tokens {
+  padding: 0 2px;
+  border-radius: 0;
+  background: none;
 }
 </style>
 
