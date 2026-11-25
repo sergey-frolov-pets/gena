@@ -1,49 +1,42 @@
 /**
- * События использования — в момент первого успешного запроса агенту.
+ * События использования — счётчики Gena в GoatCounter.
  *
- * Правило: факт уходит только тогда, когда запрос реально закончился ответом
- * (упавший запрос, отмена и обрыв связи в отчёт не попадают). Одно событие —
- * один факт, повторов нет: ни после перезагрузки страницы, ни с каждым сообщением.
+ * Четыре вида счётчиков (пути отчёта Events):
  *
- * Что уходит в GoatCounter (пути отчёта Events):
- *   chat/plain               — первый успешный запрос в обычном диалоге
- *   chat/token               — первый успешный запрос в защищённом диалоге
- *   protocol/<p>             — первый успешный запрос через подключение такого протокола
- *   agent/<t>                — первый успешный запрос к агенту такого типа
- *   model/<m>                — первый успешный запрос с такой моделью
- *   protocol/<p>/<m>         — первая успешная пара «протокол + модель»
- *   agent/<t>/<m>            — первая успешная пара «тип агента + модель»
- *   language/<l>             — язык интерфейса, раз в сутки
+ *   visit/app            — один раз на вход в приложение (сессия вкладки),
+ *                          к нему же прикладывается язык интерфейса
+ *   page/<вкладка>       — просмотр раздела: page/connections, page/about,
+ *                          page/sessions, page/tokens. Диалоги сюда НЕ входят:
+ *                          чаты считаются отдельно (chat/simple, chat/protected)
+ *   click/<куда>         — переход по внешней ссылке: click/github,
+ *                          click/discussions, click/donation, click/license,
+ *                          click/site/<провайдер или агент>
+ *   chat/simple          — первый успешный запрос в обычном диалоге
+ *   chat/protected       — первый успешный запрос в защищённом диалоге
+ *   provider/<p>/<m>     — подключение по HTTP-протоколу: провайдер и модель,
+ *                          например provider/openrouter/deepseek-flash
+ *   protocol/<p>/<a>     — подключение по WebSocket: протокол и агент,
+ *                          например protocol/pico_ws/picoclaw
  *
- * Тип агента (agent/<t>): picoclaw, openclaw, hermes, custom. Определяется по
- * настройкам подключения, а если там ничего не сказано — по адресу: слово
- * openclaw/hermes/pico в URL или известный порт (18789 / 8642 / 18790).
+ * Правило «одно событие — один факт»: повторов нет ни после перезагрузки
+ * страницы, ни с каждым сообщением. Счётчики провайдеров/моделей и диалогов
+ * запоминаются в хранилище; визит и просмотры страниц — только в памяти
+ * (это события текущего открытия приложения).
  *
- * Диалог считается по режиму: если в нём сначала писали без защиты, а потом
- * включили защищённый режим (или наоборот), это два разных чата — `chat/plain`
- * и `chat/token`.
- *
- * В отчёт не попадает ничего личного: ни адреса, ни ключи, ни названия диалогов,
- * ни тексты сообщений. Модель, протокол и тип агента режутся до безопасного пути.
+ * В отчёт не попадает ничего личного: ни адреса, ни ключи, ни названия
+ * диалогов, ни тексты сообщений. Модель, протокол и тип агента режутся до
+ * безопасного пути.
  */
 
 import type { Agent, OpenAIConfig, Session } from "@/storage/types";
-// Пул и сводка временно выключены — типы понадобятся, когда вернём.
-// import type { ModelMixConfig, ModelPoolConfig } from "@/storage/types";
 import { trackEvent } from "./goatcounter";
 
 /** Язык интерфейса — один раз в сутки. */
 const DAY_KEY = "gena.analytics.day";
-/** Протоколы, по которым уже был успешный запрос. */
-const PROVIDERS_KEY = "gena.analytics.providers.v2";
-/** Типы агентов, по которым уже был успешный запрос. */
-const AGENTS_KEY = "gena.analytics.agents.v1";
 /** Модели, с которыми уже был успешный запрос. */
 const MODELS_KEY = "gena.analytics.models.v2";
-/** Пары «протокол + модель», по которым уже был успешный запрос. */
+/** Пары «провайдер/протокол + модель/агент», которые уже посчитаны. */
 const PAIRS_KEY = "gena.analytics.pairs.v2";
-/** Пары «тип агента + модель», по которым уже был успешный запрос. */
-const AGENT_PAIRS_KEY = "gena.analytics.agent-pairs.v1";
 /** Диалоги с режимом, которые уже посчитаны: каждый — одно событие. */
 const CHATS_KEY = "gena.analytics.chats.v2";
 /** Списки не должны расти бесконечно. */
@@ -65,16 +58,6 @@ export function modelsOf(agent: Agent): string[] {
   const protocol = agent.protocol ?? "http_json";
   // Пул моделей и «сводка» временно выключены: такие подключения не создаются,
   // и событий по ним нет. Код оставлен закомментированным, а не удалён.
-  // if (protocol === "model_pool") {
-  //   const models = (agent.config as ModelPoolConfig | undefined)?.models ?? [];
-  //   const ids = models.map((model) => model.id.trim()).filter(Boolean);
-  //   return ids.length > 0 ? ids : ["default"];
-  // }
-  // if (protocol === "model_mix") {
-  //   const routes = (agent.config as ModelMixConfig | undefined)?.routes ?? [];
-  //   const ids = routes.map((route) => route.model.trim()).filter(Boolean);
-  //   return ids.length > 0 ? ids : ["default"];
-  // }
   if (protocol === "model_pool" || protocol === "model_mix") return [];
   if (protocol === "openai") {
     const model = (agent.config as OpenAIConfig | undefined)?.model?.trim() || agent.settings.llmModel.trim();
@@ -113,25 +96,87 @@ export function agentTypeOf(agent: Agent): AgentType {
   return "custom";
 }
 
-/** Что уже отправлено: день (язык), протоколы, типы, модели, пары, диалоги. */
+/** Провайдер по адресу подключения: короткое имя, адрес в отчёт не уходит. */
+export function providerOf(agent: Agent): string {
+  let host = "";
+  try {
+    host = new URL(agent.address ?? "").hostname.toLowerCase();
+  } catch {
+    host = "";
+  }
+  const known: [string, string][] = [
+    ["openrouter.ai", "openrouter"],
+    ["openai.com", "openai"],
+    ["groq.com", "groq"],
+    ["deepseek.com", "deepseek"],
+    ["anthropic.com", "anthropic"],
+    ["mistral.ai", "mistral"],
+    ["googleapis.com", "gemini"],
+    ["moonshot.ai", "moonshot"],
+  ];
+  for (const [suffix, name] of known) {
+    if (host.endsWith(suffix)) return name;
+  }
+  return "custom";
+}
+
+/**
+ * Подключение в отчёте: одна строка на подключение.
+ *
+ * WebSocket-подключение описывается протоколом и агентом
+ * (`protocol/pico_ws/picoclaw`), HTTP-подключение — провайдером и моделью
+ * (`provider/openrouter/deepseek-flash`).
+ */
+export interface ConnectionPath {
+  /** Вид счётчика: `provider` или `protocol`. */
+  kind: "provider" | "protocol";
+  /** Провайдер (для HTTP) или протокол (для WebSocket). */
+  first: string;
+  /** Модель (для HTTP) или тип агента (для WebSocket). */
+  second: string;
+  /** Полный путь в отчёте. */
+  path: string;
+}
+
+/** Подключение в отчёте: протокол/агент для ws, провайдер/модель для HTTP. */
+export function connectionPathOf(agent: Agent, servedModel?: string): ConnectionPath {
+  const protocol = agent.protocol ?? "http_json";
+  const rawServed = servedModel?.trim();
+  // Сервер может прислать служебное «default» — это не модель, а заглушка:
+  // такие значения в отчёт не пишем, берём модель из настроек подключения.
+  const served = rawServed && rawServed.toLowerCase() !== "default" ? rawServed : undefined;
+  if (protocol === "pico_ws") {
+    const agentType = analyticsSlug(agentTypeOf(agent));
+    return {
+      kind: "protocol",
+      first: analyticsSlug(protocol),
+      second: agentType,
+      path: `protocol/${analyticsSlug(protocol)}/${agentType}`,
+    };
+  }
+  const provider = analyticsSlug(providerOf(agent));
+  const model = analyticsSlug(served ?? modelsOf(agent)[0] ?? "default");
+  return {
+    kind: "provider",
+    first: provider,
+    second: model,
+    path: `provider/${provider}/${model}`,
+  };
+}
+
+/** Что уже отправлено: день (язык), модели, пары подключений, диалоги. */
 export interface UsageState {
   day: string;
-  providers: string[];
-  agents: string[];
   models: string[];
   pairs: string[];
-  agentPairs: string[];
   chats: string[];
 }
 
 /** Пустое состояние — для тестов и первого запуска. */
 export const emptyUsageState: UsageState = {
   day: "",
-  providers: [],
-  agents: [],
   models: [],
   pairs: [],
-  agentPairs: [],
   chats: [],
 };
 
@@ -200,62 +245,35 @@ export function agentEvents(
 ): { events: string[]; state: UsageState } {
   const next: UsageState = {
     day,
-    providers: [...state.providers],
-    agents: [...state.agents],
     models: [...state.models],
     pairs: [...state.pairs],
-    agentPairs: [...state.agentPairs],
     chats: [...state.chats],
   };
   const events: string[] = [];
   if (state.day !== day) events.push(`language/${analyticsSlug(language)}`);
 
-  const protocol = analyticsSlug(agent.protocol ?? "http_json");
+  const protocol = agent.protocol ?? "http_json";
   // Пул и сводка временно выключены (см. modelsOf): по ним не отправляем
-  // ни протокол, ни тип, ни модели. Вернуть — раскомментировать modelsOf.
+  // ни провайдера, ни протокол, ни модели. Вернуть — раскомментировать modelsOf.
   const disabled = protocol === "model_pool" || protocol === "model_mix";
-  // Сервер может прислать служебное «default» — это не модель, а заглушка:
-  // такие значения в отчёт не пишем, берём модель из настроек подключения.
-  const rawServed = servedModel?.trim();
-  const served = rawServed && rawServed.toLowerCase() !== "default" ? rawServed : undefined;
-  const models = disabled ? [] : served ? [served] : modelsOf(agent);
 
   if (!disabled) {
-    const type = analyticsSlug(agentTypeOf(agent));
-    if (!next.providers.includes(protocol)) {
-      events.push(`protocol/${protocol}`);
-      push(next.providers, protocol);
+    const connection = connectionPathOf(agent, servedModel);
+    const model = connection.kind === "provider" ? connection.second : undefined;
+    if (model && !next.models.includes(model)) {
+      events.push(`model/${model}`);
+      push(next.models, model);
     }
-    if (!next.agents.includes(type)) {
-      events.push(`agent/${type}`);
-      push(next.agents, type);
-    }
-    const seen = new Set<string>();
-    for (const model of models) {
-      const slug = analyticsSlug(model);
-      if (seen.has(slug)) continue;
-      seen.add(slug);
-      if (!next.models.includes(slug)) {
-        events.push(`model/${slug}`);
-        push(next.models, slug);
-      }
-      const pair = `${protocol}/${slug}`;
-      if (!next.pairs.includes(pair)) {
-        events.push(`protocol/${protocol}/${slug}`);
-        push(next.pairs, pair);
-      }
-      const agentPair = `${type}/${slug}`;
-      if (!next.agentPairs.includes(agentPair)) {
-        events.push(`agent/${type}/${slug}`);
-        push(next.agentPairs, agentPair);
-      }
+    if (!next.pairs.includes(connection.path)) {
+      events.push(connection.path);
+      push(next.pairs, connection.path);
     }
   }
 
   if (session) {
     const key = chatKey(session);
     if (!next.chats.includes(key)) {
-      events.push(session.tokenMode ? "chat/token" : "chat/plain");
+      events.push(session.tokenMode ? "chat/protected" : "chat/simple");
       push(next.chats, key);
     }
   }
@@ -285,54 +303,41 @@ function union(first: readonly string[], second: readonly string[]): string[] {
 function readState(box: Storage | null): UsageState {
   const stored = {
     day: readDay(box),
-    providers: readList(PROVIDERS_KEY, box),
-    agents: readList(AGENTS_KEY, box),
     models: readList(MODELS_KEY, box),
     pairs: readList(PAIRS_KEY, box),
-    agentPairs: readList(AGENT_PAIRS_KEY, box),
     chats: readList(CHATS_KEY, box),
   };
   return {
     day: stored.day > memory.day ? stored.day : memory.day,
-    providers: union(stored.providers, memory.providers),
-    agents: union(stored.agents, memory.agents),
     models: union(stored.models, memory.models),
     pairs: union(stored.pairs, memory.pairs),
-    agentPairs: union(stored.agentPairs, memory.agentPairs),
     chats: union(stored.chats, memory.chats),
   };
 }
 
 function writeState(state: UsageState, box: Storage | null): void {
   memory.day = state.day;
-  memory.providers = [...state.providers];
-  memory.agents = [...state.agents];
   memory.models = [...state.models];
   memory.pairs = [...state.pairs];
-  memory.agentPairs = [...state.agentPairs];
   memory.chats = [...state.chats];
   try {
     box?.setItem(DAY_KEY, state.day);
   } catch {
     // Приватный режим: день не запомнится, язык уйдёт повторно.
   }
-  writeJson(PROVIDERS_KEY, state.providers, box);
-  writeJson(AGENTS_KEY, state.agents, box);
   writeJson(MODELS_KEY, state.models, box);
   writeJson(PAIRS_KEY, state.pairs, box);
-  writeJson(AGENT_PAIRS_KEY, state.agentPairs, box);
   writeJson(CHATS_KEY, state.chats, box);
 }
 
 /** Сбросить копию в памяти — нужно тестам, в приложении не вызывается. */
 export function resetUsageMemory(): void {
   memory.day = "";
-  memory.providers = [];
-  memory.agents = [];
   memory.models = [];
   memory.pairs = [];
-  memory.agentPairs = [];
   memory.chats = [];
+  visited = false;
+  pages.clear();
 }
 
 /**
@@ -341,7 +346,8 @@ export function resetUsageMemory(): void {
  * Вызывается после получения ответа, а не в момент отправки: упавший или
  * отменённый запрос не должен попасть в статистику. Повторный запрос в том же
  * диалоге и с теми же моделью/подключением — тишина; первый запрос в другом
- * режиме (защищённый ⇄ обычный) — новое событие `chat/plain` или `chat/token`.
+ * режиме (защищённый ⇄ обычный) — новое событие `chat/simple` или
+ * `chat/protected`.
  */
 export function reportAgentUse(
   agent: Agent,
@@ -354,4 +360,70 @@ export function reportAgentUse(
   if (events.length === 0) return;
   for (const name of events) trackEvent(name);
   writeState(state, box);
+}
+
+/** Визит уже посчитан в этом открытии приложения. */
+let visited = false;
+
+/**
+ * Вход в приложение — один раз на сессию вкладки.
+ *
+ * `visit/app` уходит при первом показе приложения, язык интерфейса
+ * прикладывается к нему же (раз в сутки). Повторные вызовы молчат.
+ */
+export function reportAppVisit(language: string): void {
+  if (visited) return;
+  visited = true;
+  trackEvent("visit/app");
+  const box = store();
+  const day = today();
+  if (readDay(box) !== day) {
+    trackEvent(`language/${analyticsSlug(language)}`);
+    try {
+      box?.setItem(DAY_KEY, day);
+    } catch {
+      // Приватный режим: язык уйдёт повторно при следующем входе.
+    }
+    memory.day = day;
+  }
+}
+
+/** Разделы, которые считаются просмотрами страниц. */
+export type PageTab = "connections" | "sessions" | "tokens" | "about";
+
+/** Просмотренные за это открытие разделы: повторный переход не считается. */
+const pages = new Set<string>();
+
+/**
+ * Просмотр раздела — один раз за открытие приложения на раздел.
+ *
+ * Диалоги (`chat`) сюда не передаются: чаты считаются отдельно, событием
+ * `chat/simple` или `chat/protected`.
+ */
+export function reportPage(tab: PageTab): void {
+  if (pages.has(tab)) return;
+  pages.add(tab);
+  trackEvent(`page/${tab}`);
+}
+
+/** Ссылки футера и каталога: что именно считаем кликом. */
+export type ClickTarget = "github" | "discussions" | "donation" | "license";
+
+/**
+ * Переход по внешней ссылке — событие `click/<куда>`.
+ *
+ * Для сайтов провайдеров и агентов из каталога — `click/site/<имя>`;
+ * имя режется до безопасного пути, сам адрес в отчёт не уходит.
+ */
+export function reportClick(target: ClickTarget | string): void {
+  const slug = analyticsSlug(target);
+  if (slug === "unknown") return;
+  trackEvent(`click/${slug}`);
+}
+
+/** Клик по сайту провайдера или агента из каталога. */
+export function reportSiteClick(name: string): void {
+  const slug = analyticsSlug(name);
+  if (slug === "unknown") return;
+  trackEvent(`click/site/${slug}`);
 }

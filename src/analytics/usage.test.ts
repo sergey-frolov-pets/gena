@@ -5,9 +5,15 @@ import {
   agentEvents,
   agentTypeOf,
   analyticsSlug,
+  connectionPathOf,
   emptyUsageState,
   modelsOf,
+  providerOf,
   reportAgentUse,
+  reportAppVisit,
+  reportPage,
+  reportClick,
+  reportSiteClick,
   resetUsageMemory,
   type UsageState,
 } from "./usage";
@@ -69,7 +75,44 @@ describe("путь отчёта", () => {
     ).toEqual([]);
     const pool = agent({ protocol: "model_pool", config: { models: [{ id: "a" }] } });
     const { events } = agentEvents(pool, session("s1"), "ru", empty, "2026-11-24");
-    expect(events).toEqual(["language/ru", "chat/plain"]);
+    expect(events).toEqual(["language/ru", "chat/simple"]);
+  });
+
+  it("провайдер узнаётся по адресу, адрес в отчёт не уходит", () => {
+    expect(providerOf(agent({ address: "https://openrouter.ai/api/v1" }))).toBe("openrouter");
+    expect(providerOf(agent({ address: "https://api.deepseek.com/v1" }))).toBe("deepseek");
+    expect(providerOf(agent({ address: "https://api.moonshot.ai/v1" }))).toBe("moonshot");
+    expect(providerOf(agent({ address: "https://example.org/v1" }))).toBe("custom");
+  });
+});
+
+describe("путь подключения", () => {
+  it("HTTP-подключение — провайдер и модель", () => {
+    const path = connectionPathOf(
+      agent({ protocol: "openai", address: "https://openrouter.ai/api/v1", config: { model: "deepseek-flash" } }),
+    );
+    expect(path).toEqual({
+      kind: "provider",
+      first: "openrouter",
+      second: "deepseek-flash",
+      path: "provider/openrouter/deepseek-flash",
+    });
+  });
+
+  it("WebSocket-подключение — протокол и агент", () => {
+    const path = connectionPathOf(agent({ protocol: "pico_ws", address: "ws://127.0.0.1:18790" }));
+    expect(path).toEqual({
+      kind: "protocol",
+      first: "pico_ws",
+      second: "picoclaw",
+      path: "protocol/pico_ws/picoclaw",
+    });
+  });
+
+  it("модель из ответа точнее настройки, служебное «default» игнорируется", () => {
+    const openai = agent({ protocol: "openai", address: "https://openrouter.ai/api/v1", config: { model: "gpt-4o" } });
+    expect(connectionPathOf(openai, "ds-pro").path).toBe("provider/openrouter/ds-pro");
+    expect(connectionPathOf(openai, "default").path).toBe("provider/openrouter/gpt-4o");
   });
 });
 
@@ -86,7 +129,7 @@ describe("тип агента", () => {
     expect(agentTypeOf(agent({ protocol: "openai", config: { model: "x" }, address: "http://127.0.0.1:18789/v1" }))).toBe(
       "openclaw",
     );
-    expect(agentTypeOf(agent({ protocol: "openai", config: { model: "x" }, address: "http://box.local:8642/v1" }))).toBe(
+    expect(agentTypeOf(agent({ protocol: "openai", config: { model: "x" }, address: "http://box.example:8642/v1" }))).toBe(
       "hermes",
     );
     expect(agentTypeOf(agent({ protocol: "pico_ws", address: "ws://127.0.0.1:18790" }))).toBe("picoclaw");
@@ -109,25 +152,19 @@ describe("тип агента", () => {
 });
 
 describe("события первого успешного запроса", () => {
-  it("уходят сразу все виды: язык, протокол, тип, модель и две пары, диалог", () => {
-    const openai = agent({ protocol: "openai", config: { model: "gpt-4o" } });
+  it("HTTP: язык, модель, провайдер/модель, чат", () => {
+    const openai = agent({ protocol: "openai", address: "https://openrouter.ai/api/v1", config: { model: "gpt-4o" } });
     const { events, state } = agentEvents(openai, session("s1"), "ru", empty, "2026-11-24");
     expect(events).toEqual([
       "language/ru",
-      "protocol/openai",
-      "agent/custom",
       "model/gpt-4o",
-      "protocol/openai/gpt-4o",
-      "agent/custom/gpt-4o",
-      "chat/plain",
+      "provider/openrouter/gpt-4o",
+      "chat/simple",
     ]);
     expect(state).toEqual({
       day: "2026-11-24",
-      providers: ["openai"],
-      agents: ["custom"],
       models: ["gpt-4o"],
-      pairs: ["openai/gpt-4o"],
-      agentPairs: ["custom/gpt-4o"],
+      pairs: ["provider/openrouter/gpt-4o"],
       chats: ["s1|plain"],
     });
     expect(events.join(" ")).not.toContain("личный");
@@ -135,22 +172,10 @@ describe("события первого успешного запроса", () =
     expect(events.join(" ")).not.toContain("Секретное");
   });
 
-  it("openclaw: тип по модели, в путях и парах он же", () => {
-    const openclaw = agent({
-      protocol: "openai",
-      config: { model: "openclaw/default" },
-      address: "http://127.0.0.1:18789/v1",
-    });
-    const { events } = agentEvents(openclaw, session("s1"), "ru", empty, "2026-11-24");
-    expect(events).toEqual([
-      "language/ru",
-      "protocol/openai",
-      "agent/openclaw",
-      "model/openclaw-default",
-      "protocol/openai/openclaw-default",
-      "agent/openclaw/openclaw-default",
-      "chat/plain",
-    ]);
+  it("WebSocket: язык, протокол/агент, чат", () => {
+    const pico = agent({ protocol: "pico_ws", address: "ws://127.0.0.1:18790", settings: { contextSize: 8, callLimit: 0, llmModel: "deepseek-flash" } });
+    const { events } = agentEvents(pico, session("s1"), "ru", empty, "2026-11-24");
+    expect(events).toEqual(["language/ru", "protocol/pico_ws/picoclaw", "chat/simple"]);
   });
 
   it("повторный запрос в тот же диалог и к тому же подключению — тишина", () => {
@@ -165,7 +190,7 @@ describe("события первого успешного запроса", () =
     const openai = agent({ protocol: "openai", config: { model: "gpt-4o" } });
     const first = agentEvents(openai, session("s1"), "ru", empty, "2026-11-24");
     const second = agentEvents(openai, session("s2", true), "ru", first.state, "2026-11-24");
-    expect(second.events).toEqual(["chat/token"]);
+    expect(second.events).toEqual(["chat/protected"]);
     expect(second.state.chats).toEqual(["s1|plain", "s2|token"]);
   });
 
@@ -173,7 +198,7 @@ describe("события первого успешного запроса", () =
     const openai = agent({ protocol: "openai", config: { model: "gpt-4o" } });
     const plain = agentEvents(openai, session("s1"), "ru", empty, "2026-11-24");
     const token = agentEvents(openai, session("s1", true), "ru", plain.state, "2026-11-24");
-    expect(token.events).toEqual(["chat/token"]);
+    expect(token.events).toEqual(["chat/protected"]);
     expect(token.state.chats).toEqual(["s1|plain", "s1|token"]);
     const back = agentEvents(openai, session("s1"), "ru", token.state, "2026-11-24");
     expect(back.events).toEqual([]);
@@ -182,30 +207,12 @@ describe("события первого успешного запроса", () =
   it("модель, которой ответил сервер, важнее настройки подключения", () => {
     const pico = agent({ protocol: "pico_ws", settings: { contextSize: 8, callLimit: 0, llmModel: "deepseek-flash" } });
     const { events } = agentEvents(pico, session("s1"), "ru", empty, "2026-11-24", "ds-pro");
-    expect(events).toContain("model/ds-pro");
-    expect(events).toContain("protocol/pico_ws/ds-pro");
-    expect(events).toContain("agent/picoclaw/ds-pro");
+    expect(events).toContain("protocol/pico_ws/picoclaw");
     expect(events.join(" ")).not.toContain("deepseek-flash");
   });
 
-  it("служебное «default» от сервера — не модель: берём настройку подключения", () => {
-    const pico = agent({ protocol: "pico_ws", settings: { contextSize: 8, callLimit: 0, llmModel: "deepseek-flash" } });
-    const { events } = agentEvents(pico, session("s1"), "ru", empty, "2026-11-24", "default");
-    expect(events).toContain("model/deepseek-flash");
-    expect(events.join(" ")).not.toContain("model/default");
-  });
-
-  it("защищённый диалог, из которого вышли в обычный, тоже считается дважды", () => {
-    const openai = agent({ protocol: "openai", config: { model: "gpt-4o" } });
-    const token = agentEvents(openai, session("s1", true), "ru", empty, "2026-11-24");
-    expect(token.events).toContain("chat/token");
-    const plain = agentEvents(openai, session("s1", false), "ru", token.state, "2026-11-24");
-    expect(plain.events).toEqual(["chat/plain"]);
-    expect(plain.state.chats).toEqual(["s1|token", "s1|plain"]);
-  });
-
-  it("другой агент в тот же день: новый тип, модель и пары, протокол уже был", () => {
-    const openai = agent({ protocol: "openai", config: { model: "gpt-4o" } });
+  it("другой агент в тот же день: новое подключение, протокол уже был", () => {
+    const openai = agent({ protocol: "openai", address: "https://openrouter.ai/api/v1", config: { model: "gpt-4o" } });
     const hermes = agent({
       id: "b",
       protocol: "openai",
@@ -215,35 +222,18 @@ describe("события первого успешного запроса", () =
     const first = agentEvents(openai, session("s1"), "ru", empty, "2026-11-24");
     const second = agentEvents(hermes, session("s2"), "ru", first.state, "2026-11-24");
     expect(second.events).toEqual([
-      "agent/hermes",
       "model/hermes-agent",
-      "protocol/openai/hermes-agent",
-      "agent/hermes/hermes-agent",
-      "chat/plain",
+      "provider/custom/hermes-agent",
+      "chat/simple",
     ]);
   });
 
-  it("новые сутки — только язык, протоколы и модели не повторяются", () => {
+  it("новые сутки — только язык, модели и подключения не повторяются", () => {
     const openai = agent({ protocol: "openai", config: { model: "gpt-4o" } });
     const first = agentEvents(openai, session("s1"), "ru", empty, "2026-11-24");
     const nextDay = agentEvents(openai, session("s1"), "ru", first.state, "2026-11-25");
     expect(nextDay.events).toEqual(["language/ru"]);
     expect(nextDay.state.chats).toEqual(["s1|plain"]);
-  });
-
-  it("модель из ответа точнее настройки", () => {
-    const openai = agent({ protocol: "openai", config: { model: "gpt-4o" } });
-    const { events, state } = agentEvents(openai, session("s1"), "ru", empty, "2026-11-24", "real-model");
-    expect(events).toEqual([
-      "language/ru",
-      "protocol/openai",
-      "agent/custom",
-      "model/real-model",
-      "protocol/openai/real-model",
-      "agent/custom/real-model",
-      "chat/plain",
-    ]);
-    expect(state.models).toEqual(["real-model"]);
   });
 
   it("кириллица в названии модели не ломает путь отчёта", () => {
@@ -254,8 +244,7 @@ describe("события первого успешного запроса", () =
       empty,
       "2026-11-24",
     );
-    expect(events).toContain("protocol/openai/unknown");
-    expect(events).toContain("agent/custom/unknown");
+    expect(events).toContain("provider/custom/unknown");
     expect(events).toContain("model/unknown");
   });
 });
@@ -278,15 +267,12 @@ describe("отправка после успешного ответа", () => {
     reportAgentUse(openai, session("s1"), "ru");
     expect(calls()).toEqual([
       "language/ru",
-      "protocol/openai",
-      "agent/custom",
       "model/gpt-4o",
-      "protocol/openai/gpt-4o",
-      "agent/custom/gpt-4o",
-      "chat/plain",
+      "provider/custom/gpt-4o",
+      "chat/simple",
     ]);
     reportAgentUse(openai, session("s1"), "ru");
-    expect(calls()).toHaveLength(7);
+    expect(calls()).toHaveLength(4);
   });
 
   it("после перезагрузки страницы повтор не уходит (состояние в хранилище)", () => {
@@ -297,7 +283,7 @@ describe("отправка после успешного ответа", () => {
     reportAgentUse(openai, session("s1"), "ru");
     expect(calls()).toEqual([]);
     reportAgentUse(openai, session("s2"), "ru");
-    expect(calls()).toEqual(["chat/plain"]);
+    expect(calls()).toEqual(["chat/simple"]);
   });
 
   it("смена режима в том же диалоге уходит как второй чат", () => {
@@ -305,7 +291,7 @@ describe("отправка после успешного ответа", () => {
     reportAgentUse(openai, session("s1"), "ru");
     vi.mocked(trackEvent).mockClear();
     reportAgentUse(openai, session("s1", true), "ru");
-    expect(calls()).toEqual(["chat/token"]);
+    expect(calls()).toEqual(["chat/protected"]);
     vi.mocked(trackEvent).mockClear();
     reportAgentUse(openai, session("s1", true), "ru");
     expect(calls()).toEqual([]);
@@ -320,9 +306,54 @@ describe("отправка после успешного ответа", () => {
     });
     const openai = agent({ protocol: "openai", config: { model: "gpt-4o" } });
     reportAgentUse(openai, session("s9"), "ru");
-    expect(calls()).toContain("chat/plain");
+    expect(calls()).toContain("chat/simple");
     const first = calls().length;
     reportAgentUse(openai, session("s9"), "ru");
     expect(calls()).toHaveLength(first);
+  });
+});
+
+describe("визит, страницы и клики", () => {
+  const calls = () => vi.mocked(trackEvent).mock.calls.map(([name]) => name);
+
+  beforeEach(() => {
+    vi.mocked(trackEvent).mockClear();
+    globalThis.localStorage?.clear();
+    resetUsageMemory();
+  });
+
+  it("визит — один раз на открытие, язык прикладывается", () => {
+    reportAppVisit("ru");
+    expect(calls()).toEqual(["visit/app", "language/ru"]);
+    reportAppVisit("ru");
+    expect(calls()).toHaveLength(2);
+  });
+
+  it("просмотр раздела — один раз за открытие", () => {
+    reportPage("connections");
+    reportPage("connections");
+    reportPage("about");
+    expect(calls()).toEqual(["page/connections", "page/about"]);
+  });
+
+  it("клики: github, discussions, donation, license, сайты", () => {
+    reportClick("github");
+    reportClick("discussions");
+    reportClick("donation");
+    reportClick("license");
+    reportSiteClick("openrouter");
+    expect(calls()).toEqual([
+      "click/github",
+      "click/discussions",
+      "click/donation",
+      "click/license",
+      "click/site/openrouter",
+    ]);
+  });
+
+  it("пустое имя ссылки в отчёт не уходит", () => {
+    reportSiteClick("   ");
+    reportClick("");
+    expect(calls()).toEqual([]);
   });
 });

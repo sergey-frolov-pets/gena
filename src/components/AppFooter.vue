@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useLocale } from "../i18n";
+import { reportClick } from "../analytics/usage";
 
 const { t } = useLocale();
 
@@ -32,9 +33,9 @@ const VERSION = "0.2.51";
         <span class="app-footer__about-label">{{ t("app.nav.about") }}</span>
         <span class="app-footer__about-mark" aria-hidden="true">ⓘ</span>
       </button>
-      <a :href="GITHUB" target="_blank" rel="noopener noreferrer">GitHub</a>
-      <a :href="DISCUSSIONS" target="_blank" rel="noopener noreferrer">{{ t("app.footer.discussions") }}</a>
-      <a :href="LICENSE" target="_blank" rel="noopener noreferrer">{{ t("app.footer.license") }}</a>
+      <a :href="GITHUB" target="_blank" rel="noopener noreferrer" @click="reportClick('github')">GitHub</a>
+      <a :href="DISCUSSIONS" target="_blank" rel="noopener noreferrer" @click="reportClick('discussions')">{{ t("app.footer.discussions") }}</a>
+      <a :href="LICENSE" target="_blank" rel="noopener noreferrer" @click="reportClick('license')">{{ t("app.footer.license") }}</a>
     </nav>
     <div class="app-footer__meta">
       <span class="app-footer__version" :title="t('app.footer.versionHint')">v{{ VERSION }}</span>
@@ -45,6 +46,7 @@ const VERSION = "0.2.51";
         rel="noopener noreferrer"
         :aria-label="t('app.footer.support')"
         :title="t('app.footer.support')"
+        @click="reportClick('donation')"
       >
         <svg viewBox="0 0 576 512" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
           <path

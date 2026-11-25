@@ -42,6 +42,7 @@ import {
   type AccountSnapshot,
 } from "@/lib/provider-account";
 import { connectableProviders, providerByBaseUrl } from "@/lib/providers";
+import { reportSiteClick } from "@/analytics/usage";
 
 const { t, locale } = useLocale();
 
@@ -1051,6 +1052,7 @@ function addMixRoute(): void {
                   :href="providerProfile(agent.address).topUpUrl"
                   target="_blank"
                   rel="noopener noreferrer"
+                  @click="reportSiteClick(providerProfile(agent.address).kind)"
                 >{{ t("connections.topUp") }}</a>
               </td>
             </tr>

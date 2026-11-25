@@ -3,6 +3,7 @@ import { ref } from "vue";
 import { useLocale } from "@/i18n";
 import type { LocaleKey } from "@/i18n/types";
 import { connectableAgents, connectableProviders } from "@/lib/providers";
+import { reportSiteClick } from "@/analytics/usage";
 
 const { t } = useLocale();
 const base = import.meta.env.BASE_URL;
@@ -109,7 +110,7 @@ async function copyPrompt(): Promise<void> {
         <li v-for="agent in connectableAgents" :key="agent.id">
           <div class="about__card-head">
             <strong>{{ agent.name }}</strong>
-            <a :href="agent.site" target="_blank" rel="noopener noreferrer">{{ t("providers.openSite") }}</a>
+            <a :href="agent.site" target="_blank" rel="noopener noreferrer" @click="reportSiteClick(agent.id)">{{ t("providers.openSite") }}</a>
           </div>
           <p>{{ t(("about.agent." + agent.id) as "about.agent.picoclaw") }}</p>
           <p class="about__meta">
@@ -134,7 +135,7 @@ async function copyPrompt(): Promise<void> {
         <li v-for="provider in connectableProviders" :key="provider.id">
           <div class="about__card-head">
             <strong>{{ provider.name }}</strong>
-            <a :href="provider.site" target="_blank" rel="noopener noreferrer">{{ t("providers.openSite") }}</a>
+            <a :href="provider.site" target="_blank" rel="noopener noreferrer" @click="reportSiteClick(provider.id)">{{ t("providers.openSite") }}</a>
           </div>
           <p>{{ t(("providers.hint." + provider.hint) as "providers.hint.cloud") }}</p>
           <p class="about__meta">

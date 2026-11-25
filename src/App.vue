@@ -35,7 +35,7 @@ import { describeStorageFailure, storageError, storageNotice } from "./lib/stora
 import { useTheme } from "./lib/theme";
 import { watchForUpdate } from "./lib/version-update";
 import { useLocale } from "./i18n";
-import { trackPageview } from "./analytics/goatcounter";
+import { reportAppVisit, reportPage } from "./analytics/usage";
 
 type Tab = "connections" | "chat" | "sessions" | "tokens" | "about";
 const tab = ref<Tab>("chat");
@@ -175,7 +175,13 @@ onMounted(async () => {
   await loadStorage();
 });
 
-watch(tab, (value) => trackPageview(value), { immediate: true });
+// Визит — один раз на открытие приложения; разделы — просмотры страниц.
+// Диалоги сюда не входят: чаты считаются отдельно (chat/simple, chat/protected).
+watch(tab, (value) => {
+  if (value !== "chat") reportPage(value);
+}, { immediate: true });
+// Визит — один раз на открытие приложения, язык прикладывается к нему.
+reportAppVisit(locale.value);
 
 // Любое изменение подключений и диалогов обновляет копию (с задержкой).
 watch(
