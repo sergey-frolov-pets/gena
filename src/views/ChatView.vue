@@ -467,6 +467,9 @@ function onComposerInput(event: Event): void {
   const caret = toDraftOffset(typed, visibleCaret);
   tokenTrigger.value = findTokenTrigger(draft.value, caret);
   if (tokenTrigger.value) void ensureTokens();
+  // Набранное слово может быть выделено (двойной тап, «выделить всё»):
+  // плашка должна появиться и от ввода, а не только от события select.
+  if (selectionRange.value) onComposerSelectSoon();
 }
 
 /** Открыть выезжающую таблицу соответствий прямо в чате. */
@@ -2079,9 +2082,14 @@ function onComposerBlur(event: FocusEvent): void {
   if (Date.now() < blurGuardUntil) return;
   const next = event.relatedTarget as Node | null;
   if (next && dockEl.value?.contains(next)) return;
+  // В поле есть выделение — плашка над ним нужна, а сворачивание ввода её
+  // прятало бы: человек выделил слово, тапнул мимо поля (в ленту), а действий
+  // так и не увидел. Пока выделение живо, ввод не закрываем.
+  if (selectionRange.value) return;
   window.setTimeout(() => {
     const active = document.activeElement;
     if (active && dockEl.value?.contains(active)) return;
+    if (selectionRange.value) return;
     closeComposer();
   }, 150);
 }
