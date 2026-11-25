@@ -4905,6 +4905,7 @@ function onRateChange(event: Event): void {
           :aria-label="t('chat.tokens.bar')"
         >
           <span class="chat-panel__tokenbar-title">{{ t("chat.tokenMode") }}</span>
+          <div class="chat-panel__tokenbar-actions">
           <button
             type="button"
             class="chat-panel__token-btn is-icon"
@@ -4958,6 +4959,7 @@ function onRateChange(event: Event): void {
               <path d="m17 8 4 4-4 4" />
             </svg>
           </button>
+          </div>
         </div>
         <AttachmentTray
           :images="pendingImages"
@@ -6524,16 +6526,14 @@ function onRateChange(event: Event): void {
 
 .chat-panel__tokenbar {
   display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 6px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
   margin: 0;
   padding: 0;
   border: 0;
   background: none;
   box-shadow: none;
-  overflow-x: auto;
-  scrollbar-width: none;
   /* Над полем, но вне потока: лента идёт под кнопками, полосы фона нет. */
   position: absolute;
   z-index: 6;
@@ -6547,13 +6547,29 @@ function onRateChange(event: Event): void {
 /* Подпись режима: видно, что диалог защищённый, ещё до нажатия кнопок. */
 .chat-panel__tokenbar-title {
   flex: 0 0 auto;
-  padding: 0 4px 0 2px;
+  padding: 0 2px;
   font-size: 0.75rem;
   line-height: 1;
   letter-spacing: 0.01em;
   white-space: nowrap;
   color: var(--tokens-accent);
   pointer-events: none;
+}
+
+/* Строка кнопок под подписью. */
+.chat-panel__tokenbar-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+  pointer-events: none;
+}
+
+.chat-panel__tokenbar-actions::-webkit-scrollbar {
+  display: none;
 }
 
 .chat-panel__tokenbar .chat-panel__token-btn {
