@@ -1940,6 +1940,8 @@ function onQuickOutside(event: Event): void {
       agentMenuOpen.value = false;
     }
   }
+  // Облачко в ленте закрывает только тап мимо него: клик по самому токену
+  // приходит со stopPropagation, а клик внутри облачка — по его кнопкам.
   if (chatPick.value && !target.closest(".chat-panel__pick")) {
     hideTokenPicks();
   }
@@ -2013,6 +2015,10 @@ function onChatTap(event: MouseEvent): void {
   }
   // Тап по ⟦токену⟧ — показать пару «токен ↔ значение», ввод не открываем.
   if (pickTokenAt(event.clientX, event.clientY)) return;
+  // Тап по подсветке (значение справочника) — облачко уже открыто кликом
+  // markdown; закрывать его здесь нельзя, иначе оно «мелькает и пропадает».
+  const lit = (event.target as HTMLElement | null)?.closest?.(".md-token, .md-offer");
+  if (lit) return;
   const target = event.target as HTMLElement | null;
   // Низ панели (док, панель токенов, плашки) — не «полотно чата».
   if (target && dockEl.value?.contains(target)) return;
@@ -6047,7 +6053,10 @@ function onRateChange(event: Event): void {
 }
 
 /* Подложка поля: тот же шрифт и переносы, что у textarea, но текст прозрачный —
-   видно только фон под ⟦токенами⟧. Лежит под полем, тапы не перехватывает. */
+   видно только фон под ⟦токенами⟧. Лежит под полем, тапы не перехватывает.
+   Переносы задаются здесь, а не наследуются: у .chat-panel__field по умолчанию
+   white-space: normal, и подсветка ломалась бы по словам, а поле — по символам;
+   отсюда и наползание строк друг на друга по высоте. */
 .chat-panel__marks {
   position: absolute;
   inset: 0;
@@ -6059,8 +6068,15 @@ function onRateChange(event: Event): void {
   line-height: 1.4;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  word-break: normal;
   pointer-events: none;
   user-select: none;
+}
+
+/* Внутренний слой едет за прокруткой поля: он и есть «страница» текста. */
+.chat-panel__marks-inner {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .chat-panel__marks .is-token {
@@ -6872,7 +6888,9 @@ function onRateChange(event: Event): void {
 }
 
 /* Облачко выбора токена в ленте сообщений: вторая сторона слова и крестик
-   рядом. Координаты приходят из места выделения (позиционируется инлайном). */
+   рядом. Координаты приходят из места выделения (позиционируется инлайном).
+   Разметка стоит внутри .chat-panel, а он обрезает содержимое (overflow: hidden):
+   облачко, поднятое над словом, у верхнего края панели срезалось бы целиком. */
 .chat-panel__pick {
   position: absolute;
   z-index: 6;
@@ -6899,6 +6917,8 @@ function onRateChange(event: Event): void {
 }
 
 .chat-panel__pick.is-chat {
+  /* Настоящий fixed: .chat-panel обрезает содержимое, и absolute внутри него
+     у верхнего края просто исчезал. */
   position: fixed;
   z-index: 30;
   transform: translateY(-100%);
