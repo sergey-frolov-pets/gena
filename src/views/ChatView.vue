@@ -5636,7 +5636,11 @@ function onRateChange(event: Event): void {
         <p v-if="activeAgent" class="chat-panel__quick-agent">{{ activeAgent.name }}</p>
       </div>
 
-      <p v-if="turnElapsed && (!compact || composerOpen)" class="chat-panel__turn" role="status">
+      <p
+        v-if="turnElapsed && composerOpen"
+        class="chat-panel__turn"
+        role="status"
+      >
         <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
           <circle cx="12" cy="12" r="9" />
           <path d="M12 7.5V12l3 2" />
