@@ -3232,6 +3232,15 @@ function resetComposerHeight(): void {
   void autoGrow();
 }
 
+/**
+ * Экранная клавиатура: телефон или планшет (узкий экран либо палец вместо мыши).
+ * Нужна, чтобы не возвращать фокус в поле там, где это поднимает клавиатуру.
+ */
+function usesOnScreenKeyboard(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  return compact.value || window.matchMedia("(hover: none) and (pointer: coarse)").matches;
+}
+
 /** «Свернуть»: поле остаётся, высота становится в одну строку. */
 function collapseComposer(): void {
   composerManualHeight.value = null;
@@ -3239,7 +3248,9 @@ function collapseComposer(): void {
   fieldPick.value = null;
   fieldPickAnchor.value = null;
   void autoGrow();
-  void nextTick(() => composerEl.value?.focus());
+  // «Свернуть» уменьшает поле, а не приглашает печатать: на телефоне фокус
+  // в поле поднял бы клавиатуру поверх только что сжатого поля.
+  if (!usesOnScreenKeyboard()) void nextTick(() => composerEl.value?.focus());
 }
 
 /** Кнопка «Очистить» сверху левой колонки: только когда поле выросло до трёх строк. */
