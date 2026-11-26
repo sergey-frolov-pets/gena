@@ -54,15 +54,27 @@ import SessionTagsDialog from "@/components/SessionTagsDialog.vue";
 import SessionQueue from "@/components/SessionQueue.vue";
 import MessageBubble from "@/components/MessageBubble.vue";
 import AttachmentTray from "@/components/AttachmentTray.vue";
+import ContextTray from "@/components/ContextTray.vue";
+import ContextPicker from "@/components/ContextPicker.vue";
+import { makeChip, type ContextChip } from "@/lib/context-bridge";
+import { resolveContext, withContext } from "@/lib/context-resolve";
+import {
+  createProject,
+  removeProject,
+  saveSessionSummary,
+} from "@/lib/projects";
+import { summarizeSession } from "@/lib/summary";
+import { clientFor } from "@/lib/gena-server";
 import { listenToAgent, sendToAgent, type TransportAttachment } from "@/lib/agent-client";
 import { cancelAgentTurn } from "@/lib/agent-client";
 import { describeError } from "@/lib/errors";
 import { markdownLabels, mdHtml } from "@/lib/chat-markdown";
+import type { Project } from "@/storage/types";
 import { viewerHtml, viewerKindOf, type ViewerKind, type ViewerLabels } from "@/lib/text-viewer";
 import { toCsv, toTsv, xlsxBlob } from "@/lib/table-file";
 import { hasOpenSlot } from "@/lib/model-fallback";
 import { canCall, getCallCount, recordCall } from "@/storage/usage";
-import { listMessages, listServers } from "@/storage/db";
+import { listMessages, listProjects, listServers, putSession } from "@/storage/db";
 import {
   createServerSession,
   listServerSessions,
@@ -2652,6 +2664,11 @@ interface ComposerPayload {
    * Только в памяти: в IndexedDB у очереди этого поля нет.
    */
   forms?: string[];
+  /**
+   * Приложенный контекст (другие диалоги и проекты). Только в памяти:
+   * к реплике он добавляется при отправке и в историю не пишется.
+   */
+  context?: ContextChip[];
 }
 
 /** Реплика, ждущая ответа агента. */
@@ -2667,6 +2684,175 @@ interface QueuedMessage extends ComposerPayload {
 
 /** Очередь при занятом агенте: можно отправить, изменить или убрать. */
 const queue = ref<QueuedMessage[]>([]);
+
+/** Контекст, приложенный к следующей реплике (чипы над полем ввода). */
+const contextChips = ref<ContextChip[]>([]);
+/** Модалка «@» — поиск диалогов и проектов. */
+const contextPickerOpen = ref(false);
+/** Состояние чипа: идёт расчёт саммари или случилась ошибка. */
+const contextStates = ref<Record<string, "summarizing" | "error" | undefined>>({});
+/** Проекты для модалки. */
+const contextProjects = ref<Project[]>([]);
+/** Диалоги, которые есть только на сервере. */
+const contextRemote = ref<
+  { id: string; remoteId: string; serverId: string; title: string; messageCount?: number; updatedAt: number }[]
+>([]);
+
+/** Проекты и серверные диалоги для модалки: обновляем при каждом открытии. */
+async function refreshContextSources(): Promise<void> {
+  try {
+    contextProjects.value = await listProjects();
+  } catch {
+    contextProjects.value = [];
+  }
+  const remote: typeof contextRemote.value = [];
+  const known = new Set(sessions.value.map((item) => item.serverId).filter(Boolean));
+  try {
+    for (const server of await listServers()) {
+      try {
+        const client = await clientFor(server);
+        const list: ServerSession[] = await client.list();
+        for (const item of list) {
+          if (known.has(item.id)) continue;
+          remote.push({
+            id: `srv:${item.id}`,
+            remoteId: item.id,
+            serverId: server.id,
+            title: item.title,
+            messageCount: item.messageCount,
+            updatedAt: item.updatedAt,
+          });
+        }
+      } catch {
+        continue;
+      }
+    }
+  } catch {
+    // Офлайн: показываем только локальные диалоги и проекты.
+  }
+  contextRemote.value = remote;
+}
+
+function openContextPicker(): void {
+  void refreshContextSources();
+  contextPickerOpen.value = true;
+}
+
+/** Повторный клик по тому же источнику в том же режиме убирает чип. */
+function toggleContextChip(chip: ContextChip): void {
+  const exists = contextChips.value.some((item) => item.key === chip.key);
+  contextChips.value = exists
+    ? contextChips.value.filter((item) => item.key !== chip.key)
+    : [...contextChips.value, chip];
+}
+
+function removeContextChip(key: string): void {
+  contextChips.value = contextChips.value.filter((item) => item.key !== key);
+  const rest = { ...contextStates.value };
+  delete rest[key];
+  contextStates.value = rest;
+}
+
+async function newContextProject(name: string, sessionIds: string[]): Promise<void> {
+  try {
+    const project = await createProject(name, sessionIds);
+    contextProjects.value = await listProjects();
+    // Свежесозданный проект сразу прикладываем саммари: это его типичное применение.
+    toggleContextChip(
+      makeChip({ kind: "project", mode: "summary", id: project.id, title: project.name }),
+    );
+  } catch (e) {
+    error.value = describeError(e, t);
+  }
+}
+
+async function dropContextProject(id: string): Promise<void> {
+  try {
+    await removeProject(id);
+    contextChips.value = contextChips.value.filter((chip) => !(chip.kind === "project" && chip.id === id));
+    contextProjects.value = await listProjects();
+  } catch (e) {
+    error.value = describeError(e, t);
+  }
+}
+
+/** Саммари диалога по кнопке в списке истории: считает агент диалога. */
+async function summarizeDialog(session: Session): Promise<void> {
+  const agent = agents.value.find((item) => item.id === session.agentId) ?? activeAgent.value;
+  if (!agent) {
+    error.value = t("chat.error.chooseAgent");
+    return;
+  }
+  try {
+    showNotice(t("chat.ctx.summarizing"), 4000);
+    const key = await getAgentKey(agent);
+    const list = session.id === activeSessionId.value ? messages.value : await listMessages(session.id);
+    const result = await summarizeSession(session, list, {
+      agent,
+      apiKey: key,
+      peers: agents.value,
+      openKey: getAgentKey,
+    });
+    await saveSessionSummary(session, {
+      text: result.text,
+      model: result.model,
+      updatedAt: Date.now(),
+      stale: false,
+    });
+    await loadSessions();
+    showNotice(t("chat.ctx.summaryReady"), 4000);
+  } catch (e) {
+    error.value = describeError(e, t);
+  }
+}
+
+/**
+ * Отправка локального диалога на сервер: появляется на других устройствах.
+ * В защищённом режиме текста на сервер не кладём — там только токены и
+ * расшифровать их нечем.
+ */
+async function sendDialogToServer(session: Session): Promise<void> {
+  if (isTokenSession(session)) {
+    error.value = t("chat.ctx.serverTokenMode");
+    return;
+  }
+  try {
+    const servers = await listServers();
+    if (servers.length === 0) {
+      error.value = t("chat.ctx.noServer");
+      return;
+    }
+    const server = servers[0];
+    const client = await clientFor(server);
+    const list = session.id === activeSessionId.value ? messages.value : await listMessages(session.id);
+    const remoteId = session.serverId || (await client.create(session.title, session.agentId ?? "")).id;
+    await client.importSession(
+      remoteId,
+      {
+        title: session.title,
+        agentId: session.agentId,
+        pinned: session.pinned,
+        tags: session.tags,
+        tokenMode: session.tokenMode,
+        summary: session.summary
+          ? { text: session.summary.text, model: session.summary.model, updatedAt: session.summary.updatedAt }
+          : null,
+      },
+      list.map((message) => ({
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        createdAt: message.createdAt,
+        kind: message.kind,
+      })),
+    );
+    await putSession({ ...session, serverId: remoteId, serverRef: server.id });
+    await loadSessions();
+    showNotice(t("chat.ctx.sentToServer"), 4000);
+  } catch (e) {
+    error.value = describeError(e, t);
+  }
+}
 
 /* ── Очередь в IndexedDB: закрыл вкладку — реплики не пропали ──────────── */
 
@@ -3949,13 +4135,17 @@ function takeComposer(): ComposerPayload | null {
   tokenTrigger.value = null;
   pendingImages.value = [];
   pendingDocs.value = [];
+  // Чипы уходят вместе с репликой: в историю они не пишутся.
+  const context = contextChips.value;
+  contextChips.value = [];
+  contextStates.value = {};
   attachError.value = "";
   fileError.value = "";
   // Черновик ушёл в отправку — сохранённую копию убираем, ввод на телефоне прячем.
   writeText(draftKey(activeSessionId.value), "");
   closeComposer();
   void autoGrow();
-  return { text, images, docs, forms };
+  return { text, images, docs, forms, context };
 }
 
 /** Заголовок нового диалога — первая строка реплики. */
@@ -4150,10 +4340,34 @@ async function dispatch(
       bytes: doc.bytes,
     })),
   ];
+  // Контекст из других диалогов собираем до подстановки токенов: саммари
+  // считает тот же агент, а в защищённом режиме контекст тоже идёт токенами.
+  let contextParts: Awaited<ReturnType<typeof resolveContext>>["parts"] = [];
+  if (payload.context && payload.context.length > 0) {
+    const contextKey = await getAgentKey(agent);
+    const resolved = await resolveContext(payload.context, {
+      agent,
+      apiKey: contextKey,
+      peers: agents.value,
+      openKey: getAgentKey,
+      onState: (key, state) => {
+        contextStates.value = {
+        ...contextStates.value,
+        [key]: state === "done" ? undefined : state,
+      };
+      },
+    });
+    contextParts = resolved.parts;
+    if (resolved.errors.length > 0) {
+      const first = resolved.errors[0];
+      showNotice(t("chat.ctx.errorChip", { name: first.title }), 6000);
+    }
+  }
+  const textWithContext = withContext(text, contextParts);
   // Агент получает только токены, настоящие значения остаются на устройстве.
   // Полный текст документов тоже уходит агенту — через ту же подстановку.
   const outgoing = documentsToMessage(
-    forAgent(text, { agent, sessionId: session.id }),
+    forAgent(textWithContext, { agent, sessionId: session.id }),
     payload.docs.map((doc) => ({ ...doc, text: forAgent(doc.text, { agent, sessionId: session.id }) })),
   );
   if (persist) {
@@ -5625,6 +5839,17 @@ function onRateChange(event: Event): void {
         @insert="insertTokenName"
         @open-tokens="openTokensTab"
       />
+      <ContextPicker
+        :open="contextPickerOpen"
+        :sessions="sessions"
+        :projects="contextProjects"
+        :remote-sessions="contextRemote"
+        :chips="contextChips"
+        @close="contextPickerOpen = false"
+        @toggle="toggleContextChip"
+        @create-project="newContextProject"
+        @delete-project="dropContextProject"
+      />
       <HistorySheet
         :open="historyOpen"
         :sessions="sessions"
@@ -5637,6 +5862,8 @@ function onRateChange(event: Event): void {
         @duplicate="duplicate"
         @delete="confirmDeleteId = $event"
         @title="showTitle"
+        @summary="summarizeDialog"
+        @upload="sendDialogToServer"
         @tags="tagsTarget = $event"
       />
 
@@ -6177,6 +6404,11 @@ function onRateChange(event: Event): void {
           @remove-image="removeImage"
           @remove-document="removeDocument"
         />
+        <ContextTray
+          :chips="contextChips"
+          :states="contextStates"
+          @remove="removeContextChip"
+        />
         <input
           ref="fileInput"
           class="chat-panel__file"
@@ -6225,6 +6457,22 @@ function onRateChange(event: Event): void {
           >
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M20.5 11.5 12 20a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="chat-panel__icon-btn chat-panel__context-btn"
+            :class="{ 'is-on': contextPickerOpen || contextChips.length > 0 }"
+            v-tip="t('chat.ctx.add')"
+            :aria-label="t('chat.ctx.add')"
+            :aria-expanded="contextPickerOpen"
+            :disabled="composerDisabled"
+            @click="guardBlur(); openContextPicker()"
+            @keydown="composerDisabled ? undefined : openContextPicker"
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="4" />
+              <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.9 7.9" />
             </svg>
           </button>
           <div class="chat-panel__agent-pick" data-agent-trigger>

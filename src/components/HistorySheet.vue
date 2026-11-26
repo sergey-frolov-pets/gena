@@ -41,6 +41,10 @@ const emit = defineEmits<{
   title: [title: string];
   /** Запрошено редактирование тегов — диалог спрашивает вызывающий. */
   tags: [session: Session];
+  /** Сжать диалог в саммари (локально, без сети). */
+  summary: [session: Session];
+  /** Отправить диалог на сервер Gena. */
+  upload: [session: Session];
 }>();
 
 const { t } = useLocale();
@@ -212,6 +216,17 @@ function agentNameOf(id: string): string {
           <button
             type="button"
             class="chat-panel__action"
+            v-tip="t('chat.ctx.summarize')"
+            :aria-label="t('chat.ctx.summarize')"
+            @click="emit('summary', s)"
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 8h16M4 16h16M9 4l-2 4 2 4M15 20l2-4-2-4" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="chat-panel__action"
             :class="{ 'is-on': s.pinned }"
             v-tip="s.pinned ? t('chat.unpin') : t('chat.pin')"
             :aria-label="s.pinned ? t('chat.unpin') : t('chat.pin')"
@@ -232,6 +247,18 @@ function agentNameOf(id: string): string {
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <rect x="9" y="9" width="11" height="11" rx="2" />
               <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="chat-panel__action"
+            v-tip="t('chat.ctx.upload')"
+            :aria-label="t('chat.ctx.upload')"
+            @click="emit('upload', s)"
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 16V4M8 8l4-4 4 4" />
+              <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
             </svg>
           </button>
           <button

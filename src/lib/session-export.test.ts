@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { markdownFileName, sessionToMarkdown } from "./session-export";
 import { normalizeServerUrl } from "./gena-server";
 import type { Message, Session } from "@/storage/types";
