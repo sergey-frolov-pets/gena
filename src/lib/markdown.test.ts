@@ -58,6 +58,34 @@ describe("renderMarkdown", () => {
   });
 });
 
+describe("ссылки не съедают текст после себя", () => {
+  it("голый URL — ссылка только сам URL", () => {
+    const html = renderMarkdown("смотри https://example.com/x?a=1 а потом ещё текст");
+    expect(html).toContain("</a>");
+    expect(html).toContain("</a> а потом ещё текст");
+  });
+
+  it("markdown-ссылка закрывается до хвоста реплики", () => {
+    const html = renderMarkdown("[ссылка](https://example.com) и хвост после неё");
+    expect(html).toContain("</a> и хвост после неё");
+  });
+
+  it("закрывающий </a> не вырезается санитайзером", () => {
+    const html = sanitizeHtml('<a href="https://ok.ru">x</a>хвост');
+    expect(html.endsWith("</a>хвост")).toBe(true);
+  });
+
+  it("одиночный </a> без открывающего по-прежнему выбрасывается", () => {
+    expect(sanitizeHtml("текст</a> ещё")).toBe("текст ещё");
+  });
+
+  it("незакрытый <a> в сыром HTML закрывается сам", () => {
+    const html = sanitizeHtml('<a href="https://ok.ru">x');
+    expect(html.startsWith('<a href="https://ok.ru"')).toBe(true);
+    expect(html.endsWith(">x</a>")).toBe(true);
+  });
+});
+
 describe("sanitizeHtml", () => {
   it("вырезает script и оставляет текст", () => {
     const html = sanitizeHtml("<script>alert(1)</script>после");
