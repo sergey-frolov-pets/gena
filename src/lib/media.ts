@@ -369,3 +369,40 @@ export async function shareMediaFile(
     throw error;
   }
 }
+
+/** Предел размера для просмотра внутри чата: больше — только скачивание. */
+export const MAX_PREVIEW_BYTES = 2 * 1024 * 1024;
+
+/**
+ * Прочитать текстовое вложение (md, txt, csv, json…) без скачивания файла.
+ *
+ * Кодировка берётся из `Content-Type: …; charset=…`, по умолчанию UTF-8;
+ * BOM снимается, иначе первый заголовок markdown не распознаётся.
+ */
+export async function fetchMediaText(
+  address: string,
+  apiKey: string,
+  path: string,
+  fetchImpl: typeof fetch = fetch,
+  maxBytes: number = MAX_PREVIEW_BYTES,
+): Promise<string> {
+  const { response } = await fetchFirstOk(address, apiKey, path, fetchImpl);
+  const blob = await response.blob();
+  if (blob.size > maxBytes) {
+    throw new Error("attachment is too large to preview");
+  }
+  const charset = /charset\s*=\s*"?([\w-]+)/i.exec(
+    response.headers.get("Content-Type") ?? "",
+  )?.[1];
+  let text: string;
+  if (charset && charset.toLowerCase() !== "utf-8" && typeof TextDecoder === "function") {
+    try {
+      text = new TextDecoder(charset).decode(await blob.arrayBuffer());
+    } catch {
+      text = await blob.text();
+    }
+  } else {
+    text = await blob.text();
+  }
+  return text.replace(/^\uFEFF/, "");
+}

@@ -50,6 +50,7 @@ import { listenToAgent, sendToAgent, type TransportAttachment } from "@/lib/agen
 import { cancelAgentTurn } from "@/lib/agent-client";
 import { describeError } from "@/lib/errors";
 import { markdownLabels, mdHtml } from "@/lib/chat-markdown";
+import { viewerHtml, viewerKindOf, type ViewerKind, type ViewerLabels } from "@/lib/text-viewer";
 import { toCsv, toTsv, xlsxBlob } from "@/lib/table-file";
 import { hasOpenSlot } from "@/lib/model-fallback";
 import { canCall, getCallCount, recordCall } from "@/storage/usage";
@@ -88,6 +89,7 @@ import {
   attachmentFromBlobUrl,
   downloadMediaFile,
   fetchMediaBlob,
+  fetchMediaText,
   fileAttachmentFromIncoming,
   getCachedMedia,
   shareMediaFile,
@@ -186,6 +188,7 @@ import {
   type TokenTrigger,
 } from "@/lib/tokens/trigger";
 import ConfirmModal from "@/components/ConfirmModal.vue";
+import DocumentViewer from "@/components/DocumentViewer.vue";
 import TextModal from "@/components/TextModal.vue";
 import { agentId } from "@/lib/active-agent";
 import { reportAgentUse } from "@/analytics/usage";
@@ -2154,6 +2157,12 @@ const attachError = ref("");
 const fileInput = ref<HTMLInputElement | null>(null);
 /** Просмотр изображения на весь экран. */
 const lightbox = ref("");
+/** Просмотр текстового вложения: markdown, csv/tsv или обычный текст. */
+const docViewer = ref<{ attachment: MessageAttachment; kind: ViewerKind; text: string } | null>(
+  null,
+);
+const docViewerLoading = ref(false);
+const docViewerError = ref("");
 /** Документы, из которых уже извлечён текст (уходят в сообщении). */
 const pendingDocs = ref<PreparedDocument[]>([]);
 /** Ошибка чтения документа — отдельно от ошибок изображений. */
@@ -4682,8 +4691,14 @@ function onDrop(event: DragEvent): void {
 
 /** Полный размер: из кеша blob-URL либо догружаем с авторизацией. */
 async function openAttachment(attachment: MessageAttachment): Promise<void> {
-  // Документ в лайтбоксе не показать: клик по нему — это «скачать».
+  // Документ в лайтбоксе не показать: текстовые открываем на чтение,
+  // остальные (pdf, zip, docx) — на скачивание, как раньше.
   if (attachment.kind === "file") {
+    const kind = viewerKindOf(attachment.name ?? "", attachment.mime);
+    if (kind) {
+      await openDocViewer(attachment, kind);
+      return;
+    }
     await downloadAttachment(attachment);
     return;
   }
@@ -4704,6 +4719,75 @@ async function openAttachment(attachment: MessageAttachment): Promise<void> {
     }
   }
   lightbox.value = attachment.thumb ?? "";
+}
+
+const docViewerLabels = computed<ViewerLabels>(() => ({
+  expand: t("chat.docView.expand"),
+  collapse: t("chat.docView.collapse"),
+  source: t("chat.docView.source"),
+  rendered: t("chat.docView.rendered"),
+  download: t("chat.attachDownload"),
+  share: t("chat.attachShare"),
+  close: t("chat.close"),
+  loading: t("chat.docView.loading"),
+  error: t("chat.docView.error"),
+  empty: t("chat.docView.empty"),
+}));
+
+const docViewerHtml = computed(() =>
+  docViewer.value
+    ? viewerHtml(docViewer.value.kind, docViewer.value.text, uiLabels.value, {
+        name: docViewer.value.attachment.name ?? "",
+      })
+    : "",
+);
+
+/**
+ * Открыть текстовое вложение на чтение.
+ *
+ * Байты тянем по клику и только для тех типов, которые есть чем показать:
+ * markdown, csv/tsv и обычный текст. Ошибка сети не закрывает модалку —
+ * внутри остаётся кнопка «Скачать», чтобы файл не потерялся.
+ */
+async function openDocViewer(
+  attachment: MessageAttachment,
+  kind: ViewerKind,
+): Promise<void> {
+  const agent = activeAgent.value;
+  if (!attachment.refUrl || !agent?.address) {
+    await downloadAttachment(attachment);
+    return;
+  }
+  docViewer.value = { attachment, kind, text: "" };
+  docViewerLoading.value = true;
+  docViewerError.value = "";
+  try {
+    const key = await getAgentKey(agent);
+    const text = await fetchMediaText(agent.address, key, attachment.refUrl);
+    if (docViewer.value?.attachment !== attachment) return;
+    docViewer.value = { attachment, kind, text };
+  } catch {
+    if (docViewer.value?.attachment !== attachment) return;
+    docViewerError.value = t("chat.docView.error");
+  } finally {
+    if (docViewer.value?.attachment === attachment) docViewerLoading.value = false;
+  }
+}
+
+function closeDocViewer(): void {
+  docViewer.value = null;
+  docViewerLoading.value = false;
+  docViewerError.value = "";
+}
+
+function downloadDocViewer(): void {
+  const attachment = docViewer.value?.attachment;
+  if (attachment) void downloadAttachment(attachment);
+}
+
+function shareDocViewer(): void {
+  const attachment = docViewer.value?.attachment;
+  if (attachment) void shareAttachment(attachment);
 }
 
 /** Скачать вложение из ленты (картинку или документ): байты тянутся по клику. */
@@ -6130,6 +6214,19 @@ function onRateChange(event: Event): void {
     >
       <img :src="lightbox" alt="" />
     </div>
+
+    <DocumentViewer
+      :open="Boolean(docViewer)"
+      :name="docViewer?.attachment.name ?? ''"
+      :html="docViewerHtml"
+      :source="docViewer?.text ?? ''"
+      :loading="docViewerLoading"
+      :error="docViewerError"
+      :labels="docViewerLabels"
+      @close="closeDocViewer"
+      @download="downloadDocViewer"
+      @share="shareDocViewer"
+    />
 
     <TextModal
       :open="Boolean(titleShown)"
