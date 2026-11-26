@@ -7,42 +7,43 @@
  * меряли по текущей ширине поля, а ширина поля зависит от раскладки —
  * выходил бесконечный цикл пересчётов.
  *
- * Правило Сергея (27.11.2026): раскладка кнопок не зависит от числа строк —
- * кнопки всегда стоят в ряд по бокам поля, как в однострочном. Поле растёт
- * и сворачивается ровно на одну строку за раз. Раньше на 2-й строке
- * включалась раскладка «левая колонка» (`pair`), которой нужно минимум
- * 3 строки высоты, а на 3-й — обе колонки (`column`) с тем же минимумом:
- * поле перескакивало 1 → 3, минуя две строки, и так же залипало при
- * удалении текста.
+ * Правило Сергея (27.11.2026): одна и две строки — кнопки в ряд с каждой
+ * стороны, как в однострочном поле; с трёх строк — столбцы кнопок слева
+ * и справа; с четырёх сверху добавляются «Очистить» и «Свернуть». Отдельной
+ * раскладки для двух строк (`pair`) больше нет: ей требовалось минимум
+ * 3 строки высоты, и поле перескакивало 1 → 3, минуя две строки, а при
+ * удалении так же залипало.
  */
 import { COMPOSER_MAX_LINES, composerLinesForContent } from "./composer";
 
-/** Раскладка боковых групп кнопок вокруг поля. Одна на все высоты. */
-export type ComposerLayout = "row";
+/** Раскладка боковых групп кнопок вокруг поля. */
+export type ComposerLayout = "row" | "column";
 
-/** Порядок перебора кандидатов. Раскладка одна — ряд. */
-export const COMPOSER_LAYOUTS: readonly ComposerLayout[] = ["row"];
+/** Порядок перебора кандидатов: сначала ряд, затем столбец. */
+export const COMPOSER_LAYOUTS: readonly ComposerLayout[] = ["row", "column"];
 
 /** Суммарный зазор между боковыми группами и полем: gap бокса (6) + gap стороны (4). */
 export const COMPOSER_SIDE_GAPS = 10;
 
-/** Минимум строк для раскладки: одна строка. */
+/** Минимум строк для раскладки: ряд — с одной, столбец — с трёх. */
 export const LAYOUT_MIN_LINES: Record<ComposerLayout, number> = {
   row: 1,
+  column: 3,
 };
 
 /**
- * Максимум строк, при котором раскладка ещё корректна. Ширина поля от высоты
- * не зависит, поэтому верхнего предела нет — высоту ограничивает только
- * `COMPOSER_MAX_LINES` из `composer.ts`.
+ * Максимум строк: в ряд влезают не больше двух строк поля (на третьей
+ * кнопки уходят в столбец); у столбца верхнего предела нет — высоту
+ * ограничивает только `COMPOSER_MAX_LINES` из `composer.ts`.
  */
 export const LAYOUT_MAX_LINES: Record<ComposerLayout, number> = {
-  row: Number.POSITIVE_INFINITY,
+  row: 2,
+  column: Number.POSITIVE_INFINITY,
 };
 
-/** Раскладка по числу видимых строк: всегда ряд кнопок по бокам. */
-export function layoutForLines(_lines: number): ComposerLayout {
-  return "row";
+/** Раскладка по числу видимых строк: 1–2 — ряд, 3 и больше — столбец. */
+export function layoutForLines(lines: number): ComposerLayout {
+  return lines <= LAYOUT_MAX_LINES.row ? "row" : "column";
 }
 
 /** Ширина поля, если боковые группы занимают `sideWidth` px плюс `gaps` зазоров. */
@@ -125,8 +126,8 @@ export function resolveComposerLayout(
     }
   }
 
-  // Недостижимо: у единственной раскладки верхний предел безграничен.
-  const layout: ComposerLayout = "row";
+  // Недостижимо: у столбца верхний предел безграничен.
+  const layout: ComposerLayout = "column";
   const fieldWidth = fieldWidthFor(boxContentWidth, sideWidth[layout], gaps);
   const measureWidth = Math.max(0, fieldWidth - gutter);
   const lines = Math.max(LAYOUT_MIN_LINES[layout], toLines(measure(measureWidth)));

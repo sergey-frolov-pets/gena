@@ -41,6 +41,7 @@ import {
   COMPOSER_LAYOUTS,
   COMPOSER_SIDE_GAPS,
   composerButtonsSignature,
+  layoutForLines,
   resolveComposerLayout,
   type ComposerLayout,
 } from "@/lib/composerLayout";
@@ -2262,7 +2263,7 @@ const composerCollapsed = ref(false);
 const COMPOSER_MANUAL_MIN = 38;
 const COMPOSER_MANUAL_MAX = 360;
 /** С этой высоты у колонок появляются «Очистить» и «Свернуть». */
-const COMPOSER_COLUMN_LINES = 3;
+const COMPOSER_TOP_BUTTON_LINES = 4;
 /**
  * «Свернуть» нужно только на предельной высоте: ниже четырёх строк в поле
  * и так видно всё. Правило Сергея 26.11.2026.
@@ -2280,19 +2281,21 @@ const composerShownLines = computed(() => {
   }
   return composerLines.value;
 });
-/** «Очистить» — верх левой колонки, с трёх строк. */
-const composerTall = computed(() => composerShownLines.value >= COMPOSER_COLUMN_LINES);
+/** «Очистить» — верх левой колонки, с четырёх строк. */
+const composerTall = computed(() => composerShownLines.value >= COMPOSER_TOP_BUTTON_LINES);
 /** «Свернуть» — только с четырёх строк, то есть на предельной высоте поля. */
 const composerCollapsible = computed(
   () => composerShownLines.value >= COMPOSER_COLLAPSE_LINES,
 );
 
 /**
- * Раскладка кнопок вокруг поля (решение Сергея 27.11.2026): одна на все высоты.
- * Кнопки стоят в ряд по бокам, как в однострочном поле, поэтому ширина текста
- * не меняется при росте, а поле идёт по строкам ровно: 1 → 2 → 3 → 4 и назад.
+ * Раскладка кнопок вокруг поля (правило Сергея 27.11.2026): одна и две строки —
+ * кнопки в ряд, как в однострочном поле; с трёх строк — столбцы кнопок слева
+ * и справа; с четырёх сверху добавляются «Очистить» и «Свернуть».
  */
-const composerLayout = computed<ComposerLayout>(() => "row");
+const composerLayout = computed<ComposerLayout>(() =>
+  layoutForLines(composerShownLines.value),
+);
 /** Шит истории диалогов (как в AiChatPanel). */
 const historyOpen = ref(false);
 /** Режим переименования диалога в шапке. */
@@ -3516,7 +3519,7 @@ function measureComposerSideWidths(): Record<ComposerLayout, number> | null {
   const lead = box.querySelector<HTMLElement>(".chat-panel__composer-lead");
   const actions = box.querySelector<HTMLElement>(".chat-panel__composer-actions");
   if (!lead || !actions) return null;
-  const classes = ["is-buttons-row"];
+  const classes = ["is-buttons-row", "is-buttons-column"];
   const widths = {} as Record<ComposerLayout, number>;
   for (const layout of COMPOSER_LAYOUTS) {
     box.classList.remove(...classes);
@@ -7429,12 +7432,15 @@ function onRateChange(event: Event): void {
 }
 
 /* ── Поле ввода: кнопки слева и справа вокруг текста ────────────────
-   Раскладка одна на все высоты (решение Сергея 27.11.2026): кнопки стоят
-   в ряд по бокам поля так же, как в однострочном. Отдельных раскладок для
-   двух и трёх строк больше нет — они требовали минимум 3 строки высоты,
-   и поле перескакивало 1 → 3, минуя две строки, а при удалении залипало.
-   Теперь ширина поля постоянна, а высота идёт ровно по строкам:
-   1 → 2 → 3 → 4 и обратно, по одной. Кнопки сидят по центру поля. */
+   Раскладка идёт от числа видимых строк (правило Сергея 27.11.2026):
+     • одна и две строки — кнопки в ряд с каждой стороны, как в однострочном
+                           поле (is-buttons-row);
+     • три строки и больше — столбец с каждой стороны на любом экране
+                           (is-buttons-column, базовая раскладка): слева три
+                           кнопки, справа три;
+     • четыре строки — сверху колонок добавляются «Очистить» и «Свернуть».
+   Отдельной раскладки для двух строк больше нет: ей требовалось минимум
+   три строки высоты, и поле перескакивало 1 → 3, минуя две. */
 
 /* Левая часть: кнопки и поле. */
 .chat-panel__composer-side {
@@ -7446,18 +7452,60 @@ function onRateChange(event: Event): void {
   min-width: 0;
 }
 
-/* Группа кнопок слева и справа. */
-.chat-panel__composer-lead,
-.chat-panel__composer-actions {
+/* Левая колонка: очистить сверху, скрепка и агент снизу. */
+.chat-panel__composer-lead {
   display: flex;
   flex: 0 0 auto;
-  flex-direction: row;
+  flex-direction: column;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: flex-end;
   gap: 2px;
 }
 
-/* Одна ширина на все высоты: кнопки в один ряд, по центру поля. */
+/* Правая колонка: свернуть сверху, микрофон и отправка снизу. */
+.chat-panel__composer-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+/* Четыре строки: «Очистить» и «Свернуть» — верх своей колонки,
+   остальные кнопки остаются внизу. */
+.chat-panel__composer-box.is-buttons-column .chat-panel__composer-edge--top {
+  margin-block-end: auto;
+}
+
+/* В столбце кнопки мельче (26px): очистить + скрепка + агент = 82px,
+   это ровно высота трёх строк поля — колонка не выпирает за рамку. */
+.chat-panel__composer-box.is-buttons-column
+  .chat-panel__composer-lead
+  .chat-panel__icon-btn,
+.chat-panel__composer-box.is-buttons-column
+  .chat-panel__composer-actions
+  .chat-panel__icon-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 9px;
+}
+
+.chat-panel__composer-box.is-buttons-column
+  .chat-panel__composer-lead
+  .chat-panel__icon-btn
+  svg,
+.chat-panel__composer-box.is-buttons-column
+  .chat-panel__composer-actions
+  .chat-panel__icon-btn
+  svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Одна и две строки: весь набор кнопок каждой стороны — в один ряд, по центру
+   по вертикали (в однострочном поле кнопки сидят на середине, а не по нижней
+   кромке). */
 .chat-panel__composer-box.is-buttons-row {
   align-items: center;
 }
@@ -7471,19 +7519,30 @@ function onRateChange(event: Event): void {
   justify-content: flex-start;
 }
 
-/* Группа кнопок (верхняя пара и нижняя): в ряд, кнопки по центру поля. */
-.chat-panel__composer-edge {
+/* Группы внутри колонки тоже вертикальные, без своего ряда. */
+.chat-panel__composer-stack {
   display: flex;
-  flex-direction: row;
+  flex: 0 0 auto;
+  flex-direction: column;
   align-items: center;
   gap: 2px;
 }
 
-/* Группа кнопок внутри ряда: сами кнопки в ряд, без своего столбца. */
-.chat-panel__composer-stack {
+.chat-panel__composer-stack .chat-panel__icon-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 9px;
+}
+
+.chat-panel__composer-stack .chat-panel__icon-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Группа кнопок в колонке — тоже столбец, не ряд. */
+.chat-panel__composer-edge {
   display: flex;
-  flex: 0 0 auto;
-  flex-direction: row;
+  flex-direction: column;
   align-items: center;
   gap: 2px;
 }
