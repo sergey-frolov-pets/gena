@@ -2141,6 +2141,16 @@ const composerShownLines = computed(() => {
 });
 /** Очистить и свернуть появляются, когда видно три строки и больше. */
 const composerTall = computed(() => composerShownLines.value >= COMPOSER_COLUMN_LINES);
+/**
+ * Раскладка кнопок вокруг поля (решение Сергея 26.11.2026): одна строка — ряд
+ * с каждой стороны, две — две колонки, три и больше — столбец на любом экране.
+ */
+const composerLayout = computed<"row" | "pair" | "column">(() => {
+  const lines = composerShownLines.value;
+  if (lines <= 1) return "row";
+  if (lines === 2) return "pair";
+  return "column";
+});
 /** Шит истории диалогов (как в AiChatPanel). */
 const historyOpen = ref(false);
 /** Режим переименования диалога в шапке. */
@@ -5732,7 +5742,7 @@ function onRateChange(event: Event): void {
         />
         <div
           class="chat-panel__composer-box"
-          :class="{ 'is-recording': dictationListening }"
+          :class="[`is-buttons-${composerLayout}`, { 'is-recording': dictationListening }]"
         >
           <div class="chat-panel__composer-side">
           <div class="chat-panel__composer-lead">
@@ -6620,8 +6630,9 @@ function onRateChange(event: Event): void {
 .chat-panel__composer-box {
   position: relative;
   display: flex;
-  /* Кнопки колонкой сверху: текст занимает всю ширину между ними. */
-  align-items: flex-start;
+  /* Колонки кнопок тянутся на высоту поля: кнопки прижимаются к низу,
+     текст занимает всю ширину между ними. */
+  align-items: stretch;
   gap: 6px;
   padding: 5px 6px 5px 10px;
   border: 1px solid var(--border);
@@ -6671,37 +6682,75 @@ function onRateChange(event: Event): void {
   border-color: var(--accent);
 }
 
-/* ── Поле ввода: кнопки слева и справа стоят колонкой ────────────────
-   Так текст получает всю ширину между двумя узкими столбцами.
-   Высоту рамки задаёт текст (и не ниже колонки кнопок). «Очистить» и
-   «Свернуть» — первые в своей колонке, когда видно три строки и больше.
+/* ── Поле ввода: кнопки слева и справа вокруг текста ────────────────
+   Раскладка идёт от числа видимых строк (решение Сергея 26.11.2026):
+     • одна строка  — кнопки в ряд с каждой стороны (is-buttons-row);
+     • две строки   — две колонки: голос/быстрые ответы и стоп/отправка
+                      (is-buttons-pair);
+     • три и больше — столбец с каждой стороны на любом экране
+                      (is-buttons-column, базовая раскладка).
+   Кнопки прижаты к низу поля; «Очистить» и «Свернуть» держатся сверху —
+   они липнут к верху своей колонки через margin-block-end: auto.
    «Свернуть» уменьшает поле до одной строки и не прячет его. */
 
-/* Левая часть: колонка кнопок и поле. */
+/* Левая часть: кнопки и поле. */
 .chat-panel__composer-side {
   display: flex;
   flex: 1 1 auto;
-  align-items: flex-start;
+  /* Кнопки тянутся на высоту поля, поле — по тексту (align-self: flex-start). */
+  align-items: stretch;
   gap: 4px;
   min-width: 0;
 }
 
-/* Левая колонка: очистить, скрепка, агент — сверху вниз. */
+/* Левая колонка: очистить сверху, скрепка и агент снизу. */
 .chat-panel__composer-lead {
   display: flex;
   flex: 0 0 auto;
   flex-direction: column;
   align-items: center;
+  justify-content: flex-end;
   gap: 2px;
 }
 
-/* Правая колонка: свернуть, микрофон, отправка — сверху вниз. */
+/* Правая колонка: свернуть сверху, микрофон и отправка снизу. */
 .chat-panel__composer-actions {
   display: flex;
   flex: 0 0 auto;
   flex-direction: column;
   align-items: center;
+  justify-content: flex-end;
   gap: 2px;
+}
+
+/* Три строки и больше: «Очистить» и «Свернуть» — верх своей колонки. */
+.chat-panel__composer-box.is-buttons-column
+  .chat-panel__composer-lead
+  > .chat-panel__composer-edge:first-child,
+.chat-panel__composer-box.is-buttons-column
+  .chat-panel__composer-actions
+  > .chat-panel__composer-edge:first-child {
+  margin-block-end: auto;
+}
+
+/* Одна строка: весь набор кнопок каждой стороны — в один ряд. */
+.chat-panel__composer-box.is-buttons-row .chat-panel__composer-lead,
+.chat-panel__composer-box.is-buttons-row .chat-panel__composer-actions,
+.chat-panel__composer-box.is-buttons-row .chat-panel__composer-edge,
+.chat-panel__composer-box.is-buttons-row .chat-panel__composer-stack {
+  flex-direction: row;
+  align-items: flex-end;
+  justify-content: flex-start;
+}
+
+/* Две строки: две колонки — микрофон/молния и стоп/отправка.
+   Группы кнопок расходятся по горизонтали, сами кнопки остаются столбцом. */
+.chat-panel__composer-box.is-buttons-pair .chat-panel__composer-lead,
+.chat-panel__composer-box.is-buttons-pair .chat-panel__composer-actions,
+.chat-panel__composer-box.is-buttons-pair .chat-panel__composer-edge {
+  flex-direction: row;
+  align-items: flex-end;
+  justify-content: flex-start;
 }
 
 /* Группы внутри колонки тоже вертикальные, без своего ряда. */
@@ -6860,8 +6909,8 @@ function onRateChange(event: Event): void {
     font-size: 0.84rem;
     line-height: 1.4;
   }
-  /* Колонка остаётся узкой и на телефоне: иначе кнопки снова встают в ряд
-     и отнимают ширину у текста. */
+  /* Кнопки держим узкими на телефоне: в ряду (одна строка) они не должны
+     съедать ширину у текста. Раскладка по строкам от этого не меняется. */
   .chat-panel__composer-box .chat-panel__icon-btn,
   .chat-panel__composer-box .chat-panel__send,
   .chat-panel__composer-box .chat-panel__send.is-stop {

@@ -51,9 +51,11 @@ describe("composer: высота поля ввода", () => {
     expect(composerFieldHeight(1, line, pad)).toBe(line + pad);
   });
 
-  it("две строки и больше — не ниже двух строк (решение Сергея 21.11.2026)", () => {
+  it("удалил перенос — поле сжалось обратно до одной строки (26.11.2026)", () => {
     expect(composerFieldHeight(2, line, pad)).toBe(2 * line + pad);
     expect(composerFieldHeight(3, line, pad)).toBe(3 * line + pad);
+    // Обратный проход — то, что раньше не работало: 2 строки → 1.
+    expect(composerFieldHeight(1, line, pad)).toBe(line + pad);
   });
 
   it("рост ограничен четырьмя строками — дальше скролл", () => {

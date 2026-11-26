@@ -36,13 +36,13 @@ export function isNewlineKey(event: KeyLike): boolean {
 
 /** Сколько строк максимум растягивается поле ввода. */
 export const COMPOSER_MAX_LINES = 4;
-/** Многострочный ввод держим не ниже двух строк — поле не «схлопывается» под текст. */
-export const COMPOSER_MIN_MULTILINE = 2;
 
 /**
  * Высота поля ввода в пикселях по замеренному числу строк.
  * `lineHeight` и `padding` — из computed style (box-sizing: border-box).
- * Одна строка — как есть, многострочный ввод — минимум две строки, потолок — 4.
+ * Высота всегда равна числу строк: удалил перенос — поле сжалось обратно
+ * до одной строки (правило Сергея 26.11.2026, отменяет минимум в две строки
+ * от 21.11.2026). Потолок — 4 строки, дальше скролл.
  */
 export function composerFieldHeight(
   measuredLines: number,
@@ -53,6 +53,5 @@ export function composerFieldHeight(
   const pad = padding > 0 ? padding : 0;
   const raw = Number.isFinite(measuredLines) ? Math.round(measuredLines) : 1;
   const lines = Math.max(1, raw);
-  const keep = lines > 1 ? Math.max(COMPOSER_MIN_MULTILINE, lines) : 1;
-  return Math.min(keep, COMPOSER_MAX_LINES) * line + pad;
+  return Math.min(lines, COMPOSER_MAX_LINES) * line + pad;
 }
