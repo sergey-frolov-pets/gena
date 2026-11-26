@@ -65,6 +65,14 @@ const updateReady = ref(false);
 watchForUpdate(() => {
   updateReady.value = true;
 });
+/** Тот же сигнал, но от сверки бандла с сервером (`main.ts`) — без SW-события. */
+function markUpdateAvailable(): void {
+  updateReady.value = true;
+}
+onMounted(() => window.addEventListener("app:update-available", markUpdateAvailable));
+onBeforeUnmount(() =>
+  window.removeEventListener("app:update-available", markUpdateAvailable),
+);
 function applyUpdate(): void {
   window.location.reload();
 }

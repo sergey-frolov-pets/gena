@@ -41,7 +41,10 @@ self.addEventListener("fetch", (event) => {
 
   if (req.mode === "navigate") {
     event.respondWith(
-      fetch(req)
+      // no-store: GitHub Pages отдаёт index.html с max-age=600, и обычный fetch
+      // возвращал старый HTML со ссылкой на старый бандл — «обновление» доезжало
+      // только через 10 минут. Навигацию всегда берём из сети.
+      fetch(req, { cache: "no-store" })
         .then((res) => {
           const copy = res.clone();
           caches.open(CACHE).then((cache) => cache.put(req, copy));
