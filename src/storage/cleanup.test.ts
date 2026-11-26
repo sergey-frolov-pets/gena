@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { closeDb, putAgent, putMessage, putSession, listSessions, listMessages } from "./db";
-import { clearAll, clearExcept } from "./cleanup";
+import { clearAll, clearExcept, clearSelected } from "./cleanup";
 import type { Agent, Message, Session } from "./types";
 
 function makeAgent(id: string): Agent {
@@ -54,6 +54,26 @@ describe("cleanup", () => {
     expect(left.map((s) => s.id)).toEqual(["s2"]);
     const msgs = await listMessages("s2");
     expect(msgs).toHaveLength(1);
+  });
+
+  it("clearSelected удаляет только отмеченные сессии и их сообщения", async () => {
+    await seed();
+    const result = await clearSelected(["s1", "s3"]);
+    expect(result.removedSessions).toBe(2);
+    expect(result.removedMessages).toBe(2);
+    expect(result.removedAgents).toBe(0);
+
+    const left = await listSessions();
+    expect(left.map((s) => s.id)).toEqual(["s2"]);
+    expect(await listMessages("s2")).toHaveLength(1);
+    expect(await listMessages("s1")).toHaveLength(0);
+  });
+
+  it("clearSelected с пустым списком ничего не удаляет", async () => {
+    await seed();
+    const result = await clearSelected([]);
+    expect(result.removedSessions).toBe(0);
+    expect(await listSessions()).toHaveLength(3);
   });
 
   it("clearAll удаляет все сессии, но не агентов", async () => {

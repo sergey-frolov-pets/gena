@@ -24,6 +24,10 @@ export const sessionsMessages = {
   "sessions.cleanup.removed": "已删除：{sessions} 个会话，{messages} 条消息。保留 {kept} 个。",
   "sessions.cleanup.confirmAll": "我确认删除所有会话",
   "sessions.cleanup.deleteAll": "删除所有会话",
+  "sessions.deleteSelected": "删除选中的会话",
+  "sessions.deleteSelectedText":
+    "将永久删除 {count} 个选中的会话及其消息。其他会话和智能体保留。",
+  "sessions.deleteSelectedDone": "已删除选中的：{sessions} 个会话，{messages} 条消息。",
   "sessions.cleanup.needConfirm": "请勾选确认框以删除全部",
   "sessions.cleanup.removedAll": "已全部删除：{sessions} 个会话，{messages} 条消息。",
   "sessions.cleanup.agentsKept": "清理时会保留智能体。",

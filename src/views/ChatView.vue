@@ -3664,6 +3664,7 @@ watch(displayValues, () => {
   void autoGrow();
 });
 
+
 /** Облачко тапа стоит над словом: пересчитываем, когда поле или фрагмент меняются. */
 watch(fieldPick, () => void placeFieldPick(), { flush: "post" });
 watch([displayValues, composerTall, composerCollapsed], () => {

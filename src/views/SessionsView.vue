@@ -3,9 +3,11 @@ import { computed, onMounted, ref, watch } from "vue";
 import {
   agents,
   sessions,
+  activeSessionId,
   selectedSessionIds,
   toggleSessionSelected,
   clearSessionSelection,
+  clearMessages,
   loadSessions,
   setSessionTags,
 } from "@/lib/store";
@@ -25,7 +27,7 @@ import {
   putMessage,
   putSession,
 } from "@/storage/db";
-import { clearAll, clearExcept } from "@/storage/cleanup";
+import { clearAll, clearExcept, clearSelected } from "@/storage/cleanup";
 import { measureStorage, type StorageSizes } from "@/storage/sizes";
 import { formatSize } from "@/lib/sizes";
 import { useLocale } from "@/i18n";
@@ -45,7 +47,7 @@ const notice = ref("");
 const onlySelectedForBackup = ref(false);
 
 /** Какое подтверждение сейчас показано в модалке. */
-type CleanupMode = "" | "all" | "except";
+type CleanupMode = "" | "all" | "except" | "selected";
 const confirmMode = ref<CleanupMode>("");
 
 /** Размеры данных: считаются только по кнопке, до этого в списке прочерк. */
@@ -115,17 +117,19 @@ const sizeBreakdown = computed(() =>
     : "",
 );
 
-const confirmTitle = computed(() =>
-  confirmMode.value === "all"
-    ? t("sessions.cleanup.deleteAll")
-    : t("sessions.cleanup.exceptSelected", { count: selectedSessionIds.value.size }),
-);
+const confirmTitle = computed(() => {
+  if (confirmMode.value === "all") return t("sessions.cleanup.deleteAll");
+  if (confirmMode.value === "selected") return t("sessions.deleteSelected");
+  return t("sessions.cleanup.exceptSelected", { count: selectedSessionIds.value.size });
+});
 
-const confirmMessage = computed(() =>
-  confirmMode.value === "all"
-    ? t("sessions.cleanup.confirmAllText")
-    : t("sessions.cleanup.confirmExceptText", { keep: selectedSessionIds.value.size }),
-);
+const confirmMessage = computed(() => {
+  if (confirmMode.value === "all") return t("sessions.cleanup.confirmAllText");
+  if (confirmMode.value === "selected") {
+    return t("sessions.deleteSelectedText", { count: selectedSessionIds.value.size });
+  }
+  return t("sessions.cleanup.confirmExceptText", { keep: selectedSessionIds.value.size });
+});
 
 /** Фильтр по агенту (чипы): список, «выбрать все» и счётчики идут по нему. */
 const {
@@ -327,6 +331,29 @@ async function cleanupAll(): Promise<void> {
   }
 }
 
+/** Удалить только отмеченные сессии: остальные диалоги и агенты остаются. */
+async function cleanupSelected(): Promise<void> {
+  error.value = "";
+  notice.value = "";
+  try {
+    const ids = [...selectedSessionIds.value];
+    if (ids.length === 0) return;
+    const removedActive = activeSessionId.value !== null && ids.includes(activeSessionId.value);
+    const result = await clearSelected(ids);
+    await loadSessions();
+    sizes.value = null; // данные изменились — старые размеры недействительны
+    clearSessionSelection();
+    // Удалили открытый диалог — чат не должен показывать его остатки.
+    if (removedActive) clearMessages();
+    notice.value = t("sessions.deleteSelectedDone", {
+      sessions: result.removedSessions,
+      messages: result.removedMessages,
+    });
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e);
+  }
+}
+
 /** Подтверждение в модалке: выполняем выбранную очистку. */
 async function runConfirmedCleanup(): Promise<void> {
   const mode = confirmMode.value;
@@ -335,12 +362,14 @@ async function runConfirmedCleanup(): Promise<void> {
     await cleanupAll();
   } else if (mode === "except") {
     await cleanupExceptSelected();
+  } else if (mode === "selected") {
+    await cleanupSelected();
   }
 }
 </script>
 
 <template>
-  <section>
+  <section :class="{ 'has-fab': selectedSessionIds.size > 0 }">
     <h2>{{ t("sessions.title") }}</h2>
 
     <div class="toolbar">
@@ -524,6 +553,32 @@ async function runConfirmedCleanup(): Promise<void> {
 
     <p v-if="error" class="error">{{ error }}</p>
     <p v-if="notice" class="ok">{{ notice }}</p>
+
+    <!-- Плавающая кнопка: есть отмеченные — можно удалить только их. -->
+    <button
+      v-if="selectedSessionIds.size > 0"
+      type="button"
+      class="fab-delete"
+      @click="confirmMode = 'selected'"
+    >
+      <svg
+        viewBox="0 0 24 24"
+        width="16"
+        height="16"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.8"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M3 6h18" />
+        <path d="M8 6V4h8v2" />
+        <path d="M6 6l1 14h10l1-14" />
+        <path d="M10 11v5M14 11v5" />
+      </svg>
+      {{ t("sessions.deleteSelected") }}
+    </button>
 
     <ConfirmModal
       :open="confirmMode !== ''"
@@ -728,5 +783,50 @@ async function runConfirmedCleanup(): Promise<void> {
 }
 .danger-zone {
   border-color: var(--danger);
+}
+/* Плавающая кнопка «удалить выбранные»: появляется, когда есть отметки. */
+section.has-fab {
+  padding-bottom: 84px;
+}
+.fab-delete {
+  position: fixed;
+  left: 50%;
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border: 1px solid var(--danger);
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 28%);
+  cursor: pointer;
+}
+.fab-delete:hover {
+  filter: brightness(1.06);
+}
+.fab-delete:active {
+  transform: translateX(-50%) scale(0.98);
+}
+.fab-delete:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+@media (max-width: 720px) {
+  .fab-delete {
+    left: 12px;
+    right: 12px;
+    transform: none;
+    justify-content: center;
+  }
+  .fab-delete:active {
+    transform: scale(0.98);
+  }
 }
 </style>

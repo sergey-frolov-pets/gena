@@ -24,6 +24,10 @@ export const sessionsMessages = {
   "sessions.cleanup.removed": "تم الحذف: {sessions} جلسة، {messages} رسالة. تم الاحتفاظ بـ {kept}.",
   "sessions.cleanup.confirmAll": "أؤكد حذف جميع الجلسات",
   "sessions.cleanup.deleteAll": "حذف جميع الجلسات",
+  "sessions.deleteSelected": "حذف الجلسات المحددة",
+  "sessions.deleteSelectedText":
+    "سيتم حذف {count} من الجلسات المحددة مع رسائلها نهائيًا. تبقى الجلسات الأخرى والوكلاء.",
+  "sessions.deleteSelectedDone": "تم حذف المحددة: {sessions} جلسات، {messages} رسائل.",
   "sessions.cleanup.needConfirm": "حدّد مربع التأكيد لحذف كل شيء",
   "sessions.cleanup.removedAll": "تم حذف كل شيء: {sessions} جلسة، {messages} رسالة.",
   "sessions.cleanup.agentsKept": "يُحتفظ بالوكلاء أثناء التنظيف.",

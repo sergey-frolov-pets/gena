@@ -26,6 +26,10 @@ export const sessionsMessages = {
   "sessions.cleanup.removed": "Удалено: {sessions} сессий, {messages} сообщений. Сохранено {kept}.",
   "sessions.cleanup.confirmAll": "Подтверждаю удаление всех сессий",
   "sessions.cleanup.deleteAll": "Удалить все сессии",
+  "sessions.deleteSelected": "Удалить выбранные сессии",
+  "sessions.deleteSelectedText":
+    "Будут удалены безвозвратно {count} отмеченных сессий вместе с сообщениями. Остальные сессии и агенты сохранятся.",
+  "sessions.deleteSelectedDone": "Удалено отмеченных: {sessions} сессий, {messages} сообщений.",
   "sessions.cleanup.needConfirm": "Отметьте подтверждение, чтобы удалить всё",
   "sessions.cleanup.removedAll": "Удалено всё: {sessions} сессий, {messages} сообщений.",
   "sessions.cleanup.agentsKept": "Агенты при очистке сохраняются.",
