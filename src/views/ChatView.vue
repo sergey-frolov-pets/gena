@@ -6696,8 +6696,8 @@ function onRateChange(event: Event): void {
 /* ── Поле ввода: кнопки слева и справа вокруг текста ────────────────
    Раскладка идёт от числа видимых строк (решение Сергея 26.11.2026):
      • одна строка  — кнопки в ряд с каждой стороны (is-buttons-row);
-     • две строки   — две колонки: голос/быстрые ответы и стоп/отправка
-                      (is-buttons-pair);
+     • две строки   — слева столбец (скрепка над агентом), справа ряд
+                      микрофон/молния и отправка (is-buttons-pair);
      • три и больше — столбец с каждой стороны на любом экране
                       (is-buttons-column, базовая раскладка).
    Кнопки прижаты к низу поля; «Очистить» и «Свернуть» держатся сверху —
@@ -6754,14 +6754,42 @@ function onRateChange(event: Event): void {
   justify-content: flex-start;
 }
 
-/* Две строки: две колонки — микрофон/молния и стоп/отправка.
-   Группы кнопок расходятся по горизонтали, сами кнопки остаются столбцом. */
+/* Две строки (решение Сергея 26.11.2026): слева кнопки — одной колонкой,
+   текст получает ширину; справа микрофон/молния и отправка остаются в ряд.
+   Кнопки левой колонки чуть меньше (24px): два столбика по 24 и зазор 2
+   дают 50px и влезают в высоту двух строк поля (52px) — поле не прыгает. */
 .chat-panel__composer-box.is-buttons-pair .chat-panel__composer-lead,
+.chat-panel__composer-box.is-buttons-pair
+  .chat-panel__composer-lead
+  .chat-panel__composer-edge {
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+}
+
 .chat-panel__composer-box.is-buttons-pair .chat-panel__composer-actions,
-.chat-panel__composer-box.is-buttons-pair .chat-panel__composer-edge {
+.chat-panel__composer-box.is-buttons-pair
+  .chat-panel__composer-actions
+  .chat-panel__composer-edge {
   flex-direction: row;
   align-items: flex-end;
   justify-content: flex-start;
+}
+
+.chat-panel__composer-box.is-buttons-pair
+  .chat-panel__composer-lead
+  .chat-panel__icon-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+}
+
+.chat-panel__composer-box.is-buttons-pair
+  .chat-panel__composer-lead
+  .chat-panel__icon-btn
+  svg {
+  width: 15px;
+  height: 15px;
 }
 
 /* Группы внутри колонки тоже вертикальные, без своего ряда. */
