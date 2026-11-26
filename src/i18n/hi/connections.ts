@@ -68,6 +68,28 @@ export const connectionsMessages = {
   "connections.field.tokenOnly": "केवल सुरक्षित मोड",
   "connections.hint.tokenOnly":
     "इस एजेंट के सभी संवाद सुरक्षित रहते हैं: एजेंट को केवल ⟦टोकन⟧ दिखते हैं, चैट को सामान्य मोड में नहीं बदला जा सकता।",
+  "connections.field.privacy":
+    "गोपनीयता",
+  "connections.privacy.trusted":
+    "विश्वसनीय प्रदाता",
+  "connections.privacy.tokens":
+    "केवल टोकन",
+  "connections.privacy.auto":
+    "स्वतः समीक्षा के साथ",
+  "connections.hint.privacy.trusted":
+    "सादा पाठ केवल विश्वसनीय सूची के प्रदाता को जाता है। होस्ट सूची में न हो तो कनेक्शन टोकन मोड में रहता है।",
+  "connections.hint.privacy.tokens":
+    "इस एजेंट के सभी संवाद सुरक्षित रहते हैं: एजेंट केवल ⟦टोकन⟧ देखता है, चैट से सुरक्षा हटाई नहीं जा सकती।",
+  "connections.hint.privacy.auto":
+    "भेजने से पहले मिले राशि, नाम और तिथियाँ दिखाते हैं — क्या छिपाना है आप तय करते हैं। प्रदाता विश्वसनीय होना चाहिए।",
+  "connections.warn.untrusted":
+    "प्रदाता विश्वसनीय सूची में नहीं है: सादा पाठ नहीं भेजा जाएगा, कनेक्शन टोकन मोड में रहेगा।",
+  "connections.trusted.title":
+    "विश्वसनीय प्रदाता",
+  "connections.trusted.field":
+    "होस्ट, प्रति पंक्ति एक",
+  "connections.trusted.hint":
+    "api.example.com — केवल यह होस्ट; .example.com — यह और सभी सबडोमेन। खाली सूची का अर्थ है कोई विश्वसनीय प्रदाता नहीं।",
   "connections.error.invalidUrl": "इस प्रोटोकॉल के लिए अमान्य URL।",
   "connections.error.mixedContent": "HTTPS पृष्ठों पर ws:// अवरुद्ध है — wss:// का उपयोग करें।",
   "connections.editAgent": "एजेंट संपादित करें",

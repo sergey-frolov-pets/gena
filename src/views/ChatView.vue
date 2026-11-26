@@ -3509,7 +3509,7 @@ async function resumePending(sessionId: string): Promise<void> {
   }
   // Ход жив, но ещё думает — повторно не отправляем, догоним в следующий раз.
   if (alive) return;
-  await exchange(session, agent, forAgent(pending.text), [], history);
+  await exchange(session, agent, forAgent(pending.text, { agent, sessionId: session.id }), [], history);
 }
 
 /** Справочник мог измениться в другом окне: читаем заново, но не пачкой. */
@@ -3833,8 +3833,8 @@ async function dispatch(
   // Агент получает только токены, настоящие значения остаются на устройстве.
   // Полный текст документов тоже уходит агенту — через ту же подстановку.
   const outgoing = documentsToMessage(
-    forAgent(text),
-    payload.docs.map((doc) => ({ ...doc, text: forAgent(doc.text) })),
+    forAgent(text, { agent, sessionId: session.id }),
+    payload.docs.map((doc) => ({ ...doc, text: forAgent(doc.text, { agent, sessionId: session.id }) })),
   );
   if (persist) {
     const stored = await appendMessage(
@@ -4197,7 +4197,7 @@ async function runRegenerate(m: Message): Promise<void> {
       (item) => item.role !== "system" && (item.kind === undefined || item.kind === "text"),
     ),
   );
-  await exchange(session, agent, forAgent(prompt), [], history);
+  await exchange(session, agent, forAgent(prompt, { agent, sessionId: session.id }), [], history);
 }
 
 function stop(): void {

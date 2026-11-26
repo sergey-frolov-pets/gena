@@ -22,6 +22,13 @@ export interface AgentSettings {
 /** Протокол подключения к агенту. Нет поля `protocol` у старого агента → `http_json`. */
 export type Protocol = "http_json" | "openai" | "pico_ws" | "model_pool" | "model_mix";
 
+/**
+ * Режим приватности подключения.
+ * `tokens` — всегда защищённый диалог; `trusted` — открытый текст только
+ * доверенному провайдеру; `auto` — открытый текст с автоподсказками.
+ */
+export type PrivacyMode = "trusted" | "tokens" | "auto";
+
 /** Модель в пуле одного провайдера. `dailyLimit` 0 — без дневного лимита. */
 export interface PoolModel {
   id: string;
@@ -89,12 +96,39 @@ export interface Agent {
   /** Версия схемы агента: 1 = legacy, 2 = мульти-протокол. */
   schemaVersion?: number;
   /**
+   * Режим приватности подключения (M2). Нет поля — агент создан раньше:
+   * смотрим `tokenOnly`, а если и его нет — работаем по прежним правилам.
+   */
+  privacy?: PrivacyMode;
+  /**
    * «Только режим токенов»: диалоги этого агента всегда защищённые,
    * снять защиту из чата нельзя — только здесь, в подключении.
+   * @deprecated заменено на `privacy: "tokens"`, читается для старых записей.
    */
   tokenOnly?: boolean;
   createdAt: number;
   updatedAt: number;
+}
+
+/**
+ * Запись журнала отправок: только метаданные, без текста и без значений.
+ * Хост вместо полного URL — в пути иногда живут идентификаторы.
+ */
+export interface AuditEntry {
+  id: string;
+  agentId: string;
+  sessionId?: string;
+  /** Режим приватности на момент отправки. */
+  mode: PrivacyMode;
+  /** Хост провайдера (`api.example.com`); пусто — адрес не разобрался. */
+  provider: string;
+  /** Провайдер входил в список доверенных. */
+  trusted: boolean;
+  /** Сколько подстановок было в отправленном тексте. */
+  tokens: number;
+  /** Длина ушедшего текста. */
+  chars: number;
+  createdAt: number;
 }
 
 export interface Session {
@@ -356,8 +390,13 @@ export const SCHEMA_VERSION = 2;
  * Старые агенты (без protocol/config) читаются как `http_json` c пустым `config`.
  */
 export function normalizeAgent(raw: Agent): Agent {
+  // Миграция M2: старый флаг превращается в режим, само поле больше не пишем.
+  const { tokenOnly, ...rest } = raw;
+  const privacy: PrivacyMode | undefined =
+    rest.privacy ?? (tokenOnly === true ? "tokens" : undefined);
   return {
-    ...raw,
+    ...rest,
+    ...(privacy ? { privacy } : {}),
     settings: {
       ...raw.settings,
       quickReplies: normalizeQuickReplies(raw.settings?.quickReplies),

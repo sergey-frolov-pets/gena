@@ -42,6 +42,13 @@ import {
   type AccountSnapshot,
 } from "@/lib/provider-account";
 import { connectableProviders, providerByBaseUrl } from "@/lib/providers";
+import { isTrustedProvider, resolvePrivacyMode } from "@/lib/privacy/mode";
+import {
+  parseTrustedProvidersInput,
+  setTrustedProviders,
+  trustedProviders,
+} from "@/lib/privacy/trusted-providers";
+import type { PrivacyMode } from "@/storage/types";
 import { reportSiteClick } from "@/analytics/usage";
 
 const { t, locale } = useLocale();
@@ -54,8 +61,17 @@ const callLimit = ref(0);
 const llmModel = ref("");
 /** Стандартные сообщения: textarea, одна строка — одна кнопка. */
 const quickRepliesText = ref("");
-/** «Только режим токенов»: диалоги агента всегда защищённые. */
-const tokenOnly = ref(false);
+/** Режим приватности подключения: trusted / tokens / auto. */
+const privacy = ref<PrivacyMode>("trusted");
+/** Доверенные провайдеры: textarea, одна запись — одна строка. */
+const trustedText = ref(trustedProviders.value.join("\n"));
+/** Адрес введён, режим не «только токены», а провайдер не в списке доверенных. */
+const providerUntrusted = computed(
+  () =>
+    privacy.value !== "tokens" &&
+    address.value.trim().length > 0 &&
+    !isTrustedProvider(address.value, trustedProviders.value),
+);
 /** Агент, у которого берём готовый набор стандартных сообщений. */
 const importFromId = ref("");
 const protocol = ref<Protocol>("http_json");
@@ -219,7 +235,7 @@ function resetForm(): void {
   callLimit.value = 0;
   llmModel.value = "";
   quickRepliesText.value = "";
-  tokenOnly.value = false;
+  privacy.value = "trusted";
   importFromId.value = "";
   model.value = "";
   systemPrompt.value = "";
@@ -238,7 +254,7 @@ function startEdit(agent: Agent): void {
   callLimit.value = agent.settings.callLimit;
   llmModel.value = agent.settings.llmModel;
   quickRepliesText.value = (agent.settings.quickReplies ?? []).join("\n");
-  tokenOnly.value = agent.tokenOnly === true;
+  privacy.value = resolvePrivacyMode(agent);
   importFromId.value = "";
   protocol.value = agent.protocol ?? "http_json";
   const cfg = agent.config as {
@@ -339,6 +355,8 @@ async function submit(): Promise<void> {
     quickReplies: normalizeQuickReplies(quickRepliesText.value),
   };
 
+  setTrustedProviders(parseTrustedProvidersInput(trustedText.value));
+
   try {
     if (editingId.value) {
       await updateAgent(editingId.value, {
@@ -347,7 +365,7 @@ async function submit(): Promise<void> {
         settings,
         protocol: protocol.value,
         config,
-        tokenOnly: tokenOnly.value,
+        privacy: privacy.value,
       });
       notice.value = t("connections.updated");
     } else {
@@ -358,7 +376,7 @@ async function submit(): Promise<void> {
         settings,
         protocol: protocol.value,
         config,
-        tokenOnly: tokenOnly.value,
+        privacy: privacy.value,
       });
       if (apiKey.value && created.address) {
         await rememberAccount(created.id, created.address, apiKey.value);
@@ -776,11 +794,27 @@ function addMixRoute(): void {
         </div>
       </div>
 
-      <label class="check">
-        <input v-model="tokenOnly" type="checkbox" />
-        {{ t("connections.field.tokenOnly") }}
-      </label>
-      <p class="muted small">{{ t("connections.hint.tokenOnly") }}</p>
+      <div class="field">
+        <label>{{ t("connections.field.privacy") }}</label>
+        <select v-model="privacy">
+          <option value="trusted">{{ t("connections.privacy.trusted") }}</option>
+          <option value="tokens">{{ t("connections.privacy.tokens") }}</option>
+          <option value="auto">{{ t("connections.privacy.auto") }}</option>
+        </select>
+        <p class="muted small">{{ t(`connections.hint.privacy.${privacy}`) }}</p>
+      </div>
+      <p v-if="providerUntrusted" class="warn small">
+        {{ t("connections.warn.untrusted") }}
+      </p>
+
+      <details class="extras">
+        <summary>{{ t("connections.trusted.title") }}</summary>
+        <div class="field">
+          <label>{{ t("connections.trusted.field") }}</label>
+          <textarea v-model="trustedText" rows="3" spellcheck="false"></textarea>
+          <p class="muted small">{{ t("connections.trusted.hint") }}</p>
+        </div>
+      </details>
 
       <details class="extras">
         <summary>{{ t("connections.extras") }}</summary>
@@ -1179,6 +1213,11 @@ function addMixRoute(): void {
   display: flex;
   gap: 4px;
 }
+.warn {
+  color: var(--danger);
+  margin: 0 0 12px;
+}
+
 .check {
   display: flex;
   gap: 6px;

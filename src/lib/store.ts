@@ -9,6 +9,7 @@ import type {
   AgentConfig,
   Message,
   MessageAttachment,
+  PrivacyMode,
   Protocol,
   Session,
 } from "@/storage/types";
@@ -64,6 +65,11 @@ export async function loadSessions(): Promise<void> {
 /** Номер последнего запроса истории: ответ на устаревший запрос не применяем. */
 let messagesRequest = 0;
 
+/** Старый флаг «только токены» — в новый режим; явный режим сильнее. */
+function privacyOf(input: { privacy?: PrivacyMode; tokenOnly?: boolean }): PrivacyMode | undefined {
+  return input.privacy ?? (input.tokenOnly ? "tokens" : undefined);
+}
+
 export async function loadMessages(sessionId: string): Promise<void> {
   const request = (messagesRequest += 1);
   activeSessionId.value = sessionId;
@@ -87,7 +93,9 @@ export async function createAgent(input: {
   settings: Partial<typeof DEFAULT_AGENT_SETTINGS>;
   protocol?: Protocol;
   config?: AgentConfig;
-  /** «Только режим токенов» для всех диалогов этого подключения. */
+  /** Режим приватности подключения (M2). */
+  privacy?: PrivacyMode;
+  /** @deprecated заменено на `privacy: "tokens"`. */
   tokenOnly?: boolean;
 }): Promise<Agent> {
   const id = newId("agent");
@@ -101,7 +109,7 @@ export async function createAgent(input: {
     settings: normalizeSettings(input.settings),
     protocol: input.protocol ?? "http_json",
     config: input.config ?? {},
-    tokenOnly: input.tokenOnly ? true : undefined,
+    ...(privacyOf(input) ? { privacy: privacyOf(input) } : {}),
     schemaVersion: SCHEMA_VERSION,
     createdAt: now,
     updatedAt: now,
@@ -130,7 +138,9 @@ export async function updateAgent(
     settings: Partial<typeof DEFAULT_AGENT_SETTINGS>;
     protocol?: Protocol;
     config?: AgentConfig;
-    /** «Только режим токенов» для всех диалогов этого подключения. */
+    /** Режим приватности подключения (M2). */
+    privacy?: PrivacyMode;
+    /** @deprecated заменено на `privacy: "tokens"`. */
     tokenOnly?: boolean;
   },
 ): Promise<void> {
@@ -141,8 +151,10 @@ export async function updateAgent(
   agent.settings = normalizeSettings(input.settings);
   agent.protocol = input.protocol ?? agent.protocol ?? "http_json";
   agent.config = input.config ?? {};
-  if (input.tokenOnly) agent.tokenOnly = true;
-  else delete agent.tokenOnly;
+  const privacy = privacyOf(input);
+  if (privacy) agent.privacy = privacy;
+  else delete agent.privacy;
+  delete agent.tokenOnly;
   agent.schemaVersion = SCHEMA_VERSION;
   agent.updatedAt = Date.now();
   await putAgent(agent);

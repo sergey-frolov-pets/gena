@@ -25,3 +25,28 @@ describe("tokenModeLockReason", () => {
     expect(tokenModeLockReason([], false)).toBeNull();
   });
 });
+
+describe("agentRequiresTokens и режимы", () => {
+  const trust = ["api.example.com"];
+
+  it("trusted у доверенного провайдера не требует токенов", () => {
+    expect(agentRequiresTokens({ privacy: "trusted", address: "https://api.example.com" }, trust)).toBe(false);
+  });
+
+  it("trusted вне списка доверенных тихо откатывается к токенам", () => {
+    expect(agentRequiresTokens({ privacy: "trusted", address: "https://other.test" }, trust)).toBe(true);
+  });
+
+  it("auto без доверия тоже откатывается", () => {
+    expect(agentRequiresTokens({ privacy: "auto", address: "https://other.test" }, trust)).toBe(true);
+    expect(agentRequiresTokens({ privacy: "auto", address: "https://api.example.com" }, trust)).toBe(false);
+  });
+
+  it("старая запись без режима сохраняет прежнее поведение", () => {
+    expect(agentRequiresTokens({ address: "https://other.test" }, trust)).toBe(false);
+  });
+
+  it("режим tokens требует защиту всегда", () => {
+    expect(agentRequiresTokens({ privacy: "tokens", address: "https://api.example.com" }, trust)).toBe(true);
+  });
+});

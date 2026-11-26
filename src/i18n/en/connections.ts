@@ -73,6 +73,28 @@ export const connectionsMessages = {
   "connections.field.tokenOnly": "Protected mode only",
   "connections.hint.tokenOnly":
     "All dialogs of this agent stay protected: the agent sees only ⟦tokens⟧, and chat cannot switch to plain mode.",
+  "connections.field.privacy":
+    "Privacy",
+  "connections.privacy.trusted":
+    "Trusted provider",
+  "connections.privacy.tokens":
+    "Tokens only",
+  "connections.privacy.auto":
+    "Auto with review",
+  "connections.hint.privacy.trusted":
+    "Plain text goes only to a provider from the trusted list. If the host is not there, the connection stays in token mode.",
+  "connections.hint.privacy.tokens":
+    "All dialogs of this agent stay protected: the agent sees only ⟦tokens⟧, and chat cannot switch to plain mode.",
+  "connections.hint.privacy.auto":
+    "Before sending we list the amounts, names and dates we found — you decide what to mask. The provider must be trusted.",
+  "connections.warn.untrusted":
+    "Provider is not in the trusted list: plain text will not be sent, the connection stays in token mode.",
+  "connections.trusted.title":
+    "Trusted providers",
+  "connections.trusted.field":
+    "Hosts, one per line",
+  "connections.trusted.hint":
+    "api.example.com — this host only; .example.com — it and all subdomains. Empty list means no trusted providers.",
   "connections.error.invalidUrl": "Invalid URL for this protocol.",
   "connections.error.mixedContent": "ws:// is blocked on HTTPS pages — use wss://.",
   "connections.test": "Check connection",

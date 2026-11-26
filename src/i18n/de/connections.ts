@@ -68,6 +68,28 @@ export const connectionsMessages = {
   "connections.field.tokenOnly": "Nur geschützter Modus",
   "connections.hint.tokenOnly":
     "Alle Dialoge dieses Agenten bleiben geschützt: der Agent sieht nur ⟦Token⟧, der Chat lässt sich nicht auf Klartext umschalten.",
+  "connections.field.privacy":
+    "Privatsphäre",
+  "connections.privacy.trusted":
+    "Vertrauenswürdiger Anbieter",
+  "connections.privacy.tokens":
+    "Nur Tokens",
+  "connections.privacy.auto":
+    "Automatisch mit Prüfung",
+  "connections.hint.privacy.trusted":
+    "Klartext geht nur an einen Anbieter aus der Vertrauensliste. Steht der Host nicht dort, bleibt die Verbindung im Token-Modus.",
+  "connections.hint.privacy.tokens":
+    "Alle Dialoge dieses Agenten bleiben geschützt: der Agent sieht nur ⟦Tokens⟧, der Chat kann den Schutz nicht aufheben.",
+  "connections.hint.privacy.auto":
+    "Vor dem Senden zeigen wir gefundene Beträge, Namen und Fristen — Sie entscheiden, was maskiert wird. Der Anbieter muss vertrauenswürdig sein.",
+  "connections.warn.untrusted":
+    "Der Anbieter steht nicht in der Vertrauensliste: Klartext wird nicht gesendet, die Verbindung bleibt im Token-Modus.",
+  "connections.trusted.title":
+    "Vertrauenswürdige Anbieter",
+  "connections.trusted.field":
+    "Hosts, einer pro Zeile",
+  "connections.trusted.hint":
+    "api.example.com — nur dieser Host; .example.com — er und alle Subdomains. Leere Liste bedeutet keine vertrauenswürdigen Anbieter.",
   "connections.error.invalidUrl": "Ungültige URL für dieses Protokoll.",
   "connections.error.mixedContent": "ws:// wird auf HTTPS-Seiten blockiert — bitte wss:// verwenden.",
   "connections.editAgent": "Agent bearbeiten",

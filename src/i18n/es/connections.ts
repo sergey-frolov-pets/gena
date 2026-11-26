@@ -68,6 +68,28 @@ export const connectionsMessages = {
   "connections.field.tokenOnly": "Solo modo protegido",
   "connections.hint.tokenOnly":
     "Todos los diálogos de este agente siguen protegidos: el agente solo ve ⟦tokens⟧ y el chat no puede pasar a modo normal.",
+  "connections.field.privacy":
+    "Privacidad",
+  "connections.privacy.trusted":
+    "Proveedor de confianza",
+  "connections.privacy.tokens":
+    "Solo tokens",
+  "connections.privacy.auto":
+    "Automático con revisión",
+  "connections.hint.privacy.trusted":
+    "El texto plano solo va a un proveedor de la lista de confianza. Si el host no está allí, la conexión queda en modo tokens.",
+  "connections.hint.privacy.tokens":
+    "Todos los diálogos de este agente quedan protegidos: el agente ve solo ⟦tokens⟧ y el chat no puede desactivarlo.",
+  "connections.hint.privacy.auto":
+    "Antes de enviar mostramos los importes, nombres y plazos encontrados: usted decide qué ocultar. El proveedor debe ser de confianza.",
+  "connections.warn.untrusted":
+    "El proveedor no está en la lista de confianza: no se enviará texto plano, la conexión seguirá en modo tokens.",
+  "connections.trusted.title":
+    "Proveedores de confianza",
+  "connections.trusted.field":
+    "Hosts, uno por línea",
+  "connections.trusted.hint":
+    "api.example.com — solo ese host; .example.com — él y todos los subdominios. Lista vacía significa sin proveedores de confianza.",
   "connections.error.invalidUrl": "URL no válido para este protocolo.",
   "connections.error.mixedContent": "ws:// está bloqueado en páginas HTTPS — usa wss://.",
   "connections.editAgent": "Editar agente",

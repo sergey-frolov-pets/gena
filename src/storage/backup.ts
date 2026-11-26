@@ -14,6 +14,7 @@ import {
   type AgentConfig,
   type AgentSettings,
   type Message,
+  type PrivacyMode,
   type Protocol,
   type Session,
 } from "./types";
@@ -33,7 +34,9 @@ export interface BackupAgent {
   settings: AgentSettings;
   protocol?: Protocol;
   config?: AgentConfig;
-  /** «Только режим токенов» — ограничение переезжает вместе с подключением. */
+  /** Режим приватности подключения (M2) — переезжает вместе с подключением. */
+  privacy?: PrivacyMode;
+  /** @deprecated оставлено для чтения старых бэкапов. */
   tokenOnly?: boolean;
   createdAt: number;
   updatedAt: number;
@@ -65,6 +68,7 @@ function toBackupAgent(agent: Agent): BackupAgent {
     settings: { ...agent.settings },
     protocol: agent.protocol,
     config: agent.config ? { ...agent.config } : undefined,
+    privacy: agent.privacy,
     tokenOnly: agent.tokenOnly ? true : undefined,
     createdAt: agent.createdAt,
     updatedAt: agent.updatedAt,
@@ -126,6 +130,20 @@ function parseAgentSettings(raw: unknown): AgentSettings {
   };
 }
 
+/**
+ * Режим приватности из бэкапа. Старый флаг `tokenOnly` читается как `tokens`;
+ * неизвестное значение — ошибка формата, а не тихий откат: бэкап правим руками.
+ */
+function parsePrivacy(raw: unknown, legacyTokenOnly: boolean): PrivacyMode | undefined {
+  if (raw === undefined || raw === null) {
+    return legacyTokenOnly ? "tokens" : undefined;
+  }
+  if (raw === "trusted" || raw === "tokens" || raw === "auto") {
+    return raw;
+  }
+  throw new BackupParseError('поле "agent.privacy" должно быть trusted, tokens или auto');
+}
+
 function parseProtocol(raw: unknown): Protocol | undefined {
   if (raw === undefined) {
     return undefined;
@@ -166,6 +184,7 @@ function parseAgent(raw: unknown): BackupAgent {
     settings: parseAgentSettings(raw.settings),
     protocol: parseProtocol(raw.protocol),
     config: parseConfig(raw.config),
+    privacy: parsePrivacy(raw.privacy, raw.tokenOnly === true),
     tokenOnly: raw.tokenOnly === true ? true : undefined,
     createdAt: asNumber(raw.createdAt, "agent.createdAt"),
     updatedAt: asNumber(raw.updatedAt, "agent.updatedAt"),
@@ -247,6 +266,7 @@ export function backupAgentToAgent(backup: BackupAgent): Agent {
     settings: { ...backup.settings },
     protocol: backup.protocol,
     config: backup.config,
+    privacy: backup.privacy ?? (backup.tokenOnly ? "tokens" : undefined),
     tokenOnly: backup.tokenOnly ? true : undefined,
     createdAt: backup.createdAt,
     updatedAt: backup.updatedAt,

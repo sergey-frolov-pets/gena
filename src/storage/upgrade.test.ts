@@ -85,7 +85,8 @@ describe("обновление базы 3 → 5", () => {
     old.close();
 
     const db = await getDb();
-    expect(db.version).toBe(6);
+    expect(db.version).toBe(7);
+    expect(db.objectStoreNames.contains("audit")).toBe(true);
     expect(db.objectStoreNames.contains("tokens")).toBe(true);
     expect(db.objectStoreNames.contains("morph")).toBe(true);
     // v6: индексы типа и канонизации появляются на существующем сторе.

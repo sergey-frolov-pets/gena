@@ -24,6 +24,7 @@ function withoutKey(agent: Agent): BackupAgent {
     settings: { ...agent.settings },
     protocol: agent.protocol,
     config: agent.config ? { ...agent.config } : undefined,
+    privacy: agent.privacy,
     tokenOnly: agent.tokenOnly ? true : undefined,
     createdAt: agent.createdAt,
     updatedAt: agent.updatedAt,

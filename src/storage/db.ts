@@ -1,7 +1,7 @@
 /**
  * Слой IndexedDB поверх `idb`.
  *
- * База `gena`, версия 4. Сторы:
+ * База `gena`, версия 7. Сторы:
  *   agents   (keyPath id)                       — подключения к агентам
  *   sessions (keyPath id, index by-agent, by-updated) — диалоги
  *   messages (keyPath id, index by-session)     — сообщения
@@ -10,6 +10,8 @@
  *   tokens   (keyPath id, index by-name-key, by-updated, by-type, by-canonical-key)
  *                                              — справочник подстановок
  *   morph    (keyPath id)                       — скачанный морфологический словарь
+ *   audit    (keyPath id, index by-created-at)  — журнал отправок: режим, хост,
+ *                                              — число подстановок (без содержимого)
  *
  * Все функции тонкие; бизнес-логика (шифрование, бэкап, очистка) — выше.
  * Миграции идемпотентны: существующие данные не трогаются, добавляются
@@ -21,6 +23,7 @@ import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import {
   normalizeAgent,
   type Agent,
+  type AuditEntry,
   type Message,
   type MorphRecord,
   type Session,
@@ -30,7 +33,7 @@ import {
 import type { QueuedRecord } from "./queue";
 
 const DB_NAME = "gena";
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 
 interface GenaDB extends DBSchema {
   agents: {
@@ -74,6 +77,13 @@ interface GenaDB extends DBSchema {
   morph: {
     key: string;
     value: MorphRecord;
+  };
+  audit: {
+    key: string;
+    value: AuditEntry;
+    indexes: {
+      "by-created-at": number;
+    };
   };
 }
 
@@ -147,6 +157,11 @@ function openDatabase(): Promise<IDBPDatabase<GenaDB>> {
         }
         if (!db.objectStoreNames.contains("morph")) {
           db.createObjectStore("morph", { keyPath: "id" });
+        }
+        // v7: журнал отправок (только метаданные).
+        if (!db.objectStoreNames.contains("audit")) {
+          const audit = db.createObjectStore("audit", { keyPath: "id" });
+          audit.createIndex("by-created-at", "createdAt");
         }
         // v6: типы и канонизация в справочнике (полуавтоматика).
         if (oldVersion < 6 && db.objectStoreNames.contains("tokens")) {

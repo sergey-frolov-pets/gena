@@ -68,6 +68,28 @@ export const connectionsMessages = {
   "connections.field.tokenOnly": "الوضع المحمي فقط",
   "connections.hint.tokenOnly":
     "تبقى جميع محادثات هذا الوكيل محمية: لا يرى الوكيل إلا ⟦الرموز⟧، ولا يمكن تحويل الدردشة إلى الوضع العادي.",
+  "connections.field.privacy":
+    "الخصوصية",
+  "connections.privacy.trusted":
+    "مزوّد موثوق",
+  "connections.privacy.tokens":
+    "الرموز فقط",
+  "connections.privacy.auto":
+    "تلقائي مع مراجعة",
+  "connections.hint.privacy.trusted":
+    "يُرسل النص الصريح فقط إلى مزوّد من قائمة الموثوقين. إن لم يكن المضيف في القائمة يبقى الاتصال في وضع الرموز.",
+  "connections.hint.privacy.tokens":
+    "تبقى جميع محادثات هذا الوكيل محمية: يرى الوكيل ⟦رموز⟧ فقط، ولا يمكن إلغاء الحماية من الدردشة.",
+  "connections.hint.privacy.auto":
+    "قبل الإرسال نعرض المبالغ والأسماء والمواعيد المكتشفة، وأنت تقرر ما يُخفى. يجب أن يكون المزوّد موثوقًا.",
+  "connections.warn.untrusted":
+    "المزوّد ليس في قائمة الموثوقين: لن يُرسل النص الصريح ويبقى الاتصال في وضع الرموز.",
+  "connections.trusted.title":
+    "المزوّدون الموثوقون",
+  "connections.trusted.field":
+    "المضيفون، واحد في كل سطر",
+  "connections.trusted.hint":
+    "api.example.com — هذا المضيف فقط؛ .example.com — هو وكل النطاقات الفرعية. قائمة فارغة تعني لا مزوّدين موثوقين.",
   "connections.error.invalidUrl": "عنوان URL غير صالح لهذا البروتوكول.",
   "connections.error.mixedContent": "يُحظر ws:// في صفحات HTTPS — استخدم wss://.",
   "connections.editAgent": "تعديل الوكيل",

@@ -143,3 +143,34 @@ describe("merge-импорт", () => {
     expect(result.toWrite[0].content).toBe("привет");
   });
 });
+
+describe("режим приватности в бэкапе", () => {
+  it("privacy переезжает вместе с подключением", () => {
+    const withMode: Agent = { ...agent, privacy: "auto" };
+    const payload = buildBackup({ agents: [withMode], sessions: [], messages: [] });
+    const parsed = parseBackup(serializeBackup(payload));
+    expect(parsed.agents[0].privacy).toBe("auto");
+    expect(backupAgentToAgent(parsed.agents[0]).privacy).toBe("auto");
+  });
+
+  it("старый бэкап с tokenOnly читается как режим tokens", () => {
+    const payload = buildBackup({
+      agents: [{ ...agent, tokenOnly: true }],
+      sessions: [],
+      messages: [],
+    });
+    const parsed = parseBackup(serializeBackup(payload));
+    expect(parsed.agents[0].privacy).toBe("tokens");
+    const restored = backupAgentToAgent(parsed.agents[0]);
+    expect(restored.privacy).toBe("tokens");
+    // normalizeAgent переписывает старый флаг в режим и само поле убирает.
+    expect(restored.tokenOnly).toBeUndefined();
+  });
+
+  it("неизвестный режим — ошибка формата", () => {
+    const payload = buildBackup({ agents: [agent], sessions: [], messages: [] });
+    const raw = JSON.parse(serializeBackup(payload)) as { agents: Array<{ privacy?: string }> };
+    raw.agents[0].privacy = "paranoid";
+    expect(() => parseBackup(JSON.stringify(raw))).toThrow(BackupParseError);
+  });
+});

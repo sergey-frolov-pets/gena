@@ -73,6 +73,28 @@ export const connectionsMessages = {
   "connections.field.tokenOnly": "Только защищённый режим",
   "connections.hint.tokenOnly":
     "Все диалоги этого агента остаются защищёнными: агент видит только ⟦токены⟧, переключить чат в обычный режим нельзя.",
+  "connections.field.privacy":
+    "Приватность",
+  "connections.privacy.trusted":
+    "Доверенный провайдер",
+  "connections.privacy.tokens":
+    "Только токены",
+  "connections.privacy.auto":
+    "Авто с проверкой",
+  "connections.hint.privacy.trusted":
+    "Открытый текст уходит только провайдеру из списка доверенных. Если адреса там нет — подключение само работает в режиме токенов.",
+  "connections.hint.privacy.tokens":
+    "Все диалоги этого агента защищённые: агент видит только ⟦токены⟧, снять защиту из чата нельзя.",
+  "connections.hint.privacy.auto":
+    "Перед отправкой показываем найденные суммы, имена и сроки — что маскировать, решаете вы. Провайдер должен быть доверенным.",
+  "connections.warn.untrusted":
+    "Провайдер не в списке доверенных: открытый текст отправляться не будет, подключение останется в режиме токенов.",
+  "connections.trusted.title":
+    "Доверенные провайдеры",
+  "connections.trusted.field":
+    "Хосты, по одному в строке",
+  "connections.trusted.hint":
+    "api.example.com — только этот хост; .example.com — он и все поддомены. Пустой список — доверенных нет.",
   "connections.error.invalidUrl": "Некорректный URL для этого протокола.",
   "connections.error.mixedContent": "ws:// блокируется на HTTPS-страницах — используйте wss://.",
   "connections.test": "Проверить подключение",
