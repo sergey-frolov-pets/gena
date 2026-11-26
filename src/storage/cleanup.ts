@@ -82,6 +82,33 @@ export async function clearExcept(keepSessionIds: readonly string[]): Promise<Cl
   return { removedSessions, removedMessages, removedAgents: 0 };
 }
 
+/**
+ * Удалить только перечисленные сессии вместе с их сообщениями.
+ * Остальные диалоги и все агенты остаются; реплики в очереди к удалённым снимаются.
+ */
+export async function clearSelected(sessionIds: readonly string[]): Promise<ClearResult> {
+  const doomed = new Set(sessionIds);
+  let removedSessions = 0;
+  let removedMessages = 0;
+
+  for (const session of await listSessions()) {
+    if (!doomed.has(session.id)) {
+      continue;
+    }
+    const messages = await listMessages(session.id);
+    removedMessages += messages.length;
+    await deleteSession(session.id);
+    removedSessions += 1;
+  }
+
+  // Реплики, адресованные удалённым диалогам, отправить уже некуда.
+  const queued = await listQueued();
+  const keptQueue = queued.filter((item) => !item.sessionId || !doomed.has(item.sessionId));
+  if (keptQueue.length !== queued.length) await replaceQueued(keptQueue);
+
+  return { removedSessions, removedMessages, removedAgents: 0 };
+}
+
 /** Полностью стереть базу (на случай «сброс всего»). */
 export async function dropDatabase(): Promise<void> {
   await closeDb();

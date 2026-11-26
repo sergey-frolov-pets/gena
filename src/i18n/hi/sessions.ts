@@ -24,6 +24,10 @@ export const sessionsMessages = {
   "sessions.cleanup.removed": "हटाए गए: {sessions} सत्र, {messages} संदेश। {kept} सुरक्षित।",
   "sessions.cleanup.confirmAll": "मैं सभी सत्र हटाने की पुष्टि करता/करती हूँ",
   "sessions.cleanup.deleteAll": "सभी सत्र हटाएँ",
+  "sessions.deleteSelected": "चयनित सत्र हटाएँ",
+  "sessions.deleteSelectedText":
+    "{count} चयनित सत्र और उनके संदेश स्थायी रूप से हटा दिए जाएँगे। बाकी सत्र और एजेंट बने रहेंगे।",
+  "sessions.deleteSelectedDone": "चयनित हटाए गए: {sessions} सत्र, {messages} संदेश।",
   "sessions.cleanup.needConfirm": "सब हटाने के लिए पुष्टि बॉक्स चुनें",
   "sessions.cleanup.removedAll": "सब हटा दिया: {sessions} सत्र, {messages} संदेश।",
   "sessions.cleanup.agentsKept": "सफ़ाई के दौरान एजेंट सुरक्षित रहते हैं।",
