@@ -85,9 +85,13 @@ describe("обновление базы 3 → 5", () => {
     old.close();
 
     const db = await getDb();
-    expect(db.version).toBe(5);
+    expect(db.version).toBe(6);
     expect(db.objectStoreNames.contains("tokens")).toBe(true);
     expect(db.objectStoreNames.contains("morph")).toBe(true);
+    // v6: индексы типа и канонизации появляются на существующем сторе.
+    const tokenIndexes = db.transaction("tokens", "readonly").store.indexNames;
+    expect(tokenIndexes.contains("by-type")).toBe(true);
+    expect(tokenIndexes.contains("by-canonical-key")).toBe(true);
 
     const agents = await listAgents();
     const sessions = await listSessions();

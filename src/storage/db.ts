@@ -7,12 +7,14 @@
  *   messages (keyPath id, index by-session)     — сообщения
  *   usage    (keyPath agentId)                  — счётчик вызовов агента за сутки
  *   queue    (keyPath id)                       — реплики, ждущие ответа агента
- *   tokens   (keyPath id, index by-name-key, by-updated) — справочник подстановок
+ *   tokens   (keyPath id, index by-name-key, by-updated, by-type, by-canonical-key)
+ *                                              — справочник подстановок
  *   morph    (keyPath id)                       — скачанный морфологический словарь
  *
  * Все функции тонкие; бизнес-логика (шифрование, бэкап, очистка) — выше.
  * Миграции идемпотентны: существующие данные не трогаются, добавляются
- * только новые сторы (v2 — `usage`, v3 — `queue`, v4 — `tokens`, v5 — `morph`).
+ * только новые сторы (v2 — `usage`, v3 — `queue`, v4 — `tokens`, v5 — `morph`,
+ * v6 — индексы типа и канонизации в `tokens`).
  */
 
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
@@ -28,7 +30,7 @@ import {
 import type { QueuedRecord } from "./queue";
 
 const DB_NAME = "gena";
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 
 interface GenaDB extends DBSchema {
   agents: {
@@ -65,6 +67,8 @@ interface GenaDB extends DBSchema {
     indexes: {
       "by-name-key": string;
       "by-updated": number;
+      "by-type": string;
+      "by-canonical-key": string;
     };
   };
   morph: {
@@ -116,7 +120,7 @@ function openDatabase(): Promise<IDBPDatabase<GenaDB>> {
     const timer = setTimeout(() => fail(new StorageBlockedError()), OPEN_TIMEOUT_MS);
 
     openDB<GenaDB>(DB_NAME, DB_VERSION, {
-      upgrade(db) {
+      upgrade(db, oldVersion, _newVersion, tx) {
         if (!db.objectStoreNames.contains("agents")) {
           db.createObjectStore("agents", { keyPath: "id" });
         }
@@ -143,6 +147,16 @@ function openDatabase(): Promise<IDBPDatabase<GenaDB>> {
         }
         if (!db.objectStoreNames.contains("morph")) {
           db.createObjectStore("morph", { keyPath: "id" });
+        }
+        // v6: типы и канонизация в справочнике (полуавтоматика).
+        if (oldVersion < 6 && db.objectStoreNames.contains("tokens")) {
+          const store = tx.objectStore("tokens");
+          if (!store.indexNames.contains("by-type")) {
+            store.createIndex("by-type", "type");
+          }
+          if (!store.indexNames.contains("by-canonical-key")) {
+            store.createIndex("by-canonical-key", "canonicalKey");
+          }
         }
       },
       /** Наша вкладка мешает обновлению в другой — отпускаем базу сами. */

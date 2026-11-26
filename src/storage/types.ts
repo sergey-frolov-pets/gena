@@ -140,6 +140,41 @@ export interface Session {
  * Имя видно в чате (внутри токена `⟦имя⟧`), значение хранится зашифрованным
  * ключом устройства — на диск в открытом виде не попадает.
  */
+/**
+ * Тип сущности в справочнике. Нужен для полуавтоматики: по типу выбирается
+ * стратегия подстановки и подсказка имени, а не только удобство человека.
+ */
+export type TokenType =
+  | "person"
+  | "phone"
+  | "email"
+  | "account"
+  | "date"
+  | "amount"
+  | "discount"
+  | "term"
+  | "company"
+  | "geo"
+  | "software"
+  | "equipment"
+  | "contract"
+  | "generic";
+
+/** Кто создал запись: человек или детектор предложений. */
+export type TokenSource = "user" | "auto";
+
+/** Как подставлять числовое значение: плейсхолдер или масштаб сессии. */
+export type TokenNumberMode = "placeholder" | "scale";
+
+/** Проценты: оставить как есть (нужны для расчётов) или сдвинуть. */
+export type TokenPercentHint = "keep" | "shift";
+
+/**
+ * Можно ли отправить агенту само значение вместо токена.
+ * `never` — никогда (по умолчанию), `per-send` — разово, по решению человека.
+ */
+export type TokenAllowForAgent = "never" | "per-send";
+
 export interface TokenRecord {
   id: string;
   /** Отображаемое имя токена (уникально без учёта регистра). */
@@ -164,6 +199,26 @@ export interface TokenRecord {
    * Нет поля и нет `sessionId` — старая запись справочника, она тоже общая.
    */
   shared?: boolean;
+  /** Тип сущности. Нет поля — старая запись, читается как `generic`. */
+  type?: TokenType;
+  /** Кто создал: человек или автоподсказка. Нет поля — `user`. */
+  source?: TokenSource;
+  /** Уверенность детектора 0..1. Только у `source: "auto"`. */
+  confidence?: number;
+  /**
+   * Ключ канонизации: HMAC(seed устройства, тип + нормализованное значение).
+   * Позволяет склеить «ООО «Ромашка»», «Ромашка» и ИНН в одну сущность.
+   * На другое устройство не переносится — пересчитывается из значения.
+   */
+  canonicalKey?: string;
+  /** Для `amount`: плейсхолдер или числовой масштаб сессии. */
+  numberMode?: TokenNumberMode;
+  /** Для `discount`: оставить процент или сдвинуть его вместе с суммой. */
+  percentHint?: TokenPercentHint;
+  /** Отправлять значением вместо токена (по умолчанию — никогда). */
+  allowForAgent?: TokenAllowForAgent;
+  /** Сессия, где сущность встретилась впервые (для синхронизации). */
+  originSessionId?: string;
   createdAt: number;
   updatedAt: number;
 }

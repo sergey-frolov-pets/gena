@@ -25,7 +25,7 @@ describe("tokens/transfer: файл переноса", () => {
     const file = await exportTokenFile(entries, password, fast);
     const parsed = JSON.parse(file);
     expect(parsed.format).toBe("gena.tokens");
-    expect(parsed.version).toBe(1);
+    expect(parsed.version).toBe(2);
     expect(parsed.count).toBe(2);
     expect(parsed.kdf.name).toBe("PBKDF2-SHA256");
     // Значения в файле в открытом виде не лежат.
@@ -102,4 +102,102 @@ describe("tokens/transfer: файл переноса", () => {
     expect(back[0].value).toBe("№ 12-34/56 — «домофон»; %$#@");
     expect(back[0].note).toBe("лицевой счёт");
   });
+
+  it("поля v2 (тип, источник, правила) переживают перенос", async () => {
+    const v2 = [
+      {
+        name: "сумма1",
+        value: "1 250 000",
+        type: "amount" as const,
+        source: "auto" as const,
+        confidence: 0.93,
+        numberMode: "scale" as const,
+        allowForAgent: "per-send" as const,
+      },
+      {
+        name: "скидка1",
+        value: "25%",
+        type: "discount" as const,
+        percentHint: "shift" as const,
+      },
+    ];
+    const file = await exportTokenFile(v2, password, fast);
+    const back = await importTokenFile(file, password);
+    expect(back[0]).toMatchObject({
+      type: "amount",
+      source: "auto",
+      confidence: 0.93,
+      numberMode: "scale",
+      allowForAgent: "per-send",
+    });
+    expect(back[1]).toMatchObject({ type: "discount", percentHint: "shift" });
+  });
+
+  it("неизвестное значение поля v2 отбрасывается, запись остаётся", async () => {
+    const dirty = [
+      { name: "компания1", value: "Ромашка", type: "инопланетянин", confidence: 7 },
+    ];
+    const file = await exportTokenFile(dirty as never, password, fast);
+    const back = await importTokenFile(file, password);
+    expect(back[0].value).toBe("Ромашка");
+    expect(back[0].type).toBeUndefined();
+    expect(back[0].confidence).toBeUndefined();
+  });
+
+  it("файл версии 1 читается (тип generic, источник user)", async () => {
+    const file = await buildV1File([{ name: "старый токен", value: "ООО «Ромашка»" }], password);
+    const back = await importTokenFile(file, password);
+    expect(back).toHaveLength(1);
+    expect(back[0]).toMatchObject({ name: "старый токен", value: "ООО «Ромашка»" });
+    expect(back[0].type).toBeUndefined();
+    expect(back[0].source).toBeUndefined();
+  });
 });
+
+/** Собрать файл формата v1 вручную: проверка обратной совместимости. */
+async function buildV1File(payload: unknown[], password: string): Promise<string> {
+  const iterations = 1000;
+  const encoder = new TextEncoder();
+  const toB64 = (bytes: Uint8Array): string => {
+    let binary = "";
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary);
+  };
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const saltB64 = toB64(salt);
+  const material = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(password),
+    "PBKDF2",
+    false,
+    ["deriveKey"],
+  );
+  const key = await crypto.subtle.deriveKey(
+    { name: "PBKDF2", hash: "SHA-256", salt, iterations },
+    material,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt"],
+  );
+  const body = encoder.encode(
+    JSON.stringify({ format: "gena.tokens", version: 1, createdAt: Date.now(), entries: payload }),
+  );
+  const aad = encoder.encode(
+    `gena.tokens|1|PBKDF2-SHA256|${iterations}|${saltB64}`,
+  );
+  const cipher = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv, additionalData: aad },
+    key,
+    body,
+  );
+  return JSON.stringify({
+    format: "gena.tokens",
+    version: 1,
+    createdAt: Date.now(),
+    count: payload.length,
+    kdf: { name: "PBKDF2-SHA256", iterations, salt: saltB64 },
+    cipher: { name: "AES-GCM", iv: toB64(iv) },
+    payload: toB64(new Uint8Array(cipher)),
+  });
+}

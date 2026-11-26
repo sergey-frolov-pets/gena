@@ -6,10 +6,16 @@
  * файл может лежать в почте или на флешке, поэтому требования к нему отдельные.
  *
  * Формат:
- *   { format: "gena.tokens", version: 1, createdAt, count,
+ *   { format: "gena.tokens", version: 2, createdAt, count,
  *     kdf: { name: "PBKDF2-SHA256", iterations, salt },
  *     cipher: { name: "AES-GCM", iv },
  *     payload: "<base64 AES-GCM>" }
+ *
+ * Версия 2 добавляет к записи тип, источник, уверенность и правила подстановки
+ * (`type`, `source`, `confidence`, `numberMode`, `percentHint`, `allowForAgent`).
+ * Файлы версии 1 читаются как прежде: тип считается `generic`, источник — `user`.
+ * `canonicalKey` НЕ переносится: он считается от seed устройства, поэтому на
+ * новом устройстве пересчитывается из самого значения при импорте.
  *
  * Ключ: PBKDF2-SHA256(пароль, salt, iterations) -> AES-GCM-256.
  * Всё, что нужно для расшифровки, лежит в заголовке открыто — это нормально для
@@ -19,9 +25,16 @@
 
 import { isValidTokenName, normalizeTokenName } from "@/lib/tokens/format";
 import { requireSubtleCrypto, secureRandom } from "@/crypto/subtle";
+import type {
+  TokenAllowForAgent,
+  TokenNumberMode,
+  TokenPercentHint,
+  TokenSource,
+  TokenType,
+} from "@/storage/types";
 
 export const TOKENS_FILE_FORMAT = "gena.tokens";
-export const TOKENS_FILE_VERSION = 1;
+export const TOKENS_FILE_VERSION = 2;
 
 /** Минимальная длина пароля файла переноса. */
 export const TRANSFER_MIN_PASSWORD = 12;
@@ -49,6 +62,70 @@ export interface TransferEntry {
   caseSensitive?: boolean;
   createdAt?: number;
   updatedAt?: number;
+  /** Тип сущности (v2). */
+  type?: TokenType;
+  /** Кто создал запись (v2). */
+  source?: TokenSource;
+  /** Уверенность детектора 0..1 (v2). */
+  confidence?: number;
+  /** Режим подстановки числа (v2). */
+  numberMode?: TokenNumberMode;
+  /** Что делать с процентом (v2). */
+  percentHint?: TokenPercentHint;
+  /** Разрешение отправить значением (v2). */
+  allowForAgent?: TokenAllowForAgent;
+}
+
+const TOKEN_TYPE_VALUES = [
+  "person",
+  "phone",
+  "email",
+  "account",
+  "date",
+  "amount",
+  "discount",
+  "term",
+  "company",
+  "geo",
+  "software",
+  "equipment",
+  "contract",
+  "generic",
+] as const;
+const TOKEN_SOURCE_VALUES = ["user", "auto"] as const;
+const NUMBER_MODE_VALUES = ["placeholder", "scale"] as const;
+const PERCENT_HINT_VALUES = ["keep", "shift"] as const;
+const ALLOW_FOR_AGENT_VALUES = ["never", "per-send"] as const;
+
+function asEnum<T extends string>(value: unknown, allowed: readonly T[]): T | undefined {
+  return typeof value === "string" && (allowed as readonly string[]).includes(value)
+    ? (value as T)
+    : undefined;
+}
+
+/** Поля v2: неизвестное значение молча отбрасывается, запись остаётся целой. */
+function tokenExtras(record: Record<string, unknown>): Partial<TransferEntry> {
+  const type = asEnum(record.type, TOKEN_TYPE_VALUES);
+  const source = asEnum(record.source, TOKEN_SOURCE_VALUES);
+  const numberMode = asEnum(record.numberMode, NUMBER_MODE_VALUES);
+  const percentHint = asEnum(record.percentHint, PERCENT_HINT_VALUES);
+  const allowForAgent = asEnum(record.allowForAgent, ALLOW_FOR_AGENT_VALUES);
+  const rawConfidence = record.confidence;
+  const confidence =
+    typeof rawConfidence === "number" &&
+    Number.isFinite(rawConfidence) &&
+    rawConfidence >= 0 &&
+    rawConfidence <= 1
+      ? rawConfidence
+      : undefined;
+  return {
+    ...(type ? { type } : {}),
+    ...(source ? { source } : {}),
+    ...(confidence !== undefined ? { confidence } : {}),
+    ...(numberMode ? { numberMode } : {}),
+    ...(percentHint ? { percentHint } : {}),
+    ...(allowForAgent ? { allowForAgent } : {}),
+  };
 }
 
 export type TransferErrorCode =
@@ -105,13 +182,14 @@ function normalizeForTransfer(entries: TransferEntry[]): TransferEntry[] {
       ...(entry.caseSensitive ? { caseSensitive: true } : {}),
       ...(typeof entry.createdAt === "number" ? { createdAt: entry.createdAt } : {}),
       ...(typeof entry.updatedAt === "number" ? { updatedAt: entry.updatedAt } : {}),
+      ...tokenExtras(entry as unknown as Record<string, unknown>),
     });
   }
   return result;
 }
 
-function headerAad(iterations: number, salt: string): Uint8Array {
-  return textEncoder.encode(`${TOKENS_FILE_FORMAT}|${TOKENS_FILE_VERSION}|${KDF_NAME}|${iterations}|${salt}`);
+function headerAad(version: number, iterations: number, salt: string): Uint8Array {
+  return textEncoder.encode(`${TOKENS_FILE_FORMAT}|${version}|${KDF_NAME}|${iterations}|${salt}`);
 }
 
 async function deriveKey(
@@ -171,7 +249,7 @@ export async function exportTokenFile(
     {
       name: CIPHER_NAME,
       iv: iv as BufferSource,
-      additionalData: headerAad(iterations, saltB64) as unknown as BufferSource,
+      additionalData: headerAad(TOKENS_FILE_VERSION, iterations, saltB64) as unknown as BufferSource,
     },
     key,
     textEncoder.encode(body),
@@ -224,6 +302,7 @@ function cleanEntries(raw: unknown): TransferEntry[] {
       ...(record.caseSensitive === true ? { caseSensitive: true } : {}),
       ...(typeof record.createdAt === "number" ? { createdAt: record.createdAt } : {}),
       ...(typeof record.updatedAt === "number" ? { updatedAt: record.updatedAt } : {}),
+      ...tokenExtras(record),
     });
   }
   if (result.length === 0) throw new TransferError("no_entries");
@@ -274,7 +353,7 @@ export async function importTokenFile(text: string, password: string): Promise<T
       {
         name: CIPHER_NAME,
         iv: iv as BufferSource,
-        additionalData: headerAad(iterations, bytesToBase64(salt)) as unknown as BufferSource,
+        additionalData: headerAad(version, iterations, bytesToBase64(salt)) as unknown as BufferSource,
       },
       key,
       payload as BufferSource,
