@@ -72,17 +72,17 @@ export const connectionsMessages = {
   "connections.privacy.trusted":
     "受信任的服务商",
   "connections.privacy.tokens":
-    "仅令牌模式",
+    "保护模式",
   "connections.privacy.auto":
     "自动并确认",
   "connections.hint.privacy.trusted":
-    "明文只会发送给受信任列表中的服务商。若主机不在列表中，连接将保持令牌模式。",
+    "明文只会发送给受信任列表中的服务商。若主机不在列表中，连接将保持保护模式。",
   "connections.hint.privacy.tokens":
     "该代理的所有对话都保持保护：代理只能看到 ⟦令牌⟧，聊天中无法关闭。",
   "connections.hint.privacy.auto":
     "发送前会列出识别到的金额、姓名和期限，由您决定隐藏哪些。服务商必须在受信任列表中。",
   "connections.warn.untrusted":
-    "服务商不在受信任列表中：不会发送明文，连接保持令牌模式。",
+    "服务商不在受信任列表中：不会发送明文，连接保持保护模式。",
   "connections.trusted.title":
     "受信任的服务商",
   "connections.trusted.field":

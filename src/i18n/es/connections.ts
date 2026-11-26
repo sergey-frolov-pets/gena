@@ -73,17 +73,17 @@ export const connectionsMessages = {
   "connections.privacy.trusted":
     "Proveedor de confianza",
   "connections.privacy.tokens":
-    "Solo tokens",
+    "Modo protegido",
   "connections.privacy.auto":
     "Automático con revisión",
   "connections.hint.privacy.trusted":
-    "El texto plano solo va a un proveedor de la lista de confianza. Si el host no está allí, la conexión queda en modo tokens.",
+    "El texto plano solo va a un proveedor de la lista de confianza. Si el host no está allí, la conexión queda en modo protegido.",
   "connections.hint.privacy.tokens":
     "Todos los diálogos de este agente quedan protegidos: el agente ve solo ⟦tokens⟧ y el chat no puede desactivarlo.",
   "connections.hint.privacy.auto":
     "Antes de enviar mostramos los importes, nombres y plazos encontrados: usted decide qué ocultar. El proveedor debe ser de confianza.",
   "connections.warn.untrusted":
-    "El proveedor no está en la lista de confianza: no se enviará texto plano, la conexión seguirá en modo tokens.",
+    "El proveedor no está en la lista de confianza: no se enviará texto plano, la conexión seguirá en modo protegido.",
   "connections.trusted.title":
     "Proveedores de confianza",
   "connections.trusted.field":

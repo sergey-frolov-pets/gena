@@ -73,17 +73,17 @@ export const connectionsMessages = {
   "connections.privacy.trusted":
     "Vertrauenswürdiger Anbieter",
   "connections.privacy.tokens":
-    "Nur Tokens",
+    "Geschützter Modus",
   "connections.privacy.auto":
     "Automatisch mit Prüfung",
   "connections.hint.privacy.trusted":
-    "Klartext geht nur an einen Anbieter aus der Vertrauensliste. Steht der Host nicht dort, bleibt die Verbindung im Token-Modus.",
+    "Klartext geht nur an einen Anbieter aus der Vertrauensliste. Steht der Host nicht dort, bleibt die Verbindung im geschützten Modus.",
   "connections.hint.privacy.tokens":
     "Alle Dialoge dieses Agenten bleiben geschützt: der Agent sieht nur ⟦Tokens⟧, der Chat kann den Schutz nicht aufheben.",
   "connections.hint.privacy.auto":
     "Vor dem Senden zeigen wir gefundene Beträge, Namen und Fristen — Sie entscheiden, was maskiert wird. Der Anbieter muss vertrauenswürdig sein.",
   "connections.warn.untrusted":
-    "Der Anbieter steht nicht in der Vertrauensliste: Klartext wird nicht gesendet, die Verbindung bleibt im Token-Modus.",
+    "Der Anbieter steht nicht in der Vertrauensliste: Klartext wird nicht gesendet, die Verbindung bleibt im geschützten Modus.",
   "connections.trusted.title":
     "Vertrauenswürdige Anbieter",
   "connections.trusted.field":
