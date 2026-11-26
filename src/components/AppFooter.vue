@@ -13,7 +13,7 @@ const DISCUSSIONS = "https://github.com/sergey-frolov-pets/gena/discussions";
 const LICENSE = "https://github.com/sergey-frolov-pets/gena/blob/main/LICENSE";
 const DONATE =
   "https://app.lava.top/products/47e144c0-24ca-48ee-b219-df6d3fa5e678/760537ad-a5d2-4b04-bd5f-dc5ba997ea56?currency=USD&domainId=ae6a3189-0ae9-4cc9-93b5-0c00d1a965b0&domainName=code2graph.ru";
-const VERSION = "0.2.77";
+const VERSION = "0.2.78";
 </script>
 
 <template>
