@@ -61,8 +61,10 @@ const emit = defineEmits<{
   regenerate: [];
   /** Открыть вложение (лайтбокс или документ). */
   openAttachment: [attachment: MessageAttachment];
-  /** Скачать документ из ленты. */
-  openFile: [attachment: MessageAttachment];
+  /** Скачать вложение (картинку или документ) из ленты. */
+  saveAttachment: [attachment: MessageAttachment, event: MouseEvent];
+  /** Отдать вложение в системное меню «Поделиться». */
+  shareAttachment: [attachment: MessageAttachment, event: MouseEvent];
   /** Клик по кнопкам внутри markdown (код, таблицы). */
   markdownClick: [event: MouseEvent];
   /** Клик по пузырю: свою реплику забираем в поле ввода. */
@@ -78,6 +80,11 @@ const html = computed(() => mdHtml(props.text, labels.value));
 const editHtml = computed(() => props.editTexts.map((value) => mdHtml(value, labels.value)));
 /** В пузыре показываем не больше четырёх миниатюр. */
 const visibleImages = computed(() => props.images.slice(0, 4));
+/** Имя вложения для подписи и `aria-label`; без имени — нейтральное «вложение». */
+function attachName(attachment: MessageAttachment): string {
+  const name = attachment.name?.trim();
+  return name || t("chat.attachUntitled");
+}
 const canExport = computed(
   () =>
     props.message.role === "assistant" &&
@@ -115,33 +122,96 @@ const canExport = computed(
       ></div>
     </details>
     <div v-if="images.length" class="chat-panel__images" :data-count="Math.min(images.length, 4)">
-      <button
-        v-for="(a, i) in visibleImages"
-        :key="i"
-        type="button"
-        class="chat-panel__image"
-        @click="emit('openAttachment', a)"
-      >
-        <img :src="a.thumb" alt="" loading="lazy" @load="emit('imageLoad')" />
-      </button>
+      <div v-for="(a, i) in visibleImages" :key="i" class="chat-panel__attach">
+        <button
+          type="button"
+          class="chat-panel__image"
+          :aria-label="attachName(a)"
+          @click="emit('openAttachment', a)"
+        >
+          <img :src="a.thumb" alt="" loading="lazy" @load="emit('imageLoad')" />
+          <!-- Имя картинки: видно при наведении, чтобы не занимать место всегда. -->
+          <span class="chat-panel__image-name">{{ attachName(a) }}</span>
+        </button>
+        <div class="chat-panel__attach-actions">
+          <button
+            type="button"
+            class="chat-panel__attach-button"
+            v-tip="t('chat.attachDownload')"
+            :aria-label="t('chat.attachDownload')"
+            @click="emit('saveAttachment', a, $event)"
+          >
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 4v11" />
+              <path d="m7 11 5 5 5-5" />
+              <path d="M5 20h14" />
+            </svg>
+            <span>{{ t("chat.attachDownload") }}</span>
+          </button>
+          <button
+            type="button"
+            class="chat-panel__attach-button"
+            v-tip="t('chat.attachShare')"
+            :aria-label="t('chat.attachShare')"
+            @click="emit('shareAttachment', a, $event)"
+          >
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 16V5" />
+              <path d="m8 8 4-3 4 3" />
+              <path d="M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" />
+            </svg>
+            <span>{{ t("chat.attachShare") }}</span>
+          </button>
+        </div>
+      </div>
     </div>
     <div v-if="files.length" class="chat-panel__file-row">
-      <button
-        v-for="(a, i) in files"
-        :key="`file-${i}`"
-        type="button"
-        class="chat-panel__file-badge"
-        :title="a.name"
-        :aria-label="a.name"
-        @click="emit('openFile', a)"
-      >
-        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
-          <path d="M14 3v5h5" />
-        </svg>
-        <span class="chat-panel__file-name">{{ a.name }}</span>
-        <span v-if="a.bytes" class="chat-panel__file-size">{{ formatBytes(a.bytes) }}</span>
-      </button>
+      <div v-for="(a, i) in files" :key="`file-${i}`" class="chat-panel__attach">
+        <button
+          type="button"
+          class="chat-panel__file-badge"
+          :title="a.name"
+          :aria-label="a.name"
+          @click="emit('openAttachment', a)"
+        >
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+            <path d="M14 3v5h5" />
+          </svg>
+          <span class="chat-panel__file-name">{{ a.name }}</span>
+          <span v-if="a.bytes" class="chat-panel__file-size">{{ formatBytes(a.bytes) }}</span>
+        </button>
+        <div class="chat-panel__attach-actions">
+          <button
+            type="button"
+            class="chat-panel__attach-button"
+            v-tip="t('chat.attachDownload')"
+            :aria-label="t('chat.attachDownload')"
+            @click="emit('saveAttachment', a, $event)"
+          >
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 4v11" />
+              <path d="m7 11 5 5 5-5" />
+              <path d="M5 20h14" />
+            </svg>
+            <span>{{ t("chat.attachDownload") }}</span>
+          </button>
+          <button
+            type="button"
+            class="chat-panel__attach-button"
+            v-tip="t('chat.attachShare')"
+            :aria-label="t('chat.attachShare')"
+            @click="emit('shareAttachment', a, $event)"
+          >
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 16V5" />
+              <path d="m8 8 4-3 4 3" />
+              <path d="M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" />
+            </svg>
+            <span>{{ t("chat.attachShare") }}</span>
+          </button>
+        </div>
+      </div>
     </div>
     <div class="chat-panel__message-actions">
       <button
@@ -330,6 +400,9 @@ const canExport = computed(
 }
 
 .chat-panel__image {
+  position: relative;
+  display: block;
+  width: 100%;
   padding: 0;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -393,6 +466,85 @@ const canExport = computed(
   margin-top: 1px;
   white-space: nowrap;
   opacity: 0.8;
+}
+
+/* Вложение = сам файл + строка действий под ним, как копирование у ответа. */
+.chat-panel__attach {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.chat-panel__attach-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.chat-panel__message:hover .chat-panel__attach-actions,
+.chat-panel__message:focus-within .chat-panel__attach-actions {
+  opacity: 1;
+}
+
+.chat-panel__attach-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 5px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.66rem;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.chat-panel__attach-button:hover,
+.chat-panel__attach-button:focus-visible {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+/* Имя картинки видно по наведению, иначе оно съедало бы место в сетке. */
+.chat-panel__image-name {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  padding: 2px 6px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+  color: var(--text);
+  font-size: 0.62rem;
+  line-height: 1.3;
+  text-align: start;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  pointer-events: none;
+}
+
+.chat-panel__image:hover .chat-panel__image-name,
+.chat-panel__image:focus-visible .chat-panel__image-name {
+  opacity: 1;
+}
+
+/* На телефоне наведения нет: действия и имя показываем сразу. */
+@media (max-width: 720px) {
+  .chat-panel__attach-actions {
+    opacity: 1;
+  }
+  .chat-panel__attach-button {
+    font-size: 0.7rem;
+  }
+  .chat-panel__image-name {
+    opacity: 1;
+  }
 }
 
 .chat-panel__message.is-token-target {

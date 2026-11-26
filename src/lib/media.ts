@@ -12,6 +12,10 @@
  *
  * Документы (`type: "file"`) не скачиваются заранее: в истории остаётся имя,
  * размер и `refUrl`, а байты тянутся авторизованным `fetch` по клику.
+ *
+ * Медиа-запрос идёт не «в домен агента», а по списку кандидатов: сначала свой
+ * домен страницы (same-origin, CORS не нужен), потом домен агента. Так вложение
+ * работает и когда страница живёт на одном хосте, а Pico — на другом.
  */
 
 import type { MessageAttachment } from "@/storage/types";
@@ -26,6 +30,16 @@ export interface IncomingAttachment {
   kind: "image" | "file";
   /** Размер в байтах, если сервер прислал. */
   bytes?: number;
+}
+
+/** Домен, с которого медиа тянется первым (задаётся при сборке). */
+const ENV_MEDIA_ORIGIN = (
+  (import.meta.env?.VITE_MEDIA_ORIGIN as string | undefined) ?? ""
+).trim();
+
+/** Origin текущей страницы (`""` вне браузера — в тестах). */
+function currentOrigin(): string {
+  return typeof window === "undefined" ? "" : window.location.origin;
 }
 
 /** Разобрать `payload.attachments`; мусор без url отбрасывается. */
@@ -65,16 +79,46 @@ export function absoluteMediaUrl(address: string, path: string): string {
   return new URL(path.replace(/^\/+/, "/"), root).toString();
 }
 
-/** Кеш скачанных изображений: абсолютный URL → blob-URL. */
+/**
+ * Куда пробуем сходить за вложением, по порядку.
+ *
+ * 1. `VITE_MEDIA_ORIGIN` — домен, назначенный при сборке;
+ * 2. origin страницы — обычно same-origin, без CORS и preflight;
+ * 3. домен агента — последний шанс (и единственный в dev-сервере без прокси).
+ */
+export function mediaUrlCandidates(
+  address: string,
+  path: string,
+  pageOrigin: string = currentOrigin(),
+): string[] {
+  const relative = path.replace(/^\/+/, "/");
+  const urls: string[] = [];
+  const add = (url: string) => {
+    if (!urls.includes(url)) urls.push(url);
+  };
+  for (const origin of [ENV_MEDIA_ORIGIN, pageOrigin]) {
+    if (!origin) continue;
+    try {
+      add(new URL(relative, origin).toString());
+    } catch {
+      // Некорректный origin — просто пропускаем.
+    }
+  }
+  add(absoluteMediaUrl(address, path));
+  return urls;
+}
+
+/** Ключ кеша: не зависит от того, какой домен ответил первым. */
+function cacheKey(address: string, path: string): string {
+  return `${address.trim()}|${path}`;
+}
+
+/** Кеш скачанных изображений: адрес агента + путь → blob-URL. */
 const blobCache = new Map<string, string>();
 
 /** Уже скачанный blob-URL (или undefined). */
 export function getCachedMedia(address: string, path: string): string | undefined {
-  try {
-    return blobCache.get(absoluteMediaUrl(address, path));
-  } catch {
-    return undefined;
-  }
+  return blobCache.get(cacheKey(address, path));
 }
 
 /** Освободить кеш (например, при выходе из чата). */
@@ -85,6 +129,29 @@ export function clearMediaCache(): void {
   blobCache.clear();
 }
 
+/** Ответ по первому адресу из списка, который ответил `2xx`. */
+async function fetchFirstOk(
+  address: string,
+  apiKey: string,
+  path: string,
+  fetchImpl: typeof fetch,
+  pageOrigin?: string,
+): Promise<{ response: Response; url: string }> {
+  let failure: unknown = new Error("media request failed");
+  for (const url of mediaUrlCandidates(address, path, pageOrigin)) {
+    try {
+      const response = await fetchImpl(url, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+      if (response.ok) return { response, url };
+      failure = new Error(`media request failed: ${response.status}`);
+    } catch (error) {
+      failure = error;
+    }
+  }
+  throw failure instanceof Error ? failure : new Error("media request failed");
+}
+
 /** Скачать изображение с авторизацией; повторный запрос берётся из кеша. */
 export async function fetchMediaBlob(
   address: string,
@@ -92,22 +159,17 @@ export async function fetchMediaBlob(
   path: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
-  const absolute = absoluteMediaUrl(address, path);
-  const cached = blobCache.get(absolute);
+  const key = cacheKey(address, path);
+  const cached = blobCache.get(key);
   if (cached) return cached;
 
-  const response = await fetchImpl(absolute, {
-    headers: { Authorization: `Bearer ${apiKey}` },
-  });
-  if (!response.ok) {
-    throw new Error(`media request failed: ${response.status}`);
-  }
+  const { response } = await fetchFirstOk(address, apiKey, path, fetchImpl);
   const blob = await response.blob();
   if (!blob.type.startsWith("image/")) {
     throw new Error("attachment is not an image");
   }
   const blobUrl = URL.createObjectURL(blob);
-  blobCache.set(absolute, blobUrl);
+  blobCache.set(key, blobUrl);
   return blobUrl;
 }
 
@@ -115,9 +177,10 @@ export async function fetchMediaBlob(
 export async function attachmentFromBlobUrl(
   blobUrl: string,
   refUrl: string,
+  meta: { name?: string; mime?: string } = {},
 ): Promise<MessageAttachment> {
   const { thumb, width, height } = await makeThumb(blobUrl);
-  return { kind: "image", thumb, width, height, refUrl };
+  return { kind: "image", thumb, width, height, refUrl, name: meta.name, mime: meta.mime };
 }
 
 /** Входящий документ → запись истории без загрузки байтов. */
@@ -127,30 +190,106 @@ export function fileAttachmentFromIncoming(item: IncomingAttachment): MessageAtt
     name: item.filename?.trim() || "file",
     bytes: item.bytes,
     refUrl: item.url,
+    mime: item.contentType,
   };
 }
 
-/**
- * Скачать документ с авторизацией и отдать браузеру как файл.
- *
- * В истории лежит только `refUrl`, поэтому байты тянутся в момент клика:
- * ответ → blob → временная ссылка → `a.download`.
- */
-export async function downloadMediaFile(
-  address: string,
-  apiKey: string,
-  path: string,
-  filename: string,
-  fetchImpl: typeof fetch = fetch,
-): Promise<void> {
-  const absolute = absoluteMediaUrl(address, path);
-  const response = await fetchImpl(absolute, {
-    headers: { Authorization: `Bearer ${apiKey}` },
-  });
-  if (!response.ok) {
-    throw new Error(`media request failed: ${response.status}`);
+/** Расширение по MIME: нужно, когда сервер не прислал имя файла. */
+const MIME_EXTENSIONS: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/gif": "gif",
+  "image/heic": "heic",
+  "image/svg+xml": "svg",
+  "text/markdown": "md",
+  "text/plain": "txt",
+  "text/csv": "csv",
+  "text/tab-separated-values": "tsv",
+  "application/json": "json",
+  "application/pdf": "pdf",
+  "application/zip": "zip",
+  "application/gzip": "gz",
+  "application/xml": "xml",
+  "text/yaml": "yml",
+  "application/x-yaml": "yml",
+  "audio/ogg": "ogg",
+  "audio/mpeg": "mp3",
+  "audio/wav": "wav",
+  "video/mp4": "mp4",
+  "video/webm": "webm",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+};
+
+/** `Content-Disposition` → имя файла (учитывает `filename*=UTF-8''…`). */
+export function filenameFromDisposition(header: string | null | undefined): string | undefined {
+  if (!header) return undefined;
+  const extended = /filename\*\s*=\s*([^']*)'[^']*'([^;]+)/i.exec(header);
+  if (extended) {
+    try {
+      return decodeURIComponent(extended[2].trim());
+    } catch {
+      return extended[2].trim();
+    }
   }
-  const blob = await response.blob();
+  const plain = /filename\s*=\s*"([^"]*)"|filename\s*=\s*([^;]+)/i.exec(header);
+  const name = (plain?.[1] ?? plain?.[2] ?? "").trim();
+  return name || undefined;
+}
+
+/**
+ * Дописать расширение по MIME, если его нет или оно врёт (`.bin`).
+ *
+ * Браузер сам расширение не придумывает: без `download`-имени картинка из
+ * blob-ссылки сохранялась как `<uuid>.bin`.
+ */
+export function withExtension(name: string, mime: string): string {
+  const clean = (name || "").trim() || "file";
+  const base = mime.split(";")[0].trim().toLowerCase();
+  const known = MIME_EXTENSIONS[base];
+  if (!known) return clean;
+  const match = /\.([a-z0-9]{1,8})$/i.exec(clean);
+  if (!match) return `${clean}.${known}`;
+  const ext = match[1].toLowerCase();
+  const aliases: Record<string, string[]> = { jpg: ["jpeg", "jpg"], md: ["md", "markdown"], yml: ["yml", "yaml"] };
+  const allowed = aliases[known] ?? [known];
+  return allowed.includes(ext) ? clean : clean.replace(/\.[a-z0-9]{1,8}$/i, `.${known}`);
+}
+
+/** Имя по умолчанию, если ни сервер, ни адрес его не дали. */
+function fallbackName(url: string): string {
+  try {
+    return decodeURIComponent(new URL(url).pathname.split("/").pop() || "file");
+  } catch {
+    return "file";
+  }
+}
+
+/** Сколько ждать записи blob, прежде чем освободить ссылку. */
+const REVOKE_DELAY_MS = 10_000;
+
+/**
+ * Итоговое имя файла для сохранения или отправки.
+ *
+ * Порядок: явное имя из записи → `Content-Disposition` → имя из адреса;
+ * затем расширение правится по MIME, если его нет или оно врёт (`.bin`).
+ */
+export function resolveAttachmentName(
+  filename: string,
+  disposition: string | null | undefined,
+  url: string,
+  mime: string,
+): string {
+  return withExtension(
+    filename.trim() || filenameFromDisposition(disposition) || fallbackName(url),
+    mime,
+  );
+}
+
+/** Отдать blob браузеру как файл с нужным именем. */
+export function saveBlob(blob: Blob, filename: string): void {
   const blobUrl = URL.createObjectURL(blob);
   try {
     const link = document.createElement("a");
@@ -162,6 +301,71 @@ export async function downloadMediaFile(
     link.remove();
   } finally {
     // Дать браузеру время начать загрузку, затем освободить память.
-    setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000);
+    setTimeout(() => URL.revokeObjectURL(blobUrl), REVOKE_DELAY_MS);
+  }
+}
+
+/** Итог «поделиться»: системное меню, отмена человеком или браузер не умеет. */
+export type ShareResult = "shared" | "cancelled" | "unsupported";
+
+/** Скачать вложение (картинку или документ) под правильным именем. */
+export async function downloadMediaFile(
+  address: string,
+  apiKey: string,
+  path: string,
+  filename: string = "",
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  const { response, url } = await fetchFirstOk(address, apiKey, path, fetchImpl);
+  const blob = await response.blob();
+  const mime = blob.type || response.headers.get("Content-Type") || "";
+  const name = resolveAttachmentName(
+    filename,
+    response.headers.get("Content-Disposition"),
+    url,
+    mime,
+  );
+  saveBlob(blob, name);
+  return name;
+}
+
+/**
+ * Отдать вложение в системное меню «Поделиться» (`navigator.share` + файл).
+ *
+ * Работает только в браузерах с Web Share API уровня файлов и только по HTTPS.
+ * `unsupported` — вызывающая сторона откатывается на обычное скачивание.
+ */
+export async function shareMediaFile(
+  address: string,
+  apiKey: string,
+  path: string,
+  filename: string = "",
+  fetchImpl: typeof fetch = fetch,
+): Promise<ShareResult> {
+  const nav = typeof navigator === "undefined" ? undefined : navigator;
+  if (!nav || typeof nav.share !== "function" || typeof File !== "function") {
+    return "unsupported";
+  }
+  const { response, url } = await fetchFirstOk(address, apiKey, path, fetchImpl);
+  const blob = await response.blob();
+  const mime = blob.type || response.headers.get("Content-Type") || "application/octet-stream";
+  const name = resolveAttachmentName(
+    filename,
+    response.headers.get("Content-Disposition"),
+    url,
+    mime,
+  );
+  const file = new File([blob], name, { type: mime });
+  const payload: ShareData = { files: [file], title: name };
+  if (typeof nav.canShare === "function" && !nav.canShare(payload)) {
+    return "unsupported";
+  }
+  try {
+    await nav.share(payload);
+    return "shared";
+  } catch (error) {
+    // Человек закрыл меню — это не ошибка.
+    if (error instanceof Error && error.name === "AbortError") return "cancelled";
+    throw error;
   }
 }

@@ -90,6 +90,7 @@ import {
   fetchMediaBlob,
   fileAttachmentFromIncoming,
   getCachedMedia,
+  shareMediaFile,
 } from "@/lib/media";
 import {
   collectTrailingThoughts,
@@ -3934,7 +3935,12 @@ async function collectIncoming(
     }
     try {
       const blobUrl = await fetchMediaBlob(agent.address, key, item.url);
-      result.push(await attachmentFromBlobUrl(blobUrl, item.url));
+      result.push(
+        await attachmentFromBlobUrl(blobUrl, item.url, {
+          name: item.filename,
+          mime: item.contentType,
+        }),
+      );
     } catch {
       attachError.value = t("chat.attachIncomingError");
     }
@@ -4676,6 +4682,11 @@ function onDrop(event: DragEvent): void {
 
 /** Полный размер: из кеша blob-URL либо догружаем с авторизацией. */
 async function openAttachment(attachment: MessageAttachment): Promise<void> {
+  // Документ в лайтбоксе не показать: клик по нему — это «скачать».
+  if (attachment.kind === "file") {
+    await downloadAttachment(attachment);
+    return;
+  }
   if (!attachment.thumb && !attachment.refUrl) return;
   const agent = activeAgent.value;
   if (attachment.refUrl && agent?.address) {
@@ -4695,15 +4706,36 @@ async function openAttachment(attachment: MessageAttachment): Promise<void> {
   lightbox.value = attachment.thumb ?? "";
 }
 
-/** Скачать документ из ленты: байты тянутся авторизованным fetch по клику. */
+/** Скачать вложение из ленты (картинку или документ): байты тянутся по клику. */
 async function downloadAttachment(attachment: MessageAttachment): Promise<void> {
   const agent = activeAgent.value;
   if (!attachment.refUrl || !agent?.address) return;
   try {
     const key = await getAgentKey(agent);
-    await downloadMediaFile(agent.address, key, attachment.refUrl, attachment.name ?? "file");
+    await downloadMediaFile(agent.address, key, attachment.refUrl, attachment.name ?? "");
   } catch {
-    attachError.value = t("chat.attachIncomingError");
+    attachError.value = t("chat.attachDownloadError");
+  }
+}
+
+/** Отдать вложение в системное меню «Поделиться»; браузер не умеет — скачиваем. */
+async function shareAttachment(attachment: MessageAttachment): Promise<void> {
+  const agent = activeAgent.value;
+  if (!attachment.refUrl || !agent?.address) return;
+  try {
+    const key = await getAgentKey(agent);
+    const result = await shareMediaFile(
+      agent.address,
+      key,
+      attachment.refUrl,
+      attachment.name ?? "",
+    );
+    if (result === "unsupported") {
+      await downloadMediaFile(agent.address, key, attachment.refUrl, attachment.name ?? "");
+      attachError.value = t("chat.attachShareUnsupported");
+    }
+  } catch {
+    attachError.value = t("chat.attachShareError");
   }
 }
 
@@ -5134,7 +5166,6 @@ function onRateChange(event: Event): void {
             :edit-texts="(entry.message.edits ?? []).map((text) => displayContent(text))"
             :images="imagesOf(entry.message)"
             :files="filesOf(entry.message)"
-            @openFile="downloadAttachment"
             :role-name="roleLabel(entry.message)"
             :clock="messageClock(entry.message)"
             :elapsed="messageElapsed(entry.index)"
@@ -5152,6 +5183,8 @@ function onRateChange(event: Event): void {
             @download="(kind, event) => downloadReply(entry.message, kind, event)"
             @regenerate="regenerate(entry.message)"
             @open-attachment="openAttachment"
+            @save-attachment="downloadAttachment"
+            @share-attachment="shareAttachment"
             @markdown-click="onMarkdownClick"
             @message-click="onMessageClick($event, entry.message)"
             @image-load="scrollToBottom()"

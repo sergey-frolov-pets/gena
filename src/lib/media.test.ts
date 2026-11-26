@@ -3,8 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   absoluteMediaUrl,
   fileAttachmentFromIncoming,
+  filenameFromDisposition,
   getCachedMedia,
+  mediaUrlCandidates,
   parseIncomingAttachments,
+  resolveAttachmentName,
+  withExtension,
 } from "./media";
 
 describe("parseIncomingAttachments", () => {
@@ -67,6 +71,7 @@ describe("fileAttachmentFromIncoming", () => {
       name: "plan.md",
       bytes: 27777,
       refUrl: "/pico/media/doc",
+      mime: "text/markdown",
     });
   });
 
@@ -103,5 +108,71 @@ describe("absoluteMediaUrl", () => {
 describe("getCachedMedia", () => {
   it("без скачивания возвращает undefined", () => {
     expect(getCachedMedia("wss://pico.test", "/pico/media/none")).toBeUndefined();
+  });
+});
+
+describe("mediaUrlCandidates", () => {
+  it("порядок: свой домен из сборки → origin страницы → домен агента", () => {
+    const urls = mediaUrlCandidates(
+      "wss://stats.code2graph.ru/pico/ws",
+      "/pico/media/abc",
+      "https://gena-ai.space",
+    );
+    expect(urls.slice(-2)).toEqual([
+      "https://gena-ai.space/pico/media/abc",
+      "https://stats.code2graph.ru/pico/media/abc",
+    ]);
+  });
+
+  it("повторы не добавляются, пустой origin пропускается", () => {
+    const urls = mediaUrlCandidates(
+      "wss://stats.code2graph.ru/pico/ws",
+      "/pico/media/abc",
+      "https://stats.code2graph.ru",
+    );
+    expect(new Set(urls).size).toBe(urls.length);
+    expect(urls).toHaveLength(1);
+  });
+});
+
+describe("filenameFromDisposition", () => {
+  it("разбирает filename*=UTF-8''…", () => {
+    const header = "attachment; filename=\"fallback.bin\"; filename*=UTF-8''%D0%BE%D1%82%D1%87%D1%91%D1%82.md";
+    expect(filenameFromDisposition(header)).toBe("отчёт.md");
+  });
+
+  it("разбирает обычный filename в кавычках", () => {
+    expect(filenameFromDisposition('attachment; filename="plan.pdf"')).toBe("plan.pdf");
+  });
+
+  it("без заголовка возвращает undefined", () => {
+    expect(filenameFromDisposition(null)).toBeUndefined();
+  });
+});
+
+describe("withExtension", () => {
+  it("дописывает расширение по MIME, если его нет", () => {
+    expect(withExtension("photo", "image/jpeg")).toBe("photo.jpg");
+  });
+
+  it("чинит врущий .bin", () => {
+    expect(withExtension("photo.bin", "image/png")).toBe("photo.png");
+  });
+
+  it("не трогает правильное расширение и незнакомый MIME", () => {
+    expect(withExtension("photo.JPEG", "image/jpeg")).toBe("photo.JPEG");
+    expect(withExtension("data.unknown", "application/x-custom")).toBe("data.unknown");
+  });
+});
+
+describe("resolveAttachmentName", () => {
+  it("явное имя важнее заголовка и адреса", () => {
+    expect(
+      resolveAttachmentName("мой-файл", 'attachment; filename="x.pdf"', "https://h/pico/media/a", "application/pdf"),
+    ).toBe("мой-файл.pdf");
+  });
+
+  it("без имени берёт имя из адреса и правит расширение", () => {
+    expect(resolveAttachmentName("", null, "https://h/pico/media/abc123", "image/webp")).toBe("abc123.webp");
   });
 });
