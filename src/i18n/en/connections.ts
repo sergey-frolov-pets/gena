@@ -78,17 +78,17 @@ export const connectionsMessages = {
   "connections.privacy.trusted":
     "Trusted provider",
   "connections.privacy.tokens":
-    "Tokens only",
+    "Protected mode",
   "connections.privacy.auto":
     "Auto with review",
   "connections.hint.privacy.trusted":
-    "Plain text goes only to a provider from the trusted list. If the host is not there, the connection stays in token mode.",
+    "Plain text goes only to a provider from the trusted list. If the host is not there, the connection stays in protected mode.",
   "connections.hint.privacy.tokens":
     "All dialogs of this agent stay protected: the agent sees only ⟦tokens⟧, and chat cannot switch to plain mode.",
   "connections.hint.privacy.auto":
     "Before sending we list the amounts, names and dates we found — you decide what to mask. The provider must be trusted.",
   "connections.warn.untrusted":
-    "Provider is not in the trusted list: plain text will not be sent, the connection stays in token mode.",
+    "Provider is not in the trusted list: plain text will not be sent, the connection stays in protected mode.",
   "connections.trusted.title":
     "Trusted providers",
   "connections.trusted.field":

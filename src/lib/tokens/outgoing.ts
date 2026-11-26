@@ -49,7 +49,7 @@ export function forAgent(text: string, context?: AgentExitContext): string {
 
 /**
  * Контекст для модели: подстановка применяется и к старым сообщениям —
- * диалог мог начинаться до появления справочника или до режима токенов.
+ * диалог мог начинаться до появления справочника или до защищённого режима.
  * Журнал здесь не пишется: это те же сообщения, а не новая отправка.
  */
 export function historyForAgent<T extends { content: string }>(list: readonly T[]): T[] {

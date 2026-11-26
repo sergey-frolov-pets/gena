@@ -1,5 +1,5 @@
 /**
- * Режим токенов диалога: включение переписывает историю значениями → токенами,
+ * Защищённый режим диалога: включение переписывает историю значениями → токенами,
  * выключение возвращает значения обратно.
  */
 import { beforeEach, describe, expect, it } from "vitest";
@@ -19,7 +19,7 @@ import {
 } from "@/lib/store";
 import { loadTokens, saveToken } from "@/lib/tokens/registry";
 
-describe("store: режим токенов", () => {
+describe("store: защищённый режим", () => {
   beforeEach(async () => {
     await closeDb();
     await clearTokenRecords();

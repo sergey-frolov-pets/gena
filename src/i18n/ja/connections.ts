@@ -73,17 +73,17 @@ export const connectionsMessages = {
   "connections.privacy.trusted":
     "信頼できるプロバイダー",
   "connections.privacy.tokens":
-    "トークンのみ",
+    "保護モード",
   "connections.privacy.auto":
     "自動＋確認",
   "connections.hint.privacy.trusted":
-    "平文は信頼リストにあるプロバイダーにのみ送信されます。ホストがリストにない場合、接続はトークンモードのままです。",
+    "平文は信頼リストにあるプロバイダーにのみ送信されます。ホストがリストにない場合、接続は保護モードのままです。",
   "connections.hint.privacy.tokens":
     "このエージェントのすべての対話は保護されます。エージェントは⟦トークン⟧だけを見て、チャットから解除できません。",
   "connections.hint.privacy.auto":
     "送信前に検出した金額・氏名・期限を表示し、隠すものを選べます。プロバイダーは信頼リストにある必要があります。",
   "connections.warn.untrusted":
-    "プロバイダーが信頼リストにありません。平文は送信されず、接続はトークンモードのままです。",
+    "プロバイダーが信頼リストにありません。平文は送信されず、接続は保護モードのままです。",
   "connections.trusted.title":
     "信頼できるプロバイダー",
   "connections.trusted.field":

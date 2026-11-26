@@ -234,7 +234,7 @@ function showNotice(text: string, ttl = 12_000): void {
   }, ttl);
 }
 /**
- * Режим токенов: справочник подстановок работает всегда, а флаг диалога
+ * Защищённый режим: справочник подстановок работает всегда, а флаг диалога
  * решает только одно — в каком виде история лежит на диске.
  *
  * Настоящие значения не уходят агенту ни при каком флаге: отправляемый
@@ -242,13 +242,13 @@ function showNotice(text: string, ttl = 12_000): void {
  */
 
 /**
- * Намерение «новый диалог в режиме токенов»: записи ещё нет, а выключатель
+ * Намерение «новый диалог в защищённом режиме»: записи ещё нет, а выключатель
  * уже должен работать. Переносится в сессию при её создании.
  */
 const pendingTokenMode = ref(false);
 
 /**
- * Подключение агента, у которого включён «Только режим токенов».
+ * Подключение агента, у которого включён «Только защищённый режим».
  * Смотрим запись диалога, если он открыт: у сессии может быть свой агент.
  */
 const agentTokenOnly = computed<boolean>(() => {
@@ -258,8 +258,8 @@ const agentTokenOnly = computed<boolean>(() => {
 });
 
 /**
- * Диалог в режиме токенов: флаг записи, намерение для нового диалога
- * или требование подключения («только режим токенов» у агента).
+ * Диалог в защищённом режиме: флаг записи, намерение для нового диалога
+ * или требование подключения («только защищённый режим» у агента).
  */
 function isTokenSession(session?: Session | null): boolean {
   if (agentTokenOnly.value) return true;
@@ -366,7 +366,7 @@ async function ensureTokens(): Promise<void> {
   await loadTokens().catch(() => undefined);
 }
 
-/** Текст для истории: в режиме токенов значения записываются токенами. */
+/** Текст для истории: в защищённом режиме значения записываются токенами. */
 function storedContent(text: string, session?: Session | null): string {
   if (!isTokenSession(session)) return text;
   // В историю диалога попадают только его токены и общие. Чужое значение
@@ -420,7 +420,7 @@ function markedContent(text: string, messageId: string): string {
 }
 
 /**
- * Перевести диалог в режим токенов или вернуть к обычному тексту.
+ * Перевести диалог в защищённый режим или вернуть к обычному тексту.
  *
  * Работает и на экране «Новый диалог»: записи ещё нет — включаем намерение,
  * оно применится к сессии при первой отправке. Пустой справочник не помеха:
@@ -1398,7 +1398,7 @@ function collectOccurrences(needle: string): {
     if (hit.blocked) blocked[hit.blocked] += 1;
     else items.push({ scope: "draft", start: hit.start, end: hit.end });
   }
-  // В ответах агента заменяем только в режиме токенов: иначе в ленте
+  // В ответах агента заменяем только в защищённом режиме: иначе в ленте
   // появился бы ⟦токен⟧, который диалог не расшифровывает.
   const tokenSession = isTokenSession(activeSession.value);
   for (const message of messages.value) {
@@ -1573,7 +1573,7 @@ function replaceDraftOccurrences(
 const pendingReplaceAll = ref(false);
 /** Сколько вхождений будет заменено — число фиксируем на момент вопроса. */
 const pendingReplaceAllCount = ref(0);
-/** Диалог действительно в режиме токенов: иначе серия по ленте запрещена. */
+/** Диалог действительно в защищённом режиме: иначе серия по ленте запрещена. */
 const tokenSessionNow = computed(() => isTokenSession(activeSession.value));
 
 /** Спросить подтверждение перед «Заменить все N». */
@@ -1728,7 +1728,7 @@ async function createTokenFromSelection(): Promise<void> {
  * Заменить выделенный фрагмент сообщения токеном.
  *
  * В ленте текст показан человеку (значения или токены — как выбрано), поэтому
- * заменяем в отображаемом тексте и пересчитываем хранимый: в режиме токенов
+ * заменяем в отображаемом тексте и пересчитываем хранимый: в защищённом режиме
  * значения на диск не попадают.
  */
 async function replaceSelectionInMessage(name?: string): Promise<void> {
@@ -1757,7 +1757,7 @@ async function replaceSelectionInMessage(name?: string): Promise<void> {
  * Отменить токенизацию одного вхождения: вернуть значение на место ⟦токена⟧.
  *
  * Меняем только этот токен в этом сообщении — остальные остаются скрытыми.
- * Если сообщение в режиме токенов, отправка всё равно токенизирует текст
+ * Если сообщение в защищённом режиме, отправка всё равно токенизирует текст
  * заново, поэтому значение в переписке агенту не уходит.
  */
 async function untokenizeSelectionInMessage(): Promise<void> {
@@ -2202,7 +2202,7 @@ let threadObserver: ResizeObserver | null = null;
 let composerObserver: ResizeObserver | null = null;
 let composerWidth = 0;
 /** Поле ввода — чтобы вернуть фокус после отправки. */
-/** Переход в справочник из панели режима токенов. */
+/** Переход в справочник из панели защищённого режима. */
 const emit = defineEmits<{ (e: "open-tokens"): void; (e: "open-about"): void }>();
 
 const composerEl = ref<HTMLTextAreaElement | null>(null);
@@ -3807,7 +3807,7 @@ function sessionTitle(text: string): string {
 
 /**
  * Применить защищённый режим к созданной записи: намерение «новый диалог
- * в режиме токенов» или требование подключения агента.
+ * в защищённом режиме» или требование подключения агента.
  */
 async function applyPendingTokenMode(sessionId: string, agent?: Agent | null): Promise<void> {
   const required = pendingTokenMode.value
@@ -3848,7 +3848,7 @@ async function enqueue(
 ): Promise<void> {
   const sessionId =
     targetSessionId ?? activeSessionId.value ?? (await startSession(payload.text));
-  // Очередь лежит в IndexedDB: в режиме токенов текст кладём токенами.
+  // Очередь лежит в IndexedDB: в защищённом режиме текст кладём токенами.
   const target = sessions.value.find((s) => s.id === sessionId);
   const text = storedContent(payload.text, target);
   queue.value = [
@@ -3966,7 +3966,7 @@ async function dispatch(
     }
     const title = sessionTitle(text);
     session = await createSession(agent.id, title);
-    // Намерение режима токенов переносим в запись до первой записи истории.
+    // Намерение защищённого режима переносим в запись до первой записи истории.
     await applyPendingTokenMode(session.id, agent);
     // Подтверждение отправки, данное на экране нового диалога, тоже переносим.
     if (pendingTokenSendAck) {
@@ -4143,7 +4143,7 @@ async function exchange(
       { type: "start" },
     ),
   });
-  // Ход помним в том же виде, что и история: в режиме токенов — токенами.
+  // Ход помним в том же виде, что и история: в защищённом режиме — токенами.
   const pendingText = storedContent(text, session);
   // Запоминаем ход: если вкладку закроют до ответа, при следующем открытии догоним.
   rememberPendingTurn({ sessionId: session.id, text: pendingText, at: Date.now() });
@@ -6835,7 +6835,7 @@ function onRateChange(event: Event): void {
   color: var(--text);
 }
 
-/* Режим токенов: поле ввода заметно отличается от обычного диалога. */
+/* Защищённый режим: поле ввода заметно отличается от обычного диалога. */
 .chat-panel__composer.is-token-mode .chat-panel__composer-box {
   border-color: var(--tokens-edge);
   background: var(--tokens-bg);
@@ -7549,7 +7549,7 @@ function onRateChange(event: Event): void {
   color: var(--text);
 }
 
-/* --- Режим токенов: отдельный тип диалога --------------------------------- */
+/* --- Защищённый режим: отдельный тип диалога --------------------------------- */
 /* Фон заметно меняется (не color-mix — он не во всех WebView), в нём
    полупрозрачный замок — видно, что диалог защищённый. */
 .chat-panel.is-tokens {
