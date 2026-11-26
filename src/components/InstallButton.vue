@@ -8,14 +8,18 @@ interface BeforeInstallPromptEvent extends Event {
 }
 
 /**
- * Компактная иконка в шапке или полноценный пункт меню.
+ * Кнопка установки PWA: иконка без подписи, подсказка — по наведению (v-tip).
  *
- * Пункт меню показывается всегда, пока приложение не установлено: браузер
- * отдаёт `beforeinstallprompt` не во всех случаях (уже установлено, не выполнены
- * условия PWA, Safari/Firefox на iOS и т. п.), и раньше пункт просто исчезал —
- * «установки в меню нет». Если события нет, пункт открывает инструкцию.
+ * `inline` — вариант для строки меню: компактная квадратная иконка, которую
+ * ставим у правого края пункта, а не отдельным пунктом. Инструкция браузера
+ * (`installHint`) при этом раскрывается под строкой на всю её ширину.
+ *
+ * Кнопка видна всегда, пока приложение не установлено: браузер отдаёт
+ * `beforeinstallprompt` не во всех случаях (уже установлено, не выполнены
+ * условия PWA, Safari/Firefox на iOS и т. п.). Если события нет, кнопка
+ * открывает инструкцию — раньше пункт в этом случае просто исчезал.
  */
-const props = withDefaults(defineProps<{ asMenu?: boolean }>(), { asMenu: false });
+const props = withDefaults(defineProps<{ inline?: boolean }>(), { inline: false });
 
 const { t } = useLocale();
 const canInstall = ref(false);
@@ -73,11 +77,11 @@ onBeforeUnmount(() => {
 <template>
   <template v-if="!installed">
     <button
-      :class="props.asMenu ? 'menu-install' : 'install-btn'"
-      :role="props.asMenu ? 'menuitem' : undefined"
       type="button"
+      class="install-btn"
+      :class="{ 'install-btn--inline': props.inline }"
       :aria-label="t('app.install')"
-      :v-tip="props.asMenu ? null : t('app.install')"
+      v-tip="t('app.install')"
       @click="install"
     >
       <svg
@@ -95,10 +99,9 @@ onBeforeUnmount(() => {
         <path d="m7 10 5 5 5-5" />
         <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
       </svg>
-      <span v-if="props.asMenu">{{ t("app.install") }}</span>
     </button>
     <!-- Системного диалога нет: показываем, где кнопка установки у браузера. -->
-    <p v-if="hintOpen" class="menu-install__hint" role="status">
+    <p v-if="hintOpen" class="install-hint" role="status">
       {{ t("app.installHint") }}
     </p>
   </template>
@@ -110,36 +113,32 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   padding: 6px 8px;
-  line-height: 0;
-}
-
-/* Пункт меню: иконка + подпись, поведение как у остальных пунктов. */
-.menu-install {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 10px 12px;
   border: 0;
   border-radius: 8px;
   background: transparent;
   color: inherit;
   font: inherit;
-  text-align: start;
+  line-height: 0;
   cursor: pointer;
 }
 
-.menu-install svg {
+/* Иконка в строке меню: квадрат под размер кнопок-иконок, без растягивания. */
+.install-btn--inline {
   flex: none;
+  width: 34px;
+  height: 34px;
+  padding: 0;
 }
 
-.menu-install:hover {
+.install-btn:hover {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
-.menu-install__hint {
+/* Инструкция занимает отдельную строку под пунктом, а не сжимает подпись. */
+.install-hint {
+  flex: 1 0 100%;
   margin: 0;
-  padding: 0 12px 8px;
+  padding: 2px 12px 6px;
   font-size: 0.85rem;
   line-height: 1.35;
   color: var(--muted, color-mix(in srgb, currentColor 65%, transparent));

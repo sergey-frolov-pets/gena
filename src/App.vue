@@ -273,15 +273,18 @@ onBeforeUnmount(() => {
           </svg>
           {{ t("app.nav.tokens") }}
         </button>
-        <button type="button" role="menuitem" @click="openTab('about')">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="12" cy="12" r="9" />
-            <path d="M12 11v6" />
-            <path d="M12 8h.01" />
-          </svg>
-          {{ t("app.nav.about") }}
-        </button>
-        <InstallButton as-menu />
+        <div class="menu-row">
+          <button type="button" role="menuitem" class="menu-row__main" @click="openTab('about')">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 11v6" />
+              <path d="M12 8h.01" />
+            </svg>
+            {{ t("app.nav.about") }}
+          </button>
+          <!-- Установка — иконка у правого края пункта: отдельной строки в меню больше нет. -->
+          <InstallButton inline />
+        </div>
       </div>
       </div>
     </header>
@@ -487,6 +490,39 @@ onBeforeUnmount(() => {
 }
 
 .menu > button:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* Пункт меню с действием у правого края: подпись слева, иконка справа. */
+.menu-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+}
+
+.menu-row__main {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.menu-row__main svg {
+  flex: none;
+}
+
+.menu-row__main:hover {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
@@ -717,6 +753,7 @@ onBeforeUnmount(() => {
     overflow: auto;
   }
   .menu > button,
+  .menu-row__main,
   .menu :deep(.menu-line) {
     min-height: 44px;
   }

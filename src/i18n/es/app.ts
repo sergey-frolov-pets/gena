@@ -22,7 +22,7 @@ export const appMessages = {
   "about.title": "Acerca de Gena",
   "about.lead": "Gena es un chat en el navegador para tus agentes y LLM. No hay cuenta de Gena. Los mensajes, los ajustes y las claves cifradas se quedan en este dispositivo.",
   "about.menu.title": "Menú",
-  "about.menu.body": "Abre el menú de la cabecera. Conexiones, Sesiones y Chat son las pantallas principales. Voz define cómo se leen las respuestas. Después van el idioma y el tema, y luego Instalar, que añade Gena a la pantalla de inicio. Acerca de es el último elemento.",
+  "about.menu.body": "Abre el menú de la cabecera. Conexiones, Sesiones y Chat son las pantallas principales. Voz define cómo se leen las respuestas. Después van el idioma y el tema. Acerca de es el último elemento y, a su derecha, el icono de instalación añade Gena a la pantalla de inicio.",
   "about.chat.title": "Chat",
   "about.chat.body": "Elige un agente arriba, escribe y envía. Nuevo diálogo abre otra sesión. La lista busca, fija, renombra, duplica y borra. Puedes adjuntar imágenes o un archivo de texto, dictar y leer las respuestas en voz alta. Mientras llega una respuesta puedes detenerla o poner el siguiente mensaje en cola. Un diálogo vacío ofrece ideas para empezar.",
   "about.agents.title": "Añadir un LLM o un agente",
