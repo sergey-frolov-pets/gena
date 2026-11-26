@@ -10,6 +10,8 @@ export const chatMessages = {
   "chat.selectAgent": "— 请选择 —",
   "chat.newDialog": "新对话",
   "chat.dialogs": "对话",
+  "chat.tabsPrev": "向左滚动标签页",
+  "chat.tabsNext": "向右滚动标签页",
   "chat.sessionName": "对话名称",
   "chat.selectOrCreate": "请选择或新建对话",
   "chat.messagesEmpty": "还没有消息。",

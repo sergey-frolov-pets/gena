@@ -10,6 +10,8 @@ export const chatMessages = {
   "chat.selectAgent": "— اختر —",
   "chat.newDialog": "حوار جديد",
   "chat.dialogs": "الحوارات",
+  "chat.tabsPrev": "تمرير علامات التبويب إلى اليسار",
+  "chat.tabsNext": "تمرير علامات التبويب إلى اليمين",
   "chat.sessionName": "اسم الحوار",
   "chat.selectOrCreate": "اختر حوارًا أو أنشئ واحدًا",
   "chat.messagesEmpty": "لا توجد رسائل بعد.",

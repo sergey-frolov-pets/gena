@@ -10,6 +10,8 @@ export const chatMessages = {
   "chat.selectAgent": "— चुनें —",
   "chat.newDialog": "नया संवाद",
   "chat.dialogs": "संवाद",
+  "chat.tabsPrev": "टैब बाएँ स्क्रॉल करें",
+  "chat.tabsNext": "टैब दाएँ स्क्रॉल करें",
   "chat.sessionName": "डायलॉग का नाम",
   "chat.selectOrCreate": "संवाद चुनें या बनाएँ",
   "chat.messagesEmpty": "अभी कोई संदेश नहीं है।",

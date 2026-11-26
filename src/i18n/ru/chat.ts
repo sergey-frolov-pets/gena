@@ -10,6 +10,8 @@ export const chatMessages = {
   "chat.selectAgent": "— выберите —",
   "chat.newDialog": "Новый диалог",
   "chat.dialogs": "Диалоги",
+  "chat.tabsPrev": "Прокрутить вкладки влево",
+  "chat.tabsNext": "Прокрутить вкладки вправо",
   "chat.sessionName": "Название диалога",
   "chat.selectOrCreate": "Выберите или создайте диалог",
   "chat.messagesEmpty": "Сообщений пока нет.",

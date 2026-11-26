@@ -62,9 +62,10 @@ describe("readIdList / writeIdList", () => {
 });
 
 describe("openTab", () => {
-  it("новая вкладка идёт первой, повторного id нет", () => {
-    const next = openTab({ tabIds: ["b", "a"], hiddenIds: [] }, "a");
-    expect(next.tabIds).toEqual(["a", "b"]);
+  it("новая вкладка встаёт в конец, уже открытая — на своём месте", () => {
+    expect(openTab({ tabIds: ["b", "a"], hiddenIds: [] }, "c").tabIds).toEqual(["b", "a", "c"]);
+    // Повторное открытие не переставляет вкладку: выбранная не прыгает в начало.
+    expect(openTab({ tabIds: ["b", "a"], hiddenIds: [] }, "a").tabIds).toEqual(["b", "a"]);
   });
 
   it("снимает вкладку со скрытых", () => {
@@ -72,10 +73,10 @@ describe("openTab", () => {
     expect(next.hiddenIds).toEqual(["b"]);
   });
 
-  it("держится лимита, вытесняя самую старую", () => {
+  it("держится лимита, вытесняя самую давнюю", () => {
     const lists = { tabIds: ["a", "b", "c"], hiddenIds: [] };
     const next = openTab(lists, "d", 3);
-    expect(next.tabIds).toEqual(["d", "a", "b"]);
+    expect(next.tabIds).toEqual(["b", "c", "d"]);
   });
 });
 

@@ -14,7 +14,7 @@ export interface IdListStore {
 }
 
 export interface TabLists {
-  /** Порядок открытых вкладок, свежие первыми. */
+  /** Порядок открытых вкладок: как их открывали, без перестановок. */
   tabIds: string[];
   /** Диалоги, вкладку которых человек закрыл крестиком. */
   hiddenIds: string[];
@@ -45,14 +45,16 @@ export function writeIdList(storage: IdListStore, key: string, ids: string[]): v
 }
 
 /**
- * Открыть диалог в полоске: он поднимается наверх, лишние вытесняются,
- * закрытая ранее вкладка снова становится видимой.
+ * Открыть диалог в полоске. Порядок вкладок стабилен: выбранный диалог остаётся
+ * на своём месте, а не прыгает в начало. Новый диалог встаёт в конец, лишние
+ * вытесняются слева (самые давние). Закрытая ранее вкладка снова становится видимой.
  */
 export function openTab(lists: TabLists, id: string, max = MAX_TABS): TabLists {
-  return {
-    tabIds: [id, ...lists.tabIds.filter((item) => item !== id)].slice(0, max),
-    hiddenIds: lists.hiddenIds.filter((item) => item !== id),
-  };
+  const hiddenIds = lists.hiddenIds.filter((item) => item !== id);
+  if (lists.tabIds.includes(id)) {
+    return { tabIds: lists.tabIds, hiddenIds };
+  }
+  return { tabIds: [...lists.tabIds, id].slice(-max), hiddenIds };
 }
 
 /** Закрыть вкладку: диалог остаётся в списке и вернётся, когда его откроют снова. */
@@ -76,8 +78,8 @@ export function tabAfterClose(ids: readonly string[], closedId: string): string 
 }
 
 /**
- * Что видно в полоске: сначала открытые вкладки, затем активный диалог,
- * дальше свежие по времени. Закрытая вкладка сама не возвращается.
+ * Что видно в полоске: сначала открытые вкладки в сохранённом порядке,
+ * затем активный диалог, дальше свежие по времени. Закрытая вкладка сама не возвращается.
  */
 export function visibleTabs<T extends TabSource>(
   sessions: readonly T[],

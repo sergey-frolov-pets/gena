@@ -10,6 +10,8 @@ export const chatMessages = {
   "chat.selectAgent": "— elige —",
   "chat.newDialog": "Nuevo diálogo",
   "chat.dialogs": "Diálogos",
+  "chat.tabsPrev": "Desplazar pestañas a la izquierda",
+  "chat.tabsNext": "Desplazar pestañas a la derecha",
   "chat.sessionName": "Nombre del diálogo",
   "chat.selectOrCreate": "Elige o crea un diálogo",
   "chat.messagesEmpty": "Aún no hay mensajes.",
