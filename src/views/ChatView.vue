@@ -190,6 +190,9 @@ import {
 import ConfirmModal from "@/components/ConfirmModal.vue";
 import DocumentViewer from "@/components/DocumentViewer.vue";
 import TextModal from "@/components/TextModal.vue";
+import PrivacyCheckPanel from "@/components/PrivacyCheckPanel.vue";
+import { detectFindings, type Finding, type FindingType } from "@/lib/privacy/detect";
+import { maskText } from "@/lib/privacy/mask";
 import { agentId } from "@/lib/active-agent";
 import { reportAgentUse } from "@/analytics/usage";
 
@@ -261,6 +264,90 @@ const agentTokenOnly = computed<boolean>(() => {
 function isTokenSession(session?: Session | null): boolean {
   if (agentTokenOnly.value) return true;
   return tokenModeActive(session, pendingTokenMode.value);
+}
+
+// --- M3: проверка перед отправкой ---
+// Панель не запрещает отправку, а предлагает: открытый текст уходит провайдеру
+// как есть, и человек решает сам. В режиме токенов подсказка не нужна —
+// значения и так замещаются до отправки.
+const privacyFindings = ref<Finding[]>([]);
+const privacyMasked = ref(0);
+const privacyUndoText = ref<string | null>(null);
+const privacyDismissed = ref<string | null>(null);
+let privacyTimer: ReturnType<typeof setTimeout> | null = null;
+let privacyMasking = false;
+
+function schedulePrivacyCheck(text: string): void {
+  if (privacyTimer) clearTimeout(privacyTimer);
+  privacyTimer = setTimeout(() => {
+    privacyTimer = null;
+    if (
+      !text.trim() ||
+      isTokenSession(activeSession.value) ||
+      privacyDismissed.value === text
+    ) {
+      privacyFindings.value = [];
+      return;
+    }
+    privacyFindings.value = detectFindings(text);
+  }, 250);
+}
+
+watch(draft, (value) => {
+  // Наше собственное маскирование не должно стирать «Скрыто: N».
+  if (privacyMasking) {
+    schedulePrivacyCheck(value);
+    return;
+  }
+  privacyMasked.value = 0;
+  privacyUndoText.value = null;
+  schedulePrivacyCheck(value);
+});
+
+function resetPrivacyCheck(): void {
+  if (privacyTimer) {
+    clearTimeout(privacyTimer);
+    privacyTimer = null;
+  }
+  privacyFindings.value = [];
+  privacyMasked.value = 0;
+  privacyUndoText.value = null;
+  privacyDismissed.value = null;
+}
+
+function onPrivacyMask(types: FindingType[]): void {
+  const result = maskText(draft.value, privacyFindings.value, new Set(types));
+  if (!result.hidden) return;
+  privacyUndoText.value = draft.value;
+  privacyMasking = true;
+  draft.value = result.text;
+  privacyFindings.value = [];
+  privacyMasked.value = result.hidden;
+  void nextTick(() => {
+    privacyMasking = false;
+    void autoGrow();
+  });
+}
+
+function onPrivacyUndo(): void {
+  const previous = privacyUndoText.value;
+  if (previous === null) return;
+  privacyMasking = true;
+  draft.value = previous;
+  privacyUndoText.value = null;
+  privacyMasked.value = 0;
+  void nextTick(() => {
+    privacyMasking = false;
+    void autoGrow();
+    schedulePrivacyCheck(previous);
+  });
+}
+
+function onPrivacyDismiss(): void {
+  privacyDismissed.value = draft.value;
+  privacyFindings.value = [];
+  privacyMasked.value = 0;
+  privacyUndoText.value = null;
 }
 
 /** Справочник нужен движку подстановки: читаем его до первого решения. */
@@ -3256,6 +3343,7 @@ function collapseComposer(): void {
 /** Кнопка «Очистить» сверху левой колонки: только когда поле выросло до трёх строк. */
 function clearComposer(): void {
   draft.value = "";
+  resetPrivacyCheck();
   error.value = "";
   // Поле вернулось к одной строке — ручное растяжение больше не нужно.
   composerManualHeight.value = null;
@@ -3644,6 +3732,7 @@ function takeComposer(): ComposerPayload | null {
   // Формы снимаем до очистки поля: номера вхождений считаются по этому тексту.
   const forms = formsOf(tokenForms, text);
   draft.value = "";
+  resetPrivacyCheck();
   // Отправили — поле снова в одну строку, ручное растяжение не держим.
   composerManualHeight.value = null;
   composerCollapsed.value = false;
@@ -5826,6 +5915,14 @@ function onRateChange(event: Event): void {
           </div>
           </div>
           </div>
+          <PrivacyCheckPanel
+            v-if="privacyFindings.length || privacyMasked"
+            :findings="privacyFindings"
+            :masked="privacyMasked"
+            @mask="onPrivacyMask"
+            @undo="onPrivacyUndo"
+            @dismiss="onPrivacyDismiss"
+          />
           <div class="chat-panel__field">
           <div
             v-if="isTokenSession(activeSession)"
