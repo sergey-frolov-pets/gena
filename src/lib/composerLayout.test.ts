@@ -1,18 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
+  composerButtonsSignature,
   fieldWidthFor,
   layoutForLines,
   resolveComposerLayout,
   type ResolveComposerLayoutInput,
 } from "./composerLayout";
+import { composerFieldHeight } from "./composer";
 
-/** Замер «текст шириной textPx px»: строки = ceil(textPx / fieldWidth), высота = строки × line. */
+const line = 20;
+
+/** Замер «текст шириной textPx px»: строки = ceil(textPx / width), высота = строки × line. */
 function measureFor(textPx: number) {
-  const line = 20;
   return (fieldWidth: number): number => {
     const safe = Math.max(1, fieldWidth);
-    const lines = Math.max(1, Math.ceil(textPx / safe));
-    return lines * line;
+    return Math.max(1, Math.ceil(textPx / safe)) * line;
   };
 }
 
@@ -20,18 +22,18 @@ function measureFor(textPx: number) {
  * Стабильные метрики. Поле тем шире, чем уже боковые группы:
  * row (кнопки в ряд) — самое узкое поле, column (колонки) — самое широкое.
  */
-function metrics(): ResolveComposerLayoutInput {
+function metrics(gutter = 0): ResolveComposerLayoutInput {
   return {
     boxContentWidth: 300,
     gaps: 10,
     sideWidth: { row: 220, pair: 160, column: 70 },
-    lineHeight: 20,
-    padding: 12,
+    lineHeight: line,
+    gutter,
   };
 }
 
-function resolve(textPx: number) {
-  return resolveComposerLayout(metrics(), measureFor(textPx));
+function resolve(textPx: number, gutter = 0) {
+  return resolveComposerLayout(metrics(gutter), measureFor(textPx));
 }
 
 describe("composerLayout: раскладка по числу строк", () => {
@@ -52,49 +54,71 @@ describe("composerLayout: ширина поля", () => {
 
 describe("composerLayout: выбор раскладки без колебаний", () => {
   it("короткий текст — одна строка, кнопки в ряд", () => {
-    // 50 px текста влезают в одну строку даже самого узкого (row) поля.
     expect(resolve(50)).toEqual({ layout: "row", lines: 1, fieldWidth: 70 });
   });
 
   it("средний текст — две строки", () => {
-    // 140 px: в row-поле (70) — 2 строки, в pair-поле (130) — 2 строки.
     expect(resolve(140)).toEqual({ layout: "pair", lines: 2, fieldWidth: 130 });
   });
 
   it("длинный текст — три строки, колонки", () => {
-    // 500 px: row — 8, pair — 4, column (220) — 3 строки.
     expect(resolve(500)).toEqual({ layout: "column", lines: 3, fieldWidth: 220 });
   });
 
-  it("регрессия 26.11.2026: текст, который на pair-ширине даёт 4 строки, а на column — 2", () => {
-    // Ровно тот случай, что вешал поле: на узком (pair) поле текст требует
-    // перехода в column, на широком (column) — «влезает» обратно в 2 строки.
-    // Должно устойчиво оставаться column с тремя строками, а не скакать.
+  it("регрессия 26.11.2026: 4 строки на pair-ширине, 2 на column — устойчиво column", () => {
     const result = resolve(400);
     expect(result.layout).toBe("column");
     expect(result.lines).toBe(3);
     expect(result.fieldWidth).toBe(220);
   });
 
-  it("текст, которому в узком row-поле нужно 2 строки, а в pair — 1, остаётся pair", () => {
-    // 80 px: row (70) — 2 строки, pair (130) — 1 строка. Высота pair держится
-    // в две строки, чтобы левая колонка кнопок не выпирала за рамку.
-    const result = resolve(80);
-    expect(result.layout).toBe("pair");
-    expect(result.lines).toBe(2);
+  it("row→pair→column монотонно, без возвратов на соседних символах", () => {
+    const order = ["row", "pair", "column"];
+    let seen = -1;
+    for (let px = 1; px <= 700; px++) {
+      const idx = order.indexOf(resolve(px).layout);
+      expect(idx).toBeGreaterThanOrEqual(seen);
+      seen = idx;
+    }
+  });
+});
+
+describe("composerLayout: gutter (полоса прокрутки)", () => {
+  it("3→4 без ручной высоты: gutter учтён, lines=4, height >= content", () => {
+    const gutter = 8;
+    // ровно 4 строки в column-поле после вычета полосы прокрутки
+    const textPx = 4 * (220 - gutter);
+    const res = resolve(textPx, gutter);
+    expect(res.layout).toBe("column");
+    expect(res.lines).toBe(4);
+    const content = measureFor(textPx)(res.fieldWidth - gutter);
+    expect(composerFieldHeight(res.lines, line, 12)).toBeGreaterThanOrEqual(content);
+  });
+});
+
+describe("composerLayout: инвариант высоты", () => {
+  it("height >= scrollHeight (с допуском 1px на округление) для текстов 1–4 строк", () => {
+    for (let px = 1; px <= 4 * 220; px += 13) {
+      const res = resolve(px);
+      const content = measureFor(px)(res.fieldWidth);
+      // высота = lines*line + padding; scrollHeight = content + padding.
+      expect(composerFieldHeight(res.lines, line, 12) - 12).toBeGreaterThanOrEqual(content - 1);
+    }
+  });
+});
+
+describe("composerLayout: сигнатура кнопок", () => {
+  const base = { dictation: false, quick: false, sending: false, tall: false, collapsible: false };
+
+  it("меняется при любом флаге кнопки", () => {
+    const ref = composerButtonsSignature(base);
+    const keys = ["dictation", "quick", "sending", "tall", "collapsible"] as const;
+    for (const k of keys) {
+      expect(composerButtonsSignature({ ...base, [k]: true })).not.toBe(ref);
+    }
   });
 
-  it("сверхдлинный текст упирается в COMPOSER_MAX_LINES (4)", () => {
-    // Даже на самой широкой (column) раскладке текст не влезает — потолок 4.
-    const result = resolve(5000);
-    expect(result.layout).toBe("column");
-    expect(result.lines).toBe(4);
-  });
-
-  it("результат зависит только от текста и ширины контейнера, а не от истории", () => {
-    // Повторный вызов с тем же текстом даёт тот же результат — колебаний нет.
-    const first = resolve(400);
-    const second = resolve(400);
-    expect(second).toEqual(first);
+  it("одинакова при одинаковом наборе", () => {
+    expect(composerButtonsSignature(base)).toBe(composerButtonsSignature({ ...base }));
   });
 });

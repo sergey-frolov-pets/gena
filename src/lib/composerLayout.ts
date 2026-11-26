@@ -61,10 +61,26 @@ export interface ResolveComposerLayoutInput {
   sideWidth: Record<ComposerLayout, number>;
   /** Высота одной строки поля, px. */
   lineHeight: number;
-  /** Вертикальные паддинги поля, px. */
-  padding: number;
+  /** Резерв под полосу прокрутки (`scrollbar-gutter`), px. Контентная ширина
+   *  поля для переноса меньше его полной ширины на эту величину. */
+  gutter: number;
   /** Верхний предел строк (по умолчанию `COMPOSER_MAX_LINES`). */
   maxLines?: number;
+}
+
+/** Видимость кнопок, меняющих ширину боковых групп. */
+export interface ComposerButtonsSignature {
+  dictation: boolean;
+  quick: boolean;
+  sending: boolean;
+  tall: boolean;
+  collapsible: boolean;
+}
+
+/** Ключ набора кнопок: меняется при изменении любого флага — по нему сбрасываем кеш ширин. */
+export function composerButtonsSignature(input: ComposerButtonsSignature): string {
+  const { dictation, quick, sending, tall, collapsible } = input;
+  return [dictation, quick, sending, tall, collapsible].map((v) => (v ? "1" : "0")).join("");
 }
 
 /** Замер: высота содержимого текста (px) при заданной ширине поля. */
@@ -90,19 +106,25 @@ export function resolveComposerLayout(
   input: ResolveComposerLayoutInput,
   measure: MeasureContentHeight,
 ): ResolveComposerLayoutResult {
-  const { boxContentWidth, gaps, sideWidth, lineHeight, padding, maxLines = COMPOSER_MAX_LINES } =
-    input;
+  const {
+    boxContentWidth,
+    gaps,
+    sideWidth,
+    lineHeight,
+    gutter = 0,
+    maxLines = COMPOSER_MAX_LINES,
+  } = input;
   const line = lineHeight > 0 ? lineHeight : 20;
-  const pad = padding > 0 ? padding : 0;
 
   const toLines = (content: number): number => {
     const guess = Math.max(1, Math.ceil(Math.max(0, content) / line - 0.1));
-    return Math.min(maxLines, composerLinesForContent(content, guess, line, pad));
+    return Math.min(maxLines, composerLinesForContent(content, guess, line));
   };
 
   for (const layout of COMPOSER_LAYOUTS) {
     const fieldWidth = fieldWidthFor(boxContentWidth, sideWidth[layout], gaps);
-    const lines = toLines(measure(fieldWidth));
+    const measureWidth = Math.max(0, fieldWidth - gutter);
+    const lines = toLines(measure(measureWidth));
     if (lines <= LAYOUT_MAX_LINES[layout]) {
       return { layout, lines: Math.max(LAYOUT_MIN_LINES[layout], lines), fieldWidth };
     }
@@ -111,6 +133,7 @@ export function resolveComposerLayout(
   // Недостижимо: у `column` верхний предел безграничен, итерация всегда сходится.
   const layout: ComposerLayout = "column";
   const fieldWidth = fieldWidthFor(boxContentWidth, sideWidth[layout], gaps);
-  const lines = Math.max(LAYOUT_MIN_LINES[layout], toLines(measure(fieldWidth)));
+  const measureWidth = Math.max(0, fieldWidth - gutter);
+  const lines = Math.max(LAYOUT_MIN_LINES[layout], toLines(measure(measureWidth)));
   return { layout, lines, fieldWidth };
 }

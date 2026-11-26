@@ -389,7 +389,7 @@ export function reportAppVisit(language: string): void {
 }
 
 /** Разделы, которые считаются просмотрами страниц. */
-export type PageTab = "connections" | "sessions" | "tokens" | "about";
+export type PageTab = "connections" | "sessions" | "tokens" | "balances" | "about";
 
 /** Просмотренные за это открытие разделы: повторный переход не считается. */
 const pages = new Set<string>();

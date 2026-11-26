@@ -12,11 +12,13 @@
  *   morph    (keyPath id)                       — скачанный морфологический словарь
  *   audit    (keyPath id, index by-created-at)  — журнал отправок: режим, хост,
  *                                              — число подстановок (без содержимого)
+ *   servers  (keyPath id)                       — серверы Gena: адрес и токен
+ *   projects (keyPath id, index by-updated)     — проекты: группы сессий + саммари
  *
  * Все функции тонкие; бизнес-логика (шифрование, бэкап, очистка) — выше.
  * Миграции идемпотентны: существующие данные не трогаются, добавляются
  * только новые сторы (v2 — `usage`, v3 — `queue`, v4 — `tokens`, v5 — `morph`,
- * v6 — индексы типа и канонизации в `tokens`).
+ * v6 — индексы типа и канонизации в `tokens`, v8 — `servers`, v9 — `projects`).
  */
 
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
@@ -24,8 +26,10 @@ import {
   normalizeAgent,
   type Agent,
   type AuditEntry,
+  type GenaServer,
   type Message,
   type MorphRecord,
+  type Project,
   type Session,
   type TokenRecord,
   type UsageRecord,
@@ -33,12 +37,25 @@ import {
 import type { QueuedRecord } from "./queue";
 
 const DB_NAME = "gena";
-const DB_VERSION = 7;
+const DB_VERSION = 9;
 
 interface GenaDB extends DBSchema {
   agents: {
     key: string;
     value: Agent;
+  };
+  /** Серверы Gena: адрес и запечатанный токен. */
+  servers: {
+    key: string;
+    value: GenaServer;
+  };
+  /** Проекты: группы сессий с общим саммари. */
+  projects: {
+    key: string;
+    value: Project;
+    indexes: {
+      "by-updated": number;
+    };
   };
   sessions: {
     key: string;
@@ -163,6 +180,15 @@ function openDatabase(): Promise<IDBPDatabase<GenaDB>> {
           const audit = db.createObjectStore("audit", { keyPath: "id" });
           audit.createIndex("by-created-at", "createdAt");
         }
+        // v8: серверная часть Gena — адрес и токен.
+        if (!db.objectStoreNames.contains("servers")) {
+          db.createObjectStore("servers", { keyPath: "id" });
+        }
+        // v9: проекты — группы сессий с общим саммари.
+        if (!db.objectStoreNames.contains("projects")) {
+          const store = db.createObjectStore("projects", { keyPath: "id" });
+          store.createIndex("by-updated", "updatedAt");
+        }
         // v6: типы и канонизация в справочнике (полуавтоматика).
         if (oldVersion < 6 && db.objectStoreNames.contains("tokens")) {
           const store = tx.objectStore("tokens");
@@ -282,6 +308,30 @@ export async function deleteSession(id: string): Promise<void> {
   await tx.done;
 }
 
+// ---------- Projects ----------
+
+export async function putProject(project: Project): Promise<void> {
+  const db = await getDb();
+  await db.put("projects", cloneForDb(project));
+}
+
+export async function getProject(id: string): Promise<Project | undefined> {
+  const db = await getDb();
+  return db.get("projects", id);
+}
+
+/** Проекты, свежие сверху. */
+export async function listProjects(): Promise<Project[]> {
+  const db = await getDb();
+  const all = await db.getAllFromIndex("projects", "by-updated");
+  return all.reverse();
+}
+
+export async function deleteProject(id: string): Promise<void> {
+  const db = await getDb();
+  await db.delete("projects", id);
+}
+
 // ---------- Messages ----------
 
 /** IndexedDB не клонирует реактивные прокси Vue: сначала снимаем их в простой объект. */
@@ -339,4 +389,27 @@ export async function putUsage(record: UsageRecord): Promise<void> {
 export async function deleteUsage(agentId: string): Promise<void> {
   const db = await getDb();
   await db.delete("usage", agentId);
+}
+
+// ---------- Servers (серверная часть Gena) ----------
+
+export async function putServer(server: GenaServer): Promise<void> {
+  const db = await getDb();
+  await db.put("servers", cloneForDb(server));
+}
+
+export async function getServer(id: string): Promise<GenaServer | undefined> {
+  const db = await getDb();
+  return db.get("servers", id);
+}
+
+export async function listServers(): Promise<GenaServer[]> {
+  const db = await getDb();
+  const all = await db.getAll("servers");
+  return all.sort((a, b) => a.createdAt - b.createdAt);
+}
+
+export async function deleteServer(id: string): Promise<void> {
+  const db = await getDb();
+  await db.delete("servers", id);
 }

@@ -8,6 +8,7 @@ import { reportSiteClick } from "@/analytics/usage";
 const { t } = useLocale();
 const base = import.meta.env.BASE_URL;
 const copied = ref(false);
+const serverCopied = ref(false);
 
 const features: LocaleKey[] = [
   "about.features.1",
@@ -58,6 +59,15 @@ async function copyPrompt(): Promise<void> {
   copied.value = true;
   window.setTimeout(() => {
     copied.value = false;
+  }, 1600);
+}
+
+/** Задание для агента: установить Gena server на сервер пользователя. */
+async function copyServerPrompt(): Promise<void> {
+  await navigator.clipboard.writeText(t("about.server.agentPrompt"));
+  serverCopied.value = true;
+  window.setTimeout(() => {
+    serverCopied.value = false;
   }, 1600);
 }
 </script>
@@ -144,6 +154,21 @@ async function copyPrompt(): Promise<void> {
           </p>
         </li>
       </ul>
+    </section>
+
+    <section>
+      <h2>{{ t("about.server.title") }}</h2>
+      <p>{{ t("about.server.lead") }}</p>
+
+      <h3>{{ t("about.server.agentTitle") }}</h3>
+      <p>{{ t("about.server.agentBody") }}</p>
+      <pre class="about__prompt">{{ t("about.server.agentPrompt") }}</pre>
+      <button type="button" class="about__copy" @click="copyServerPrompt">
+        {{ serverCopied ? t("about.server.copied") : t("about.server.copy") }}
+      </button>
+
+      <h3>{{ t("about.server.humanTitle") }}</h3>
+      <p class="about__steps">{{ t("about.server.humanBody") }}</p>
     </section>
 
     <section v-for="section in sections" :key="section.title">

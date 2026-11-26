@@ -21,7 +21,7 @@ import {
   type Protocol,
 } from "@/storage/types";
 import ConfirmModal from "@/components/ConfirmModal.vue";
-import { listAgents, putAgent } from "@/storage/db";
+import { deleteServer, listAgents, listServers, putAgent, putServer } from "@/storage/db";
 import { mergeAgents } from "@/storage/backup";
 import {
   agentsFileFrom,
@@ -33,11 +33,8 @@ import {
   fetchAccount,
   fetchModelIds,
   fetchModelPrices,
-  providerProfile,
-  writeModelPrices,
-  readModelPrices,
-  readModelPricesAt,
   readSnapshots,
+  writeModelPrices,
   writeSnapshot,
   type AccountSnapshot,
 } from "@/lib/provider-account";
@@ -49,9 +46,13 @@ import {
   trustedProviders,
 } from "@/lib/privacy/trusted-providers";
 import type { PrivacyMode } from "@/storage/types";
-import { reportSiteClick } from "@/analytics/usage";
 
-const { t, locale } = useLocale();
+import { checkGenaServer, normalizeServerUrl } from "@/lib/gena-server";
+import { sealAgentKey } from "@/crypto/agent-key-cipher";
+import { newId } from "@/lib/id";
+import type { GenaServer } from "@/storage/types";
+
+const { t } = useLocale();
 
 const name = ref("");
 const address = ref("");
@@ -82,18 +83,13 @@ const poolModels = ref<{ id: string; free: boolean; dailyLimit: number }[]>([]);
 const mixRoutes = ref<{ agentId: string; model: string }[]>([]);
 const error = ref("");
 const notice = ref("");
-const accounts = ref<Record<string, AccountSnapshot>>({});
-const prices = ref<Record<string, string>>({});
-const pricesUpdatedAt = ref(0);
-const budgetBusy = ref(false);
 const listedModels = ref<string[]>([]);
 const modelsBusy = ref(false);
 const agentsFileInput = ref<HTMLInputElement | null>(null);
 
 onMounted(() => {
   accounts.value = readSnapshots();
-  prices.value = readModelPrices();
-  pricesUpdatedAt.value = readModelPricesAt();
+  void loadServers();
 });
 
 /** Агент, у которого подтверждаем удаление. */
@@ -101,6 +97,85 @@ const confirmRemoveId = ref("");
 const confirmRemoveAgent = computed(() =>
   agents.value.find((agent) => agent.id === confirmRemoveId.value),
 );
+
+const accounts = ref<Record<string, AccountSnapshot>>({});
+const servers = ref<GenaServer[]>([]);
+const serverName = ref("");
+const serverUrl = ref("");
+const serverToken = ref("");
+const serverBusy = ref(false);
+const serverCheck = ref<{ state: "idle" | "checking" | "ok" | "fail"; msg?: string }>({ state: "idle" });
+const confirmRemoveServerId = ref("");
+const confirmRemoveServer = computed(() =>
+  servers.value.find((item) => item.id === confirmRemoveServerId.value),
+);
+
+async function loadServers(): Promise<void> {
+  servers.value = await listServers();
+}
+
+async function checkServer(): Promise<void> {
+  if (!serverUrl.value.trim()) return;
+  serverCheck.value = { state: "checking" };
+  try {
+    const info = await checkGenaServer(serverUrl.value, serverToken.value.trim());
+    serverCheck.value = {
+      state: "ok",
+      msg: t("connections.servers.ok", {
+        name: info.name,
+        version: info.version || "—",
+        sessions: info.sessions,
+      }),
+    };
+  } catch (e) {
+    serverCheck.value = {
+      state: "fail",
+      msg: t("connections.servers.fail", {
+        error: e instanceof Error ? e.message : String(e),
+      }),
+    };
+  }
+}
+
+function resetServerForm(): void {
+  serverName.value = "";
+  serverUrl.value = "";
+  serverToken.value = "";
+  serverCheck.value = { state: "idle" };
+}
+
+async function saveServer(): Promise<void> {
+  const url = normalizeServerUrl(serverUrl.value);
+  const token = serverToken.value.trim();
+  if (!url || !token) return;
+  serverBusy.value = true;
+  error.value = "";
+  notice.value = "";
+  try {
+    const id = newId("srv");
+    await putServer({
+      id,
+      name: serverName.value.trim() || url.replace(/^https?:\/\//, ""),
+      url,
+      sealedToken: await sealAgentKey(token, id),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    await loadServers();
+    resetServerForm();
+    notice.value = t("connections.servers.saved");
+  } catch (e) {
+    error.value = describeError(e, t);
+  } finally {
+    serverBusy.value = false;
+  }
+}
+
+async function removeServer(server: GenaServer): Promise<void> {
+  confirmRemoveServerId.value = "";
+  await deleteServer(server.id);
+  await loadServers();
+}
 
 /** id редактируемого агента (null — режим создания). */
 const editingId = ref<string | null>(null);
@@ -405,7 +480,7 @@ async function rememberAccount(agentId: string, address: string, apiKey: string)
     const snapshot: AccountSnapshot = { agentId, fetchedAt: Date.now(), ...facts };
     writeSnapshot(snapshot);
     accounts.value = { ...accounts.value, [agentId]: snapshot };
-    applyPrices(await fetchModelPrices(address, apiKey));
+    writeModelPrices(await fetchModelPrices(address, apiKey));
   } catch {
     // Ключ уже сохранён: пустой баланс не откатывает его.
   }
@@ -426,109 +501,13 @@ async function saveKey(agentId: string): Promise<void> {
   }
 }
 
-const budgetAgents = computed(() =>
-  agents.value.filter(
-    (agent) =>
-      (agent.protocol === "openai" || agent.protocol === "model_pool") &&
-      Boolean(agent.sealedKey) &&
-      Boolean(agent.address),
-  ),
-);
 
-const modelLines = computed(() => {
-  const lines: { key: string; provider: string; model: string; limit: string }[] = [];
-  for (const agent of agents.value) {
-    if (agent.protocol === "openai") {
-      const modelId = (
-        (agent.config as { model?: string } | undefined)?.model || agent.settings.llmModel
-      ).trim();
-      if (!modelId) continue;
-      lines.push({
-        key: `${agent.id}:${modelId}`,
-        provider: agent.name,
-        model: modelId,
-        limit: limitLabel(false, agent.settings.callLimit),
-      });
-    }
-    if (agent.protocol === "model_pool") {
-      const models =
-        (agent.config as { models?: { id?: string; free?: boolean; dailyLimit?: number }[] } | undefined)
-          ?.models ?? [];
-      for (const item of models) {
-        const modelId = String(item.id ?? "").trim();
-        if (!modelId) continue;
-        lines.push({
-          key: `${agent.id}:${modelId}`,
-          provider: agent.name,
-          model: modelId,
-          limit: limitLabel(Boolean(item.free), Number(item.dailyLimit) || 0),
-        });
-      }
-    }
-  }
-  return lines;
-});
 
-function limitLabel(free: boolean, daily: number): string {
-  const cap = daily > 0 ? t("connections.limitPerDay", { n: daily }) : t("connections.limitNone");
-  return free ? `${t("connections.limitFree")} · ${cap}` : cap;
-}
 
-function dash(value: string): string {
-  return value || t("connections.unknown");
-}
 
-function priceFor(model: string): string {
-  const direct = prices.value[model];
-  if (direct) return direct;
-  const lower = model.toLowerCase();
-  const key = Object.keys(prices.value).find((item) => item.toLowerCase() === lower);
-  return key ? prices.value[key] : "";
-}
 
-function applyPrices(more: Record<string, string>): void {
-  if (Object.keys(more).length === 0) return;
-  writeModelPrices(more);
-  prices.value = { ...prices.value, ...more };
-  pricesUpdatedAt.value = readModelPricesAt();
-}
 
-const pricesUpdatedLabel = computed(() =>
-  pricesUpdatedAt.value
-    ? new Date(pricesUpdatedAt.value).toLocaleString(locale.value, {
-        day: "2-digit",
-        month: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-    : "",
-);
 
-async function refreshBudget(): Promise<void> {
-  budgetBusy.value = true;
-  error.value = "";
-  try {
-    for (const agent of budgetAgents.value) {
-      const key = await getAgentKey(agent);
-      if (!key) continue;
-      try {
-        const facts = await fetchAccount(agent.address, key);
-        const snapshot: AccountSnapshot = { agentId: agent.id, fetchedAt: Date.now(), ...facts };
-        writeSnapshot(snapshot);
-        accounts.value = { ...accounts.value, [agent.id]: snapshot };
-      } catch (e) {
-        error.value = describeError(e, t);
-      }
-      try {
-        applyPrices(await fetchModelPrices(agent.address, key));
-      } catch {
-        // Прайс необязателен: баланс уже записан.
-      }
-    }
-  } finally {
-    budgetBusy.value = false;
-  }
-}
 
 async function remove(agentId: string): Promise<void> {
   confirmRemoveId.value = "";
@@ -1004,97 +983,67 @@ function addMixRoute(): void {
     </div>
     <hr class="block-split" />
 
-    <div class="agent-head">
-      <h3 class="block-title">{{ t("connections.block.prices") }}</h3>
-      <span v-if="pricesUpdatedLabel" class="refresh-at">{{ pricesUpdatedLabel }}</span>
-      <button
-        type="button"
-        class="icon-btn"
-        :disabled="budgetBusy || budgetAgents.length === 0"
-        v-tip="budgetBusy ? t('connections.refreshing') : t('connections.refresh')"
-        :aria-label="budgetBusy ? t('connections.refreshing') : t('connections.refresh')"
-        @click="refreshBudget"
+    <h3 class="block-title">{{ t("connections.servers.title") }}</h3>
+    <p class="muted">{{ t("connections.servers.lead") }}</p>
+
+    <div class="card">
+      <h3>{{ t("connections.servers.add") }}</h3>
+      <div class="pair">
+        <div class="field">
+          <label>{{ t("connections.servers.name") }}</label>
+          <input v-model="serverName" :placeholder="t('connections.servers.name')" />
+        </div>
+        <div class="field">
+          <label>{{ t("connections.servers.url") }}</label>
+          <input v-model="serverUrl" placeholder="https://gena.example.com" inputmode="url" />
+        </div>
+      </div>
+      <div class="field">
+        <label>{{ t("connections.servers.token") }}</label>
+        <input v-model="serverToken" type="password" autocomplete="off" placeholder="•••" />
+      </div>
+      <p
+        v-if="serverCheck.state !== 'idle'"
+        class="small"
+        :class="serverCheck.state === 'ok' ? 'ok' : serverCheck.state === 'fail' ? 'error' : 'muted'"
       >
-        <svg
-          viewBox="0 0 24 24"
-          width="16"
-          height="16"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-          :class="{ spin: budgetBusy }"
-        >
-          <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
-          <path d="M21 3v5h-5" />
-          <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
-          <path d="M8 16H3v5" />
-        </svg>
-      </button>
+        {{ serverCheck.state === "checking" ? t("connections.servers.checking") : serverCheck.msg }}
+      </p>
+      <div class="row-actions">
+        <button type="button" :disabled="serverCheck.state === 'checking'" @click="checkServer">
+          {{ serverCheck.state === "checking" ? t("connections.servers.checking") : t("connections.servers.check") }}
+        </button>
+        <button type="button" :disabled="serverBusy" @click="saveServer">
+          {{ t("connections.servers.save") }}
+        </button>
+      </div>
+      <p class="muted small">{{ t("connections.servers.hint") }}</p>
     </div>
 
-    <div class="card">
-      <h3>{{ t("connections.modelsTable") }}</h3>
-      <p v-if="modelLines.length === 0" class="muted">{{ t("connections.modelsEmptyTable") }}</p>
-      <div v-else class="sheet-wrap">
-        <table class="sheet">
-          <thead>
-            <tr>
-              <th>{{ t("connections.col.provider") }}</th>
-              <th>{{ t("connections.col.model") }}</th>
-              <th>{{ t("connections.col.price") }}</th>
-              <th>{{ t("connections.col.limits") }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="line in modelLines" :key="line.key">
-              <td>{{ line.provider }}</td>
-              <td>{{ line.model }}</td>
-              <td class="sheet-price">{{ dash(priceFor(line.model)) }}</td>
-              <td>{{ line.limit }}</td>
-            </tr>
-          </tbody>
-        </table>
+    <p v-if="servers.length === 0" class="muted">{{ t("connections.servers.empty") }}</p>
+    <div v-for="server in servers" :key="server.id" class="card server-card">
+      <strong>{{ server.name }}</strong>
+      <div class="muted">{{ server.url }}</div>
+      <div class="row-actions">
+        <button type="button" @click="confirmRemoveServerId = server.id">
+          {{ t("connections.servers.remove") }}
+        </button>
       </div>
     </div>
 
-    <div class="card">
-      <h3>{{ t("connections.budgetTable") }}</h3>
-      <p v-if="budgetAgents.length === 0" class="muted">{{ t("connections.budgetEmpty") }}</p>
-      <div v-else class="sheet-wrap">
-        <table class="sheet">
-          <thead>
-            <tr>
-              <th>{{ t("connections.col.provider") }}</th>
-              <th>{{ t("connections.col.money") }}</th>
-              <th>{{ t("connections.col.freeLimits") }}</th>
-              <th>{{ t("connections.col.expires") }}</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="agent in budgetAgents" :key="agent.id">
-              <td>{{ agent.name }}</td>
-              <td>{{ dash(accounts[agent.id]?.money ?? "") }}</td>
-              <td>{{ dash(accounts[agent.id]?.free ?? "") }}</td>
-              <td>{{ dash(accounts[agent.id]?.expiresAt ?? "") }}</td>
-              <td>
-                <a
-                  v-if="providerProfile(agent.address).topUpUrl"
-                  :href="providerProfile(agent.address).topUpUrl"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  @click="reportSiteClick(providerProfile(agent.address).kind)"
-                >{{ t("connections.topUp") }}</a>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
+    <ConfirmModal
+      :open="Boolean(confirmRemoveServer)"
+      :title="t('connections.servers.remove')"
+      :message="
+        confirmRemoveServer
+          ? t('connections.servers.removeConfirm', { name: confirmRemoveServer.name })
+          : ''
+      "
+      :confirm-label="t('connections.servers.remove')"
+      :cancel-label="t('chat.cancel')"
+      @confirm="confirmRemoveServer && removeServer(confirmRemoveServer); confirmRemoveServerId = ''"
+      @cancel="confirmRemoveServerId = ''"
+    />
     <ConfirmModal
       :open="Boolean(confirmRemoveAgent)"
       :title="t('connections.removeConfirmTitle')"
@@ -1112,6 +1061,15 @@ function addMixRoute(): void {
 </template>
 
 <style scoped>
+.row-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.server-card strong {
+  display: block;
+  margin-bottom: 2px;
+}
 .card {
   background: var(--panel);
   border: 1px solid var(--border);

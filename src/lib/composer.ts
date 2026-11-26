@@ -68,14 +68,17 @@ export function composerLinesForContent(
   content: number,
   guess: number,
   lineHeight: number,
-  padding: number,
 ): number {
   const guessLines = Number.isFinite(guess) ? Math.round(guess) : 1;
   let lines = Math.min(COMPOSER_MAX_LINES, Math.max(1, guessLines));
   const height = Number.isFinite(content) ? Math.max(0, content) : 0;
+  const line = lineHeight > 0 ? lineHeight : 20;
+  // Сжимаем, пока текст реально помещается в (lines-1) строк. Сравниваем высоту
+  // текста с высотой (lines-1) строк БЕЗ паддинга: паддинг — не место для текста,
+  // иначе на границе строки поле оставалось на строку ниже нужного (верх обрезался).
+  // Запас в 1px — компенсация округления scrollHeight до целого.
   while (lines > 1) {
-    const lower = composerFieldHeight(lines - 1, lineHeight, padding);
-    if (height > lower + 1) break;
+    if (height > (lines - 1) * line + 1) break;
     lines -= 1;
   }
   return lines;

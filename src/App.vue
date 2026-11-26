@@ -5,6 +5,7 @@ import ChatView from "./views/ChatView.vue";
 import SessionsView from "./views/SessionsView.vue";
 import AboutView from "./views/AboutView.vue";
 import TokensView from "./views/TokensView.vue";
+import BalancesView from "./views/BalancesView.vue";
 import LanguageSwitcher from "./components/LanguageSwitcher.vue";
 import ThemeSwitcher from "./components/ThemeSwitcher.vue";
 import AppearanceMenu from "./components/AppearanceMenu.vue";
@@ -37,7 +38,7 @@ import { watchForUpdate } from "./lib/version-update";
 import { useLocale } from "./i18n";
 import { reportAppVisit, reportPage } from "./analytics/usage";
 
-type Tab = "connections" | "chat" | "sessions" | "tokens" | "about";
+type Tab = "connections" | "chat" | "sessions" | "tokens" | "balances" | "about";
 const tab = ref<Tab>("chat");
 const menuOpen = ref(false);
 /** Кнопка «···» и само меню: клик внутри не считается внешним. */
@@ -256,6 +257,14 @@ onBeforeUnmount(() => {
           </svg>
           {{ t("app.nav.sessions") }}
         </button>
+        <button type="button" role="menuitem" @click="openTab('balances')">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="6" width="18" height="13" rx="2.5" />
+            <path d="M3 10h18" />
+            <path d="M16.5 14.5h1.5" />
+          </svg>
+          {{ t("app.nav.balances") }}
+        </button>
         <button type="button" role="menuitem" @click="openTab('chat')">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9.5 9.5 0 0 1-3.4-.6L3 21l1.7-5a8.4 8.4 0 0 1-.7-3.4 8.4 8.4 0 0 1 8.4-8.4 8.4 8.4 0 0 1 8.6 8.3z" />
@@ -329,6 +338,7 @@ onBeforeUnmount(() => {
         @open-about="openTab('about')"
       />
       <SessionsView v-else-if="tab === 'sessions'" />
+      <BalancesView v-else-if="tab === 'balances'" />
       <TokensView v-else-if="tab === 'tokens'" />
       <AboutView v-else />
     </main>

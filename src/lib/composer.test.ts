@@ -76,26 +76,38 @@ describe("composer: высота поля ввода", () => {
 
 describe("composer: строки по измеренной высоте текста", () => {
   const line = 20;
-  const pad = 12;
 
   it("короткий текст — одна строка, даже если оценка больше", () => {
-    expect(composerLinesForContent(line, 3, line, pad)).toBe(1);
-    expect(composerLinesForContent(line + pad - 1, 2, line, pad)).toBe(1);
+    expect(composerLinesForContent(line, 3, line)).toBe(1);
+    expect(composerLinesForContent(line + 1, 2, line)).toBe(1);
   });
 
   it("перенос на вторую строку — ровно две", () => {
-    expect(composerLinesForContent(2 * line + 4, 4, line, pad)).toBe(2);
-    expect(composerLinesForContent(2 * line + pad, 4, line, pad)).toBe(2);
+    expect(composerLinesForContent(line + 2, 3, line)).toBe(2);
+    expect(composerLinesForContent(2 * line, 4, line)).toBe(2);
+  });
+
+  it("третья и четвёртая строки", () => {
+    expect(composerLinesForContent(2 * line + 2, 4, line)).toBe(3);
+    expect(composerLinesForContent(3 * line + 2, 5, line)).toBe(4);
   });
 
   it("длинный текст упирается в четыре строки", () => {
-    expect(composerLinesForContent(10 * line, 10, line, pad)).toBe(COMPOSER_MAX_LINES);
-    expect(composerLinesForContent(4 * line + pad + 6, 9, line, pad)).toBe(COMPOSER_MAX_LINES);
+    expect(composerLinesForContent(10 * line, 10, line)).toBe(COMPOSER_MAX_LINES);
+    expect(composerLinesForContent(6 * line, 9, line)).toBe(COMPOSER_MAX_LINES);
+  });
+
+  it("инвариант: высота не меньше текста (регрессия обрезанного верха)", () => {
+    for (let content = 1; content <= 4 * line; content += 7) {
+      const guess = Math.ceil(content / line) + 1;
+      const lines = composerLinesForContent(content, guess, line);
+      expect(lines * line).toBeGreaterThanOrEqual(content - 1);
+    }
   });
 
   it("мусор на входе не ломает подсчёт", () => {
-    expect(composerLinesForContent(Number.NaN, Number.NaN, line, pad)).toBe(1);
-    expect(composerLinesForContent(-50, 0, line, pad)).toBe(1);
-    expect(composerLinesForContent(0, 0, 0, 0)).toBe(1);
+    expect(composerLinesForContent(Number.NaN, Number.NaN, line)).toBe(1);
+    expect(composerLinesForContent(-50, 0, line)).toBe(1);
+    expect(composerLinesForContent(0, 0, 0)).toBe(1);
   });
 });

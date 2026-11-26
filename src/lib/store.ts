@@ -32,6 +32,7 @@ import { replaceValues, restoreValues } from "@/lib/tokens/registry";
 import { expandDialogAliases, upsertAlias } from "@/lib/tokens/dialog-alias";
 import { normalizeTags } from "@/lib/session-tags";
 import { newId } from "@/lib/id";
+import { scheduleServerSync } from "@/lib/server-sessions";
 
 /** Настройки из формы: лимиты — целые ≥ 0, модель — без пробелов по краям. */
 function normalizeSettings(input: Partial<typeof DEFAULT_AGENT_SETTINGS>) {
@@ -197,6 +198,7 @@ export async function renameSession(sessionId: string, title: string): Promise<v
   session.updatedAt = Date.now();
   await putSession(toRaw(session));
   await loadSessions();
+  scheduleServerSync(sessionId);
 }
 
 /**
@@ -405,6 +407,8 @@ export async function appendMessage(
     // `sessions` хранит реактивные прокси: IndexedDB не умеет их клонировать.
     await putSession(toRaw(session));
     await loadSessions();
+    // Диалог лежит на сервере — досылаем копию (с задержкой, чтобы не на каждую строку).
+    scheduleServerSync(sessionId);
   }
 
   if (activeSessionId.value === sessionId) {
@@ -433,6 +437,7 @@ export async function editMessage(
   };
   await putMessage(updated);
   messages.value = messages.value.map((m) => (m.id === messageId ? updated : m));
+  scheduleServerSync(message.sessionId);
   return updated;
 }
 

@@ -18,6 +18,7 @@ import {
   editMessage,
   getAgentKey,
   loadMessages,
+  loadSessions,
   messages,
   pinSession,
   setSessionTags,
@@ -39,6 +40,7 @@ import { composerFieldHeight, isSendKey } from "@/lib/composer";
 import {
   COMPOSER_LAYOUTS,
   COMPOSER_SIDE_GAPS,
+  composerButtonsSignature,
   resolveComposerLayout,
   type ComposerLayout,
 } from "@/lib/composerLayout";
@@ -60,7 +62,15 @@ import { viewerHtml, viewerKindOf, type ViewerKind, type ViewerLabels } from "@/
 import { toCsv, toTsv, xlsxBlob } from "@/lib/table-file";
 import { hasOpenSlot } from "@/lib/model-fallback";
 import { canCall, getCallCount, recordCall } from "@/storage/usage";
-import { listMessages } from "@/storage/db";
+import { listMessages, listServers } from "@/storage/db";
+import {
+  createServerSession,
+  listServerSessions,
+  openServerSession,
+  serverSyncError,
+} from "@/lib/server-sessions";
+import { downloadText, markdownFileName, sessionToMarkdown } from "@/lib/session-export";
+import type { ServerSession } from "@/lib/gena-server";
 import { useLocale } from "@/i18n";
 import {
   dictationAvailable,
@@ -89,7 +99,7 @@ import {
   prepareDocument,
   type PreparedDocument,
 } from "@/lib/documents";
-import type { Agent, Message, MessageAttachment, Session } from "@/storage/types";
+import type { Agent, GenaServer, Message, MessageAttachment, Session } from "@/storage/types";
 import { ImageError, prepareImage, type PreparedImage } from "@/lib/images";
 import {
   attachmentFromBlobUrl,
@@ -2216,6 +2226,12 @@ const composerEl = ref<HTMLTextAreaElement | null>(null);
 const composerBoxEl = ref<HTMLElement | null>(null);
 /** Замеренная ширина боковых групп по раскладкам; null — ещё не мерили. */
 const composerSideWidths = ref<Record<ComposerLayout, number> | null>(null);
+/** Ключ набора кнопок — по нему сбрасываем кеш ширин боковых групп. */
+const composerSideWidthsKey = ref("");
+/** Ширина полосы прокрутки поля (стабильна при `scrollbar-gutter: stable`). */
+const composerGutter = ref<number | null>(null);
+/** Последний warn об обрезанном верхе — чтобы не спамить в консоль на каждый символ. */
+const lastGrowWarn = ref(0);
 /** Сколько строк занимает текст. Высота шагает ровно на одну строку за раз. */
 const composerLines = ref(1);
 /** Ширина поля на последнем замере: по ней видно, что переносы надо пересчитать. */
@@ -2275,6 +2291,15 @@ const historyOpen = ref(false);
 const renaming = ref(false);
 const renameDraft = ref("");
 const renameEl = ref<HTMLInputElement | null>(null);
+/** Серверы Gena и серверные сессии: кнопка «＋» в шапке. */
+const servers = ref<GenaServer[]>([]);
+const serverDialog = ref(false);
+const serverDialogBusy = ref(false);
+const serverDialogError = ref("");
+const serverChoice = ref("");
+const serverSessions = ref<ServerSession[]>([]);
+const serverNotice = ref("");
+const mdSaved = ref(false);
 /** Что только что скопировали — для галочки «Скопировано». */
 const copiedId = ref("");
 /** Изображения, готовые к отправке (полный data-URL живёт только в памяти). */
@@ -3041,11 +3066,6 @@ function clickAfterLongPress(): boolean {
   return true;
 }
 
-function onTitleClick(): void {
-  if (clickAfterLongPress()) return;
-  startRename();
-}
-
 function onTabClick(id: string): void {
   if (clickAfterLongPress()) return;
   void openSession(id);
@@ -3295,7 +3315,7 @@ function measureComposerContent(
     if (value !== undefined) copy[key] = value;
   }
   mirror.style.height = "0px";
-  mirror.style.width = Math.max(1, Math.round(width || el.offsetWidth || 1)) + "px";
+  mirror.style.width = Math.max(1, width || el.offsetWidth || 1) + "px";
   mirror.value = el.value;
   return Math.max(0, mirror.scrollHeight - padding);
 }
@@ -3351,9 +3371,27 @@ async function autoGrow(): Promise<void> {  await nextTick();
       (parseFloat(boxStyle!.paddingLeft) || 0) -
       (parseFloat(boxStyle!.paddingRight) || 0)
     : 0;
+  // Набор кнопок мог измениться (микрофон/молния появились, send↔stop 36↔30 px) —
+  // сбрасываем кеш ширин боковых групп по сигнатуре.
+  const buttonsKey = composerButtonsSignature({
+    dictation: dictationAvailable.value,
+    quick: quickReplies.value.length > 0,
+    sending: busy.value,
+    tall: composerTall.value,
+    collapsible: composerCollapsible.value,
+  });
+  if (buttonsKey !== composerSideWidthsKey.value) {
+    composerSideWidthsKey.value = buttonsKey;
+    composerSideWidths.value = null;
+  }
   const sideWidth =
     composerSideWidths.value ??
     measureComposerSideWidths() ?? { row: 0, pair: 0, column: 0 };
+  // Полоса прокрутки сужает контентную ширину поля — вычитаем её из ширины
+  // замера. При scrollbar-gutter: stable резерв постоянен на любой высоте.
+  if (composerGutter.value === null) {
+    composerGutter.value = Math.max(0, el.offsetWidth - el.clientWidth);
+  }
 
   let lines: number;
   if (composerCollapsed.value) {
@@ -3369,7 +3407,7 @@ async function autoGrow(): Promise<void> {  await nextTick();
         gaps: COMPOSER_SIDE_GAPS,
         sideWidth,
         lineHeight,
-        padding,
+        gutter: composerGutter.value ?? 0,
       },
       (fieldWidth) => measureComposerContent(el, fieldWidth, padding),
     ).lines;
@@ -3388,6 +3426,19 @@ async function autoGrow(): Promise<void> {  await nextTick();
       : composerFieldHeight(shown, lineHeight, padding);
   const nextHeight = height + "px";
   if (el.style.height !== nextHeight) el.style.height = nextHeight;
+  if (import.meta.env.DEV && el.scrollHeight > el.clientHeight + 1) {
+    const now = performance.now();
+    if (now - lastGrowWarn.value > 500) {
+      lastGrowWarn.value = now;
+      console.warn("[composer] height < scrollHeight", {
+        clientHeight: el.clientHeight,
+        scrollHeight: el.scrollHeight,
+        lines,
+        layout: composerLayout.value,
+        gutter: composerGutter.value,
+      });
+    }
+  }
   if (document.activeElement === el && selectionStart !== null && selectionEnd !== null) {
     try {
       el.setSelectionRange(selectionStart, selectionEnd);
@@ -3426,9 +3477,6 @@ watch(displayValues, () => {
   syncComposerField();
   void autoGrow();
 });
-
-// Кнопка «Очистить» появляется с трёх строк и чуть сужает поле — переносы пересчитываем.
-watch(composerTall, () => void autoGrow());
 
 /** Облачко тапа стоит над словом: пересчитываем, когда поле или фрагмент меняются. */
 watch(fieldPick, () => void placeFieldPick(), { flush: "post" });
@@ -4846,6 +4894,87 @@ async function commitRename(): Promise<void> {
   await renameSession(session.id, renameDraft.value.trim() || session.title);
 }
 
+/** Серверы читаем при открытии окна: их список меняется в «Подключениях». */
+async function loadGenaServers(): Promise<void> {
+  servers.value = await listServers();
+}
+
+async function loadRemoteSessions(): Promise<void> {
+  serverDialogBusy.value = true;
+  serverDialogError.value = "";
+  try {
+    serverSessions.value = await listServerSessions(serverChoice.value);
+  } catch (e) {
+    serverSessions.value = [];
+    serverDialogError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    serverDialogBusy.value = false;
+  }
+}
+
+/** Кнопка «＋ серверная сессия»: нет серверов — подсказка, один — сразу окно. */
+async function addServerSession(): Promise<void> {
+  serverNotice.value = "";
+  if (servers.value.length === 0) await loadGenaServers();
+  if (servers.value.length === 0) {
+    serverNotice.value = t("chat.serverSessionNeedServer");
+    return;
+  }
+  serverChoice.value = servers.value[0].id;
+  serverDialog.value = true;
+  await loadRemoteSessions();
+}
+
+async function onServerChoice(): Promise<void> {
+  await loadRemoteSessions();
+}
+
+/** Новая сессия на сервере: создаём копию локально и открываем её. */
+async function newServerSession(): Promise<void> {
+  const agentId = activeSession.value?.agentId ?? agents.value[0]?.id ?? "";
+  serverDialogBusy.value = true;
+  serverDialogError.value = "";
+  try {
+    const created = await createServerSession(serverChoice.value, t("chat.newDialog"), agentId);
+    await loadSessions();
+    serverDialog.value = false;
+    await openSession(created.id);
+  } catch (e) {
+    serverDialogError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    serverDialogBusy.value = false;
+  }
+}
+
+/** Продолжить существующую сессию с сервера. */
+async function openRemoteSession(remoteId: string): Promise<void> {
+  const agentId = activeSession.value?.agentId ?? agents.value[0]?.id ?? "";
+  serverDialogBusy.value = true;
+  serverDialogError.value = "";
+  try {
+    const session = await openServerSession(serverChoice.value, remoteId, agentId);
+    await loadSessions();
+    serverDialog.value = false;
+    await openSession(session.id);
+  } catch (e) {
+    serverDialogError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    serverDialogBusy.value = false;
+  }
+}
+
+/** «Сохранить в md» — локальная история, сервер не нужен. */
+async function saveSessionMarkdown(): Promise<void> {
+  const session = activeSession.value;
+  if (!session) return;
+  const list = await listMessages(session.id);
+  downloadText(markdownFileName(session.title), sessionToMarkdown(session, list));
+  mdSaved.value = true;
+  window.setTimeout(() => {
+    mdSaved.value = false;
+  }, 1600);
+}
+
 async function togglePin(session: Session): Promise<void> {
   await pinSession(session.id, !session.pinned);
 }
@@ -5127,6 +5256,8 @@ function syncViewport(): void {
 
 onMounted(() => {
   syncViewport();
+  // Список серверов нужен кнопке «＋ серверная сессия» до открытия окна.
+  void loadGenaServers();
   // Окно чата открылось снова — справочник читаем с диска, не из памяти.
   reloadTokens();
   // Скачанный морфологический словарь даёт падежные написания значений.
@@ -5261,19 +5392,37 @@ function onRateChange(event: Event): void {
         <circle cx="12" cy="15" r="1.4" />
       </svg>
     </div>
+    <p v-if="serverNotice" class="chat-panel__notice" role="status">{{ serverNotice }}</p>
+    <p
+      v-if="serverSyncError && activeSession && serverSyncError.sessionId === activeSession.id"
+      class="chat-panel__notice chat-panel__notice--error"
+      role="status"
+    >
+      {{ t("chat.serverSyncFailed", { error: serverSyncError.message }) }}
+    </p>
     <!-- toolbar: заголовок диалога + действия -->
     <div class="chat-panel__toolbar">
-      <button
+      <span
         v-if="!renaming"
-        class="chat-panel__title"
-        type="button"
+        class="chat-panel__title-text"
         :aria-label="activeSession?.title || t('chat.selectOrCreate')"
         v-longpress="() => showTitle(activeSession?.title || '')"
-        @click="onTitleClick"
       >
-        <span class="chat-panel__title-text">
-          {{ activeSession?.title || t("chat.newDialog") }}
-        </span>
+        {{ activeSession?.title || t("chat.newDialog") }}
+      </span>
+      <button
+        v-if="!renaming"
+        type="button"
+        class="chat-panel__tool"
+        v-tip="t('chat.editTitle')"
+        :aria-label="t('chat.editTitle')"
+        :disabled="!activeSession"
+        @click="startRename"
+      >
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17z" />
+          <path d="M13.5 6.5l3 3" />
+        </svg>
       </button>
       <template v-else>
         <input
@@ -5301,6 +5450,34 @@ function onRateChange(event: Event): void {
         >
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
             <path d="M12 5v14M5 12h14" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="chat-panel__tool"
+          v-tip="t('chat.serverSession')"
+          :aria-label="t('chat.serverSession')"
+          :disabled="agents.length === 0"
+          @click="addServerSession"
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3.5" y="4" width="17" height="6" rx="1.6" />
+            <rect x="3.5" y="14" width="17" height="6" rx="1.6" />
+            <path d="M7 7h.01M7 17h.01" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="chat-panel__tool"
+          v-tip="mdSaved ? t('chat.saveMdDone') : t('chat.saveMd')"
+          :aria-label="t('chat.saveMd')"
+          :disabled="!activeSession"
+          @click="saveSessionMarkdown"
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 4v10" />
+            <path d="M8 10l4 4 4-4" />
+            <path d="M5 19h14" />
           </svg>
         </button>
         <button
@@ -6566,6 +6743,52 @@ function onRateChange(event: Event): void {
       @cancel="confirmRegenerateId = ''"
     />
 
+    <div v-if="serverDialog" class="server-sheet" role="dialog" :aria-label="t('chat.serverSession')">
+      <button
+        type="button"
+        class="server-sheet__backdrop"
+        :aria-label="t('chat.close')"
+        @click="serverDialog = false"
+      />
+      <div class="server-sheet__panel">
+        <div class="server-sheet__head">
+          <strong>{{ t("chat.serverSession") }}</strong>
+          <button type="button" class="server-sheet__close" @click="serverDialog = false">×</button>
+        </div>
+        <label v-if="servers.length > 1" class="server-sheet__label">
+          <span>{{ t("chat.serverSessionPick") }}</span>
+          <select v-model="serverChoice" @change="onServerChoice">
+            <option v-for="item in servers" :key="item.id" :value="item.id">{{ item.name }}</option>
+          </select>
+        </label>
+        <button
+          type="button"
+          class="server-sheet__new"
+          :disabled="serverDialogBusy"
+          @click="newServerSession"
+        >
+          ＋ {{ t("chat.serverSessionNew") }}
+        </button>
+        <p v-if="serverDialogError" class="error small">{{ serverDialogError }}</p>
+        <p class="server-sheet__label">{{ t("chat.serverSessionList") }}</p>
+        <p v-if="serverDialogBusy" class="muted small">{{ t("connections.servers.checking") }}</p>
+        <p v-else-if="serverSessions.length === 0" class="muted small">
+          {{ t("chat.serverSessionEmpty") }}
+        </p>
+        <div v-else class="server-sheet__list">
+          <button
+            v-for="item in serverSessions"
+            :key="item.id"
+            type="button"
+            @click="openRemoteSession(item.id)"
+          >
+            <span>{{ item.title }}</span>
+            <small>{{ item.messageCount ?? 0 }} · {{ new Date(item.updatedAt).toLocaleDateString() }}</small>
+          </button>
+        </div>
+      </div>
+    </div>
+
     <SessionTagsDialog
       :open="tagsTarget !== null"
       :session-title="tagsTarget?.title ?? ''"
@@ -7216,6 +7439,7 @@ function onRateChange(event: Event): void {
   line-height: 1.4;
   resize: none;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -8860,4 +9084,118 @@ function onRateChange(event: Event): void {
   border-bottom: 0;
 }
 
+
+/* Заголовок диалога: теперь текст, а не кнопка — правится только карандашом. */
+.chat-panel__toolbar > .chat-panel__title-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.chat-panel__notice {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 6px 12px;
+  font-size: 12px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.chat-panel__notice--error {
+  color: var(--danger, #c0392b);
+}
+
+.server-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.server-sheet__backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.server-sheet__panel {
+  position: relative;
+  width: min(460px, 100%);
+  max-height: min(560px, 80dvh);
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
+}
+
+.server-sheet__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.server-sheet__close {
+  border: 0;
+  background: transparent;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.server-sheet__label {
+  display: block;
+  margin: 12px 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.server-sheet__label select {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.server-sheet__new {
+  width: 100%;
+  padding: 10px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.server-sheet__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.server-sheet__list button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel-2);
+  text-align: start;
+  cursor: pointer;
+}
+
+.server-sheet__list small {
+  color: var(--muted);
+}
 </style>
