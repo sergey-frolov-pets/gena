@@ -7,43 +7,42 @@
  * меряли по текущей ширине поля, а ширина поля зависит от раскладки —
  * выходил бесконечный цикл пересчётов.
  *
- * Правило Сергея (26.11.2026): одна строка — кнопки в ряд с каждой стороны,
- * две — левая колонка + правый ряд, три и больше — колонка с каждой стороны.
+ * Правило Сергея (27.11.2026): раскладка кнопок не зависит от числа строк —
+ * кнопки всегда стоят в ряд по бокам поля, как в однострочном. Поле растёт
+ * и сворачивается ровно на одну строку за раз. Раньше на 2-й строке
+ * включалась раскладка «левая колонка» (`pair`), которой нужно минимум
+ * 3 строки высоты, а на 3-й — обе колонки (`column`) с тем же минимумом:
+ * поле перескакивало 1 → 3, минуя две строки, и так же залипало при
+ * удалении текста.
  */
 import { COMPOSER_MAX_LINES, composerLinesForContent } from "./composer";
 
-/** Раскладка боковых групп кнопок вокруг поля. */
-export type ComposerLayout = "row" | "pair" | "column";
+/** Раскладка боковых групп кнопок вокруг поля. Одна на все высоты. */
+export type ComposerLayout = "row";
 
-/** Порядок перебора кандидатов: от самой узкой к самой широкой раскладке. */
-export const COMPOSER_LAYOUTS: readonly ComposerLayout[] = ["row", "pair", "column"];
+/** Порядок перебора кандидатов. Раскладка одна — ряд. */
+export const COMPOSER_LAYOUTS: readonly ComposerLayout[] = ["row"];
 
 /** Суммарный зазор между боковыми группами и полем: gap бокса (6) + gap стороны (4). */
 export const COMPOSER_SIDE_GAPS = 10;
 
-/**
- * Минимум строк для раскладки. Колонки кнопок (левая в `pair`, обе в `column`)
- * выше одной строки, поэтому высоту поля нельзя сделать меньше, иначе колонка
- * выпирает за рамку.
- */
+/** Минимум строк для раскладки: одна строка. */
 export const LAYOUT_MIN_LINES: Record<ComposerLayout, number> = {
   row: 1,
-  pair: 2,
-  column: 3,
 };
 
-/** Максимум строк, при котором раскладка ещё корректна (column безгранична). */
+/**
+ * Максимум строк, при котором раскладка ещё корректна. Ширина поля от высоты
+ * не зависит, поэтому верхнего предела нет — высоту ограничивает только
+ * `COMPOSER_MAX_LINES` из `composer.ts`.
+ */
 export const LAYOUT_MAX_LINES: Record<ComposerLayout, number> = {
-  row: 1,
-  pair: 2,
-  column: Number.POSITIVE_INFINITY,
+  row: Number.POSITIVE_INFINITY,
 };
 
-/** Раскладка по числу видимых строк. */
-export function layoutForLines(lines: number): ComposerLayout {
-  if (lines <= 1) return "row";
-  if (lines <= 2) return "pair";
-  return "column";
+/** Раскладка по числу видимых строк: всегда ряд кнопок по бокам. */
+export function layoutForLines(_lines: number): ComposerLayout {
+  return "row";
 }
 
 /** Ширина поля, если боковые группы занимают `sideWidth` px плюс `gaps` зазоров. */
@@ -59,26 +58,22 @@ export interface ResolveComposerLayoutInput {
   gaps: number;
   /** Ширина боковых групп (левой + правой) для каждой раскладки, px. */
   sideWidth: Record<ComposerLayout, number>;
-  /** Высота одной строки поля, px. */
+  /** Высота строки поля, px. */
   lineHeight: number;
-  /** Резерв под полосу прокрутки (`scrollbar-gutter`), px. Контентная ширина
-   *  поля для переноса меньше его полной ширины на эту величину. */
-  gutter: number;
-  /** Верхний предел строк (по умолчанию `COMPOSER_MAX_LINES`). */
+  /** Полоса прокрутки поля, px (при `scrollbar-gutter: stable` постоянна). */
+  gutter?: number;
+  /** Потолок строк (по умолчанию `COMPOSER_MAX_LINES`). */
   maxLines?: number;
 }
 
-/** Видимость кнопок, меняющих ширину боковых групп. */
-export interface ComposerButtonsSignature {
+/** Сигнатура набора кнопок: меняется — кеш замеренных ширин сбрасывается. */
+export function composerButtonsSignature(input: {
   dictation: boolean;
   quick: boolean;
   sending: boolean;
   tall: boolean;
   collapsible: boolean;
-}
-
-/** Ключ набора кнопок: меняется при изменении любого флага — по нему сбрасываем кеш ширин. */
-export function composerButtonsSignature(input: ComposerButtonsSignature): string {
+}): string {
   const { dictation, quick, sending, tall, collapsible } = input;
   return [dictation, quick, sending, tall, collapsible].map((v) => (v ? "1" : "0")).join("");
 }
@@ -130,8 +125,8 @@ export function resolveComposerLayout(
     }
   }
 
-  // Недостижимо: у `column` верхний предел безграничен, итерация всегда сходится.
-  const layout: ComposerLayout = "column";
+  // Недостижимо: у единственной раскладки верхний предел безграничен.
+  const layout: ComposerLayout = "row";
   const fieldWidth = fieldWidthFor(boxContentWidth, sideWidth[layout], gaps);
   const measureWidth = Math.max(0, fieldWidth - gutter);
   const lines = Math.max(LAYOUT_MIN_LINES[layout], toLines(measure(measureWidth)));
