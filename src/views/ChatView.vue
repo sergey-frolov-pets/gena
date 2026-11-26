@@ -35,7 +35,13 @@ import {
 import { newId } from "@/lib/id";
 import { shouldOpenLastSession } from "@/lib/session-open";
 import { collectTags } from "@/lib/session-tags";
-import { composerFieldHeight, composerLinesForContent, isSendKey } from "@/lib/composer";
+import { composerFieldHeight, isSendKey } from "@/lib/composer";
+import {
+  COMPOSER_LAYOUTS,
+  COMPOSER_SIDE_GAPS,
+  resolveComposerLayout,
+  type ComposerLayout,
+} from "@/lib/composerLayout";
 import { measureCaret, placeBubble } from "@/lib/tokens/caret-point";
 import { describeFieldPick, replaceFieldPick, tokenAtCaret, type FieldPick } from "@/lib/tokens/field-pick";
 import AppFooter from "@/components/AppFooter.vue";
@@ -2206,6 +2212,10 @@ let composerWidth = 0;
 const emit = defineEmits<{ (e: "open-tokens"): void; (e: "open-about"): void }>();
 
 const composerEl = ref<HTMLTextAreaElement | null>(null);
+/** Контейнер композера: его ширина не зависит от раскладки кнопок. */
+const composerBoxEl = ref<HTMLElement | null>(null);
+/** Замеренная ширина боковых групп по раскладкам; null — ещё не мерили. */
+const composerSideWidths = ref<Record<ComposerLayout, number> | null>(null);
 /** Сколько строк занимает текст. Высота шагает ровно на одну строку за раз. */
 const composerLines = ref(1);
 /** Ширина поля на последнем замере: по ней видно, что переносы надо пересчитать. */
@@ -3290,6 +3300,33 @@ function measureComposerContent(
   return Math.max(0, mirror.scrollHeight - padding);
 }
 
+/**
+ * Ширина боковых групп кнопок для каждой раскладки.
+ *
+ * Кнопки имеют фиксированный размер в px и не зависят от ширины окна, поэтому
+ * замер достаточно сделать один раз. На время замера контейнеру временно
+ * присваивается класс каждой раскладки — на ширине контейнера это не отражается
+ * (в отличие от поля), и цикл пересчётов не возникает.
+ */
+function measureComposerSideWidths(): Record<ComposerLayout, number> | null {
+  const box = composerBoxEl.value;
+  if (!box) return null;
+  const lead = box.querySelector<HTMLElement>(".chat-panel__composer-lead");
+  const actions = box.querySelector<HTMLElement>(".chat-panel__composer-actions");
+  if (!lead || !actions) return null;
+  const classes = ["is-buttons-row", "is-buttons-pair", "is-buttons-column"];
+  const widths = {} as Record<ComposerLayout, number>;
+  for (const layout of COMPOSER_LAYOUTS) {
+    box.classList.remove(...classes);
+    box.classList.add(`is-buttons-${layout}`);
+    widths[layout] = lead.offsetWidth + actions.offsetWidth;
+  }
+  box.classList.remove(...classes);
+  box.classList.add(`is-buttons-${composerLayout.value}`);
+  composerSideWidths.value = widths;
+  return widths;
+}
+
 async function autoGrow(): Promise<void> {  await nextTick();
   const el = composerEl.value;
   if (!el) return;
@@ -3304,27 +3341,46 @@ async function autoGrow(): Promise<void> {  await nextTick();
   // "normal" в computed style — считаем от размера шрифта (line-height 1.4 в CSS).
   const lineHeight =
     parseFloat(style.lineHeight) || Math.round((parseFloat(style.fontSize) || 14.4) * 1.4);
-  // Высоту снимаем, но поле не растягиваем родителем: иначе scrollHeight равен
-  // колонке кнопок, и высота прыгает сразу на несколько строк.
-  // Ширину фиксируем вместе с полосой прокрутки: clientWidth её вычитает,
-  // и на длинном тексте строки считались короче, чем есть.
-  const width = el.clientWidth;
-  const scrollbarWidth = Math.max(0, el.offsetWidth - el.clientWidth);
-  const measureWidth = width + scrollbarWidth;
-  const content = measureComposerContent(el, measureWidth, padding);
-  // Точное число строк. Замер по схлопнутому полю иногда даёт лишнюю строку
-  // (дробный line-height, полоса прокрутки): высота прыгала сразу через
-  // строку. Замер берём как верхнюю оценку и поджимаем.
-  let lines = Math.max(1, Math.ceil(content / lineHeight - 0.1));
-  if (!composerCollapsed.value && composerManualHeight.value === null) {
-    lines = composerLinesForContent(content, lines, lineHeight, padding);
+  // Ширину поля для замера берём из стабильной ширины контейнера, а не из
+  // текущей ширины самого поля: раскладка (и ширина поля) зависит от числа
+  // строк, поэтому замер по текущей ширине зацикливался (см. resolveComposerLayout).
+  const box = composerBoxEl.value;
+  const boxStyle = box ? window.getComputedStyle(box) : null;
+  const boxContentWidth = box
+    ? box.clientWidth -
+      (parseFloat(boxStyle!.paddingLeft) || 0) -
+      (parseFloat(boxStyle!.paddingRight) || 0)
+    : 0;
+  const sideWidth =
+    composerSideWidths.value ??
+    measureComposerSideWidths() ?? { row: 0, pair: 0, column: 0 };
+
+  let lines: number;
+  if (composerCollapsed.value) {
+    lines = 1;
+  } else if (composerManualHeight.value !== null) {
+    // Ручная высота: строки считаем от самой высоты, как composerShownLines.
+    const content = Math.max(0, composerManualHeight.value - padding);
+    lines = Math.max(1, Math.round(content / (lineHeight > 0 ? lineHeight : 20)));
+  } else {
+    lines = resolveComposerLayout(
+      {
+        boxContentWidth,
+        gaps: COMPOSER_SIDE_GAPS,
+        sideWidth,
+        lineHeight,
+        padding,
+      },
+      (fieldWidth) => measureComposerContent(el, fieldWidth, padding),
+    ).lines;
   }
+
   // Текст снова в одну строку — свёрнутое состояние больше не нужно.
   if (composerCollapsed.value && lines <= 1) composerCollapsed.value = false;
   composerLines.value = lines;
   composerLineHeight.value = lineHeight;
   composerPad.value = padding;
-  if (width > 0) composerMeasureWidth.value = width;
+  composerMeasureWidth.value = boxContentWidth;
   const shown = composerShownLines.value;
   const height =
     !composerCollapsed.value && composerManualHeight.value !== null
@@ -5117,15 +5173,17 @@ onMounted(() => {
   }
   syncDockSpace();
   void nextTick(autoGrow);
-  if (typeof ResizeObserver !== "undefined" && composerEl.value) {
+  if (typeof ResizeObserver !== "undefined" && composerBoxEl.value) {
     composerObserver = new ResizeObserver(() => {
-      const el = composerEl.value;
-      if (!el || el.clientWidth === composerWidth) return;
-      composerWidth = el.clientWidth;
-      if (measuringComposer) return;
+      const box = composerBoxEl.value;
+      if (!box || measuringComposer) return;
+      const boxWidth = box.clientWidth;
+      if (boxWidth === composerWidth) return;
+      composerWidth = boxWidth;
+      composerSideWidths.value = null;
       void autoGrow();
     });
-    composerObserver.observe(composerEl.value);
+    composerObserver.observe(composerBoxEl.value);
   }
 });
 
@@ -5959,6 +6017,7 @@ function onRateChange(event: Event): void {
           @dismiss="onPrivacyDismiss"
         />
         <div
+          ref="composerBoxEl"
           class="chat-panel__composer-box"
           :class="[`is-buttons-${composerLayout}`, { 'is-recording': dictationListening }]"
         >
