@@ -267,9 +267,10 @@ function isTokenSession(session?: Session | null): boolean {
 }
 
 // --- M3: проверка перед отправкой ---
-// Панель не запрещает отправку, а предлагает: открытый текст уходит провайдеру
-// как есть, и человек решает сам. В режиме токенов подсказка не нужна —
-// значения и так замещаются до отправки.
+// Панель не запрещает отправку, а предлагает: найденные значения заменяются
+// на `[сумма]`, `[карта]` и т.п. Работает только в защищённом режиме
+// (решение Сергея 26.11.2026): в обычном чате подсказка не появляется,
+// текст уходит как есть.
 const privacyFindings = ref<Finding[]>([]);
 const privacyMasked = ref(0);
 const privacyUndoText = ref<string | null>(null);
@@ -283,7 +284,7 @@ function schedulePrivacyCheck(text: string): void {
     privacyTimer = null;
     if (
       !text.trim() ||
-      isTokenSession(activeSession.value) ||
+      !isTokenSession(activeSession.value) ||
       privacyDismissed.value === text
     ) {
       privacyFindings.value = [];
@@ -303,6 +304,15 @@ watch(draft, (value) => {
   privacyUndoText.value = null;
   schedulePrivacyCheck(value);
 });
+
+// Переключили защищённый режим — панель либо появляется сразу, либо исчезает.
+watch(
+  () => isTokenSession(activeSession.value),
+  (on) => {
+    resetPrivacyCheck();
+    if (on) schedulePrivacyCheck(draft.value);
+  },
+);
 
 function resetPrivacyCheck(): void {
   if (privacyTimer) {
@@ -5885,6 +5895,14 @@ function onRateChange(event: Event): void {
           multiple
           @change="onFilesPicked"
         />
+        <PrivacyCheckPanel
+          v-if="isTokenSession(activeSession) && (privacyFindings.length || privacyMasked)"
+          :findings="privacyFindings"
+          :masked="privacyMasked"
+          @mask="onPrivacyMask"
+          @undo="onPrivacyUndo"
+          @dismiss="onPrivacyDismiss"
+        />
         <div
           class="chat-panel__composer-box"
           :class="[`is-buttons-${composerLayout}`, { 'is-recording': dictationListening }]"
@@ -5956,14 +5974,6 @@ function onRateChange(event: Event): void {
           </div>
           </div>
           </div>
-          <PrivacyCheckPanel
-            v-if="privacyFindings.length || privacyMasked"
-            :findings="privacyFindings"
-            :masked="privacyMasked"
-            @mask="onPrivacyMask"
-            @undo="onPrivacyUndo"
-            @dismiss="onPrivacyDismiss"
-          />
           <div class="chat-panel__field">
           <div
             v-if="isTokenSession(activeSession)"

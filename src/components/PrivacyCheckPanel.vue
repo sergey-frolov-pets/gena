@@ -121,7 +121,7 @@ const total = computed(() => props.findings.length);
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  margin: 0 0 6px;
+  margin: 0;
   padding: 6px 10px;
   border: 1px solid var(--border);
   border-radius: 10px;
