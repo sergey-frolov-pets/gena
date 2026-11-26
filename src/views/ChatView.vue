@@ -2215,6 +2215,12 @@ const COMPOSER_MANUAL_MIN = 38;
 const COMPOSER_MANUAL_MAX = 360;
 /** С этой высоты у колонок появляются «Очистить» и «Свернуть». */
 const COMPOSER_COLUMN_LINES = 3;
+/**
+ * «Свернуть» нужно только на предельной высоте: ниже четырёх строк в поле
+ * и так видно всё. Правило Сергея 26.11.2026.
+ */
+const COMPOSER_COLLAPSE_LINES = 4;
+
 
 /** Сколько строк видно сейчас, а не сколько их в тексте. */
 const composerShownLines = computed(() => {
@@ -2226,8 +2232,13 @@ const composerShownLines = computed(() => {
   }
   return composerLines.value;
 });
-/** Очистить и свернуть появляются, когда видно три строки и больше. */
+/** «Очистить» — верх левой колонки, с трёх строк. */
 const composerTall = computed(() => composerShownLines.value >= COMPOSER_COLUMN_LINES);
+/** «Свернуть» — только с четырёх строк, то есть на предельной высоте поля. */
+const composerCollapsible = computed(
+  () => composerShownLines.value >= COMPOSER_COLLAPSE_LINES,
+);
+
 /**
  * Раскладка кнопок вокруг поля (решение Сергея 26.11.2026): одна строка — ряд
  * с каждой стороны, две — две колонки, три и больше — столбец на любом экране.
@@ -3183,8 +3194,32 @@ watch([messages, liveStreaming, liveTyping], () => settleToBottom(), { flush: "p
  * Замер не должен сбрасывать выделение: иначе плашка добавления токена
  * закрывается в тот же жест, которым её открыли.
  */
-async function autoGrow(): Promise<void> {
-  await nextTick();
+/**
+ * Сколько строк нужно полю на самом деле.
+ *
+ * Рост идёт ровно на одну строку за перенос: если на высоте строки меньше
+ * текст ещё помещается целиком, лишняя строка не нужна. Высоту на время
+ * проверки меняем, окончательную ставит autoGrow.
+ */
+function fitComposerLines(
+  el: HTMLTextAreaElement,
+  guess: number,
+  lineHeight: number,
+  padding: number,
+): number {
+  let lines = Math.max(1, guess);
+  while (lines > 1) {
+    const lower = composerFieldHeight(lines - 1, lineHeight, padding);
+    el.style.height = `${lower}px`;
+    // Запас в пиксель: scrollHeight округляется до целого и иначе «съедал»
+    // дробную высоту строки и не давал сжать поле.
+    if (el.scrollHeight > lower + 1) break;
+    lines -= 1;
+  }
+  return lines;
+}
+
+async function autoGrow(): Promise<void> {  await nextTick();
   const el = composerEl.value;
   if (!el) return;
   // Замер на мгновение схлопывает поле. Без флага событие select видело пустое
@@ -3213,7 +3248,13 @@ async function autoGrow(): Promise<void> {
   el.style.width = "";
   el.style.maxHeight = "";
   el.style.alignSelf = "";
-  const lines = Math.max(1, Math.ceil(content / lineHeight - 0.1));
+  // Точное число строк. Замер по схлопнутому полю иногда даёт лишнюю строку
+  // (дробный line-height, полоса прокрутки): высота прыгала сразу через
+  // строку. Замер берём как верхнюю оценку и поджимаем.
+  let lines = Math.max(1, Math.ceil(content / lineHeight - 0.1));
+  if (!composerCollapsed.value && composerManualHeight.value === null) {
+    lines = fitComposerLines(el, lines, lineHeight, padding);
+  }
   // Текст снова в одну строку — свёрнутое состояние больше не нужно.
   if (composerCollapsed.value && lines <= 1) composerCollapsed.value = false;
   composerLines.value = lines;
@@ -5850,7 +5891,7 @@ function onRateChange(event: Event): void {
         >
           <div class="chat-panel__composer-side">
           <div class="chat-panel__composer-lead">
-          <div class="chat-panel__composer-edge">
+          <div class="chat-panel__composer-edge chat-panel__composer-edge--top">
           <button
             v-if="composerTall"
             type="button"
@@ -5968,9 +6009,9 @@ function onRateChange(event: Event): void {
           </div>
           </div>
           <div class="chat-panel__composer-actions">
-          <div class="chat-panel__composer-edge">
+          <div class="chat-panel__composer-edge chat-panel__composer-edge--top">
           <button
-            v-if="composerTall"
+            v-if="composerCollapsible"
             type="button"
             class="chat-panel__icon-btn chat-panel__collapse"
             v-tip="t('chat.collapseInput')"
@@ -6801,8 +6842,9 @@ function onRateChange(event: Event): void {
                       микрофон/молния и отправка (is-buttons-pair);
      • три и больше — столбец с каждой стороны на любом экране
                       (is-buttons-column, базовая раскладка).
-   Кнопки прижаты к низу поля; «Очистить» и «Свернуть» держатся сверху —
-   они липнут к верху своей колонки через margin-block-end: auto.
+   Кнопки прижаты к низу поля; «Очистить» держится слева сверху (с трёх
+   строк, через margin-block-end: auto), «Свернуть» — справа сверху и только
+   с четырёх строк, когда поле упёрлось в предел.
    «Свернуть» уменьшает поле до одной строки и не прячет его. */
 
 /* Левая часть: кнопки и поле. */
@@ -6835,23 +6877,50 @@ function onRateChange(event: Event): void {
   gap: 2px;
 }
 
-/* Три строки и больше: «Очистить» и «Свернуть» — верх своей колонки. */
-.chat-panel__composer-box.is-buttons-column
-  .chat-panel__composer-lead
-  > .chat-panel__composer-edge:first-child,
-.chat-panel__composer-box.is-buttons-column
-  .chat-panel__composer-actions
-  > .chat-panel__composer-edge:first-child {
+/* Три строки и больше: «Очистить» и «Свернуть» — верх своей колонки,
+   остальные кнопки остаются внизу. */
+.chat-panel__composer-box.is-buttons-column .chat-panel__composer-edge--top {
   margin-block-end: auto;
 }
 
-/* Одна строка: весь набор кнопок каждой стороны — в один ряд. */
+/* В столбце кнопки мельче (26px): очистить + скрепка + агент = 82px,
+   это ровно высота трёх строк поля — колонка не выпирает за рамку. */
+.chat-panel__composer-box.is-buttons-column
+  .chat-panel__composer-lead
+  .chat-panel__icon-btn,
+.chat-panel__composer-box.is-buttons-column
+  .chat-panel__composer-actions
+  .chat-panel__icon-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 9px;
+}
+
+.chat-panel__composer-box.is-buttons-column
+  .chat-panel__composer-lead
+  .chat-panel__icon-btn
+  svg,
+.chat-panel__composer-box.is-buttons-column
+  .chat-panel__composer-actions
+  .chat-panel__icon-btn
+  svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Одна строка: весь набор кнопок каждой стороны — в один ряд, по центру
+   по вертикали (правило Сергея 26.11.2026: в однострочном поле кнопки
+   сидят на середине, а не по нижней кромке). */
+.chat-panel__composer-box.is-buttons-row {
+  align-items: center;
+}
+
 .chat-panel__composer-box.is-buttons-row .chat-panel__composer-lead,
 .chat-panel__composer-box.is-buttons-row .chat-panel__composer-actions,
 .chat-panel__composer-box.is-buttons-row .chat-panel__composer-edge,
 .chat-panel__composer-box.is-buttons-row .chat-panel__composer-stack {
   flex-direction: row;
-  align-items: flex-end;
+  align-items: center;
   justify-content: flex-start;
 }
 
