@@ -39,6 +39,7 @@ import { composerFieldHeight, isSendKey } from "@/lib/composer";
 import {
   COMPOSER_LAYOUTS,
   COMPOSER_SIDE_GAPS,
+  composerButtonsSignature,
   resolveComposerLayout,
   type ComposerLayout,
 } from "@/lib/composerLayout";
@@ -2216,6 +2217,12 @@ const composerEl = ref<HTMLTextAreaElement | null>(null);
 const composerBoxEl = ref<HTMLElement | null>(null);
 /** Замеренная ширина боковых групп по раскладкам; null — ещё не мерили. */
 const composerSideWidths = ref<Record<ComposerLayout, number> | null>(null);
+/** Ключ набора кнопок — по нему сбрасываем кеш ширин боковых групп. */
+const composerSideWidthsKey = ref("");
+/** Ширина полосы прокрутки поля (стабильна при `scrollbar-gutter: stable`). */
+const composerGutter = ref<number | null>(null);
+/** Последний warn об обрезанном верхе — чтобы не спамить в консоль на каждый символ. */
+const lastGrowWarn = ref(0);
 /** Сколько строк занимает текст. Высота шагает ровно на одну строку за раз. */
 const composerLines = ref(1);
 /** Ширина поля на последнем замере: по ней видно, что переносы надо пересчитать. */
@@ -3295,7 +3302,7 @@ function measureComposerContent(
     if (value !== undefined) copy[key] = value;
   }
   mirror.style.height = "0px";
-  mirror.style.width = Math.max(1, Math.round(width || el.offsetWidth || 1)) + "px";
+  mirror.style.width = Math.max(1, width || el.offsetWidth || 1) + "px";
   mirror.value = el.value;
   return Math.max(0, mirror.scrollHeight - padding);
 }
@@ -3351,9 +3358,27 @@ async function autoGrow(): Promise<void> {  await nextTick();
       (parseFloat(boxStyle!.paddingLeft) || 0) -
       (parseFloat(boxStyle!.paddingRight) || 0)
     : 0;
+  // Набор кнопок мог измениться (микрофон/молния появились, send↔stop 36↔30 px) —
+  // сбрасываем кеш ширин боковых групп по сигнатуре.
+  const buttonsKey = composerButtonsSignature({
+    dictation: dictationAvailable.value,
+    quick: quickReplies.value.length > 0,
+    sending: busy.value,
+    tall: composerTall.value,
+    collapsible: composerCollapsible.value,
+  });
+  if (buttonsKey !== composerSideWidthsKey.value) {
+    composerSideWidthsKey.value = buttonsKey;
+    composerSideWidths.value = null;
+  }
   const sideWidth =
     composerSideWidths.value ??
     measureComposerSideWidths() ?? { row: 0, pair: 0, column: 0 };
+  // Полоса прокрутки сужает контентную ширину поля — вычитаем её из ширины
+  // замера. При scrollbar-gutter: stable резерв постоянен на любой высоте.
+  if (composerGutter.value === null) {
+    composerGutter.value = Math.max(0, el.offsetWidth - el.clientWidth);
+  }
 
   let lines: number;
   if (composerCollapsed.value) {
@@ -3369,7 +3394,7 @@ async function autoGrow(): Promise<void> {  await nextTick();
         gaps: COMPOSER_SIDE_GAPS,
         sideWidth,
         lineHeight,
-        padding,
+        gutter: composerGutter.value ?? 0,
       },
       (fieldWidth) => measureComposerContent(el, fieldWidth, padding),
     ).lines;
@@ -3388,6 +3413,19 @@ async function autoGrow(): Promise<void> {  await nextTick();
       : composerFieldHeight(shown, lineHeight, padding);
   const nextHeight = height + "px";
   if (el.style.height !== nextHeight) el.style.height = nextHeight;
+  if (import.meta.env.DEV && el.scrollHeight > el.clientHeight + 1) {
+    const now = performance.now();
+    if (now - lastGrowWarn.value > 500) {
+      lastGrowWarn.value = now;
+      console.warn("[composer] height < scrollHeight", {
+        clientHeight: el.clientHeight,
+        scrollHeight: el.scrollHeight,
+        lines,
+        layout: composerLayout.value,
+        gutter: composerGutter.value,
+      });
+    }
+  }
   if (document.activeElement === el && selectionStart !== null && selectionEnd !== null) {
     try {
       el.setSelectionRange(selectionStart, selectionEnd);
@@ -3427,8 +3465,6 @@ watch(displayValues, () => {
   void autoGrow();
 });
 
-// Кнопка «Очистить» появляется с трёх строк и чуть сужает поле — переносы пересчитываем.
-watch(composerTall, () => void autoGrow());
 
 /** Облачко тапа стоит над словом: пересчитываем, когда поле или фрагмент меняются. */
 watch(fieldPick, () => void placeFieldPick(), { flush: "post" });
@@ -7216,6 +7252,7 @@ function onRateChange(event: Event): void {
   line-height: 1.4;
   resize: none;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
