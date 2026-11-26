@@ -189,26 +189,52 @@ function buildAttrs(tag: string, raw: string): { attrs: string; dropTag: boolean
   return { attrs: parts.length ? ` ${parts.join(" ")}` : "", dropTag: false };
 }
 
+/** Теги без закрывающего: `</br>`/`</hr>` не нужны и ломают разметку. */
+const VOID_TAGS = new Set(["br", "hr"]);
+
 /**
  * Строковый санитайзер: оставляет только разрешённые теги и атрибуты.
  * Неразрешённые теги удаляются целиком, их текст остаётся.
+ *
+ * Закрывающие теги не вырезаются «оптом»: идём по стеку открытых тегов, поэтому
+ * `</a>` от настоящей ссылки остаётся на месте (иначе ссылка съедала весь текст
+ * до конца сообщения), а одиночный `</a>` без открывающего — отбрасывается.
  */
 export function sanitizeHtml(html: string): string {
-  return html
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(
-      /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)([^>]*)>/g,
-      (_match, slash: string, rawName: string, rawAttrs: string) => {
-        const tag = rawName.toLowerCase();
-        if (!ALLOWED_TAGS.has(tag)) return "";
-        if (slash) return `</${tag}>`;
-        const { attrs, dropTag } = buildAttrs(tag, rawAttrs);
-        if (dropTag) return "";
-        return `<${tag}${attrs}>`;
-      },
-    )
-    // Одиночные `</a>`/`</button>`, от которых открывающий тег был вырезан.
-    .replace(/<\/(?:a|button)>/g, "");
+  const source = html.replace(/<!--[\s\S]*?-->/g, "");
+  const out: string[] = [];
+  const stack: string[] = [];
+  const tagRe = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)([^>]*)>/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = tagRe.exec(source)) !== null) {
+    out.push(source.slice(lastIndex, match.index));
+    lastIndex = tagRe.lastIndex;
+    const closing = match[1] === "/";
+    const tag = match[2].toLowerCase();
+    if (!ALLOWED_TAGS.has(tag)) continue;
+
+    if (closing) {
+      const openIndex = stack.lastIndexOf(tag);
+      // Закрывающий тег без открывающего (его вырезали) — просто выбрасываем.
+      if (openIndex === -1) continue;
+      // Незакрытые внутренние закрываем сами, чтобы разметка осталась парной.
+      while (stack.length > openIndex) out.push(`</${stack.pop()}>`);
+      continue;
+    }
+
+    const { attrs, dropTag } = buildAttrs(tag, match[3]);
+    if (dropTag) continue;
+    out.push(`<${tag}${attrs}>`);
+    if (!VOID_TAGS.has(tag)) stack.push(tag);
+  }
+
+  out.push(source.slice(lastIndex));
+  // Сообщение кончилось с открытыми тегами — закрываем, иначе ссылка «тянется»
+  // на соседние сообщения и на всю ленту.
+  while (stack.length) out.push(`</${stack.pop()}>`);
+  return out.join("");
 }
 
 interface ParserBundle {

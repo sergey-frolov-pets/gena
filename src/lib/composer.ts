@@ -55,3 +55,28 @@ export function composerFieldHeight(
   const lines = Math.max(1, raw);
   return Math.min(lines, COMPOSER_MAX_LINES) * line + pad;
 }
+
+/**
+ * Сколько строк реально нужно для измеренной высоты текста.
+ *
+ * `content` — высота содержимого (замер по скрытому зеркалу, без схлопывания
+ * поля), `guess` — верхняя оценка в строках. Запас в пиксель нужен, потому что
+ * `scrollHeight` округляется до целого и дробная line-height иначе не даёт
+ * сжать поле. Верхняя граница — `COMPOSER_MAX_LINES`.
+ */
+export function composerLinesForContent(
+  content: number,
+  guess: number,
+  lineHeight: number,
+  padding: number,
+): number {
+  const guessLines = Number.isFinite(guess) ? Math.round(guess) : 1;
+  let lines = Math.min(COMPOSER_MAX_LINES, Math.max(1, guessLines));
+  const height = Number.isFinite(content) ? Math.max(0, content) : 0;
+  while (lines > 1) {
+    const lower = composerFieldHeight(lines - 1, lineHeight, padding);
+    if (height > lower + 1) break;
+    lines -= 1;
+  }
+  return lines;
+}

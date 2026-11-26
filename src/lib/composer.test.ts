@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   COMPOSER_MAX_LINES,
   composerFieldHeight,
+  composerLinesForContent,
   isComposingKey,
   isNewlineKey,
   isSendKey,
@@ -70,5 +71,31 @@ describe("composer: высота поля ввода", () => {
 
   it("без line-height и padding не падает в ноль", () => {
     expect(composerFieldHeight(2, 0, 0)).toBe(2 * 20);
+  });
+});
+
+describe("composer: строки по измеренной высоте текста", () => {
+  const line = 20;
+  const pad = 12;
+
+  it("короткий текст — одна строка, даже если оценка больше", () => {
+    expect(composerLinesForContent(line, 3, line, pad)).toBe(1);
+    expect(composerLinesForContent(line + pad - 1, 2, line, pad)).toBe(1);
+  });
+
+  it("перенос на вторую строку — ровно две", () => {
+    expect(composerLinesForContent(2 * line + 4, 4, line, pad)).toBe(2);
+    expect(composerLinesForContent(2 * line + pad, 4, line, pad)).toBe(2);
+  });
+
+  it("длинный текст упирается в четыре строки", () => {
+    expect(composerLinesForContent(10 * line, 10, line, pad)).toBe(COMPOSER_MAX_LINES);
+    expect(composerLinesForContent(4 * line + pad + 6, 9, line, pad)).toBe(COMPOSER_MAX_LINES);
+  });
+
+  it("мусор на входе не ломает подсчёт", () => {
+    expect(composerLinesForContent(Number.NaN, Number.NaN, line, pad)).toBe(1);
+    expect(composerLinesForContent(-50, 0, line, pad)).toBe(1);
+    expect(composerLinesForContent(0, 0, 0, 0)).toBe(1);
   });
 });

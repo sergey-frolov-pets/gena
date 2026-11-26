@@ -35,7 +35,7 @@ import {
 import { newId } from "@/lib/id";
 import { shouldOpenLastSession } from "@/lib/session-open";
 import { collectTags } from "@/lib/session-tags";
-import { composerFieldHeight, isSendKey } from "@/lib/composer";
+import { composerFieldHeight, composerLinesForContent, isSendKey } from "@/lib/composer";
 import { measureCaret, placeBubble } from "@/lib/tokens/caret-point";
 import { describeFieldPick, replaceFieldPick, tokenAtCaret, type FieldPick } from "@/lib/tokens/field-pick";
 import AppFooter from "@/components/AppFooter.vue";
@@ -3211,22 +3211,83 @@ watch([messages, liveStreaming, liveTyping], () => settleToBottom(), { flush: "p
  * текст ещё помещается целиком, лишняя строка не нужна. Высоту на время
  * проверки меняем, окончательную ставит autoGrow.
  */
-function fitComposerLines(
+/**
+ * Скрытое зеркало поля ввода.
+ *
+ * Раньше высоту мерили на самом поле: на миг ставили height: 0, читали
+ * scrollHeight и возвращали высоту. При наборе у конца строки это видно как
+ * мерцание. Зеркало живёт вне раскладки, поэтому видимое поле не меняется
+ * вовсе — высота ставится один раз, уже посчитанной.
+ */
+let composerMirror: HTMLTextAreaElement | null = null;
+
+/** Свойства, от которых зависит перенос строк и высота строки. */
+const MIRROR_STYLE_KEYS = [
+  "fontFamily",
+  "fontSize",
+  "fontWeight",
+  "fontStyle",
+  "fontVariant",
+  "letterSpacing",
+  "wordSpacing",
+  "textTransform",
+  "lineHeight",
+  "textIndent",
+  "whiteSpace",
+  "overflowWrap",
+  "wordBreak",
+  "boxSizing",
+  "paddingTop",
+  "paddingRight",
+  "paddingBottom",
+  "paddingLeft",
+  "borderTopWidth",
+  "borderRightWidth",
+  "borderBottomWidth",
+  "borderLeftWidth",
+] as const;
+
+function composerMirrorEl(): HTMLTextAreaElement {
+  if (composerMirror?.isConnected) return composerMirror;
+  const mirror = document.createElement("textarea");
+  mirror.setAttribute("aria-hidden", "true");
+  mirror.tabIndex = -1;
+  mirror.readOnly = true;
+  const box = mirror.style;
+  box.position = "fixed";
+  box.top = "-10000px";
+  box.left = "-10000px";
+  box.zIndex = "-1";
+  box.visibility = "hidden";
+  box.pointerEvents = "none";
+  box.minHeight = "0";
+  box.height = "0";
+  box.overflow = "hidden";
+  box.resize = "none";
+  box.background = "transparent";
+  box.color = "transparent";
+  document.body.appendChild(mirror);
+  composerMirror = mirror;
+  return mirror;
+}
+
+/** Высота текста без padding — замер по зеркалу той же ширины. */
+function measureComposerContent(
   el: HTMLTextAreaElement,
-  guess: number,
-  lineHeight: number,
+  width: number,
   padding: number,
 ): number {
-  let lines = Math.max(1, guess);
-  while (lines > 1) {
-    const lower = composerFieldHeight(lines - 1, lineHeight, padding);
-    el.style.height = `${lower}px`;
-    // Запас в пиксель: scrollHeight округляется до целого и иначе «съедал»
-    // дробную высоту строки и не давал сжать поле.
-    if (el.scrollHeight > lower + 1) break;
-    lines -= 1;
+  const mirror = composerMirrorEl();
+  const live = window.getComputedStyle(el) as unknown as Record<string, string>;
+  const copy = mirror.style as unknown as Record<string, string>;
+  for (const key of MIRROR_STYLE_KEYS) {
+    const value = live[key];
+    if (value !== undefined) copy[key] = value;
   }
-  return lines;
+  mirror.style.height = "0px";
+  mirror.style.width = Math.max(1, Math.round(width || el.offsetWidth || 1)) + "px";
+  mirror.value = el.value;
+  return Math.max(0, mirror.scrollHeight - padding);
 }
 
 async function autoGrow(): Promise<void> {  await nextTick();
@@ -3250,20 +3311,13 @@ async function autoGrow(): Promise<void> {  await nextTick();
   const width = el.clientWidth;
   const scrollbarWidth = Math.max(0, el.offsetWidth - el.clientWidth);
   const measureWidth = width + scrollbarWidth;
-  el.style.alignSelf = "flex-start";
-  el.style.maxHeight = "none";
-  el.style.height = "0px";
-  if (measureWidth > 0) el.style.width = `${measureWidth}px`;
-  const content = Math.max(0, el.scrollHeight - padding);
-  el.style.width = "";
-  el.style.maxHeight = "";
-  el.style.alignSelf = "";
+  const content = measureComposerContent(el, measureWidth, padding);
   // Точное число строк. Замер по схлопнутому полю иногда даёт лишнюю строку
   // (дробный line-height, полоса прокрутки): высота прыгала сразу через
   // строку. Замер берём как верхнюю оценку и поджимаем.
   let lines = Math.max(1, Math.ceil(content / lineHeight - 0.1));
   if (!composerCollapsed.value && composerManualHeight.value === null) {
-    lines = fitComposerLines(el, lines, lineHeight, padding);
+    lines = composerLinesForContent(content, lines, lineHeight, padding);
   }
   // Текст снова в одну строку — свёрнутое состояние больше не нужно.
   if (composerCollapsed.value && lines <= 1) composerCollapsed.value = false;
@@ -3276,7 +3330,8 @@ async function autoGrow(): Promise<void> {  await nextTick();
     !composerCollapsed.value && composerManualHeight.value !== null
       ? composerManualHeight.value
       : composerFieldHeight(shown, lineHeight, padding);
-  el.style.height = `${height}px`;
+  const nextHeight = height + "px";
+  if (el.style.height !== nextHeight) el.style.height = nextHeight;
   if (document.activeElement === el && selectionStart !== null && selectionEnd !== null) {
     try {
       el.setSelectionRange(selectionStart, selectionEnd);
