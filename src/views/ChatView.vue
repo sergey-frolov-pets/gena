@@ -5611,10 +5611,11 @@ function onRateChange(event: Event): void {
     >
       {{ t("chat.serverSyncFailed", { error: serverSyncError.message }) }}
     </p>
-    <!-- toolbar: заголовок диалога + действия -->
+    <!-- toolbar: только действия. Название диалога живёт в его вкладке, чтобы
+         не дублироваться; без вкладок (истории нет) заголовок остаётся здесь. -->
     <div class="chat-panel__toolbar">
       <span
-        v-if="!renaming"
+        v-if="!renaming && recentTabs.length === 0"
         class="chat-panel__title-text"
         :aria-label="activeSession?.title || t('chat.selectOrCreate')"
         v-longpress="() => showTitle(activeSession?.title || '')"

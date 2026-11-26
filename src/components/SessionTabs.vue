@@ -6,7 +6,7 @@
  * Порядок вкладок и закрытые диалоги живут в `useSessionTabs`.
  */
 
-import { nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { useLocale } from "@/i18n";
 import type { Session } from "@/storage/types";
 
@@ -26,6 +26,14 @@ const emit = defineEmits<{
 
 const { t } = useLocale();
 const stripEl = ref<HTMLElement | null>(null);
+
+/**
+ * До трёх вкладок заголовки делят ширину полоски поровну: одна вкладка — весь
+ * чат, две — половина, три — треть. Четвёртая и дальше уже листаются: у вкладки
+ * появляется своя ширина, а полоска — горизонтальный скролл.
+ */
+const FITTED_MAX = 3;
+const fitted = computed(() => props.tabs.length > 0 && props.tabs.length <= FITTED_MAX);
 
 /** Шеврон у края виден только тогда, когда в эту сторону есть что прокручивать. */
 const canLeft = ref(false);
@@ -131,6 +139,7 @@ onBeforeUnmount(() => {
     <nav
       ref="stripEl"
       class="chat-panel__tabs"
+      :class="{ 'is-fitted': fitted }"
       :aria-label="t('chat.dialogs')"
       @scroll.passive="syncScroll"
     >
@@ -438,6 +447,42 @@ onBeforeUnmount(() => {
 .chat-panel__tab.is-busy .chat-panel__tab-title {
   font-weight: 650;
   color: var(--text);
+}
+
+/* --- До трёх вкладок: заголовок диалога растянут на всю ширину --------------
+   Одна вкладка занимает всю полоску, две — по половине, три — по трети.
+   Это же место стало единственным заголовком диалога (в тулбаре его больше нет),
+   поэтому шрифт крупнее, чем у листающихся вкладок. */
+.chat-panel__tabs.is-fitted {
+  overflow-x: hidden;
+}
+
+.chat-panel__tabs.is-fitted .chat-panel__tab {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: none;
+  min-height: 2.6rem;
+}
+
+.chat-panel__tabs.is-fitted .chat-panel__tab-open {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.chat-panel__tabs.is-fitted .chat-panel__tab-title {
+  color: var(--text);
+}
+
+@media (max-width: 720px) {
+  .chat-panel__tabs.is-fitted .chat-panel__tab {
+    min-height: 2.8rem;
+  }
+  .chat-panel__tabs.is-fitted .chat-panel__tab-open {
+    font-size: 0.95rem;
+  }
 }
 
 .chat-panel__tab-lock {
