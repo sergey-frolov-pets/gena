@@ -185,6 +185,12 @@ const testStates = ref<Record<string, { state: "testing" | "ok" | "fail"; msg?: 
 /** Ключи для повторного ввода при обновлении (по agentId). */
 const keyDrafts = ref<Record<string, string>>({});
 
+/**
+ * В «Подключениях» только то, что лежит в базе устройства. Агенты с сервера
+ * приходят из `agents.json` и живут в чате — редактировать их отсюда нельзя.
+ */
+const localAgents = computed(() => agents.value.filter((agent) => agent.origin !== "server"));
+
 /** Агенты с готовым набором стандартных сообщений (кроме редактируемого). */
 const agentsWithQuick = computed(() =>
   agents.value.filter(
@@ -584,7 +590,7 @@ function downloadAgents(filename: string, body: string, type: string): void {
 
 function exportAgents(kind: "json" | "yaml"): void {
   error.value = "";
-  const file = agentsFileFrom(agents.value);
+  const file = agentsFileFrom(localAgents.value);
   const stamp = new Date().toISOString().slice(0, 10);
   if (kind === "json") {
     downloadAgents(`gena-agents-${stamp}.json`, serializeAgentsJson(file), "application/json");
@@ -894,7 +900,7 @@ function addMixRoute(): void {
     </div>
     <p class="muted small">{{ t("connections.file.note") }}</p>
     <p v-if="agents.length === 0" class="muted">{{ t("connections.empty") }}</p>
-    <div v-for="agent in agents" :key="agent.id" class="card">
+    <div v-for="agent in localAgents" :key="agent.id" class="card">
       <div class="agent-head">
         <strong>{{ agent.name }}</strong>
         <span class="badge">{{ protocolLabel(agent) }}</span>

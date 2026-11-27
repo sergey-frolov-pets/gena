@@ -2,6 +2,7 @@ import type { LocaleMessages } from "../types";
 
 export const chatMessages = {
   "chat.agent": "Agente",
+  "chat.agentOnServer": "del servidor",
   "chat.write": "Escribir un mensaje…",
   "chat.quickReplies": "Mensajes estándar",
   "chat.attachFile": "Adjuntar archivo o imagen",

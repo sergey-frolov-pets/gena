@@ -5113,6 +5113,9 @@ async function onServerChoice(): Promise<void> {
 
 /** Новая сессия на сервере: создаём копию локально и открываем её. */
 async function newServerSession(): Promise<void> {
+  // Защита от двойного тапа: иначе на сервере появляются два пустых диалога,
+  // и оба называются «Новый диалог».
+  if (serverDialogBusy.value) return;
   const agentId = activeSession.value?.agentId ?? agents.value[0]?.id ?? "";
   serverDialogBusy.value = true;
   serverDialogError.value = "";
@@ -5130,6 +5133,8 @@ async function newServerSession(): Promise<void> {
 
 /** Продолжить существующую сессию с сервера. */
 async function openRemoteSession(remoteId: string): Promise<void> {
+  // Двойной тап по строке списка создавал вторую локальную копию того же диалога.
+  if (serverDialogBusy.value) return;
   const agentId = activeSession.value?.agentId ?? agents.value[0]?.id ?? "";
   serverDialogBusy.value = true;
   serverDialogError.value = "";
@@ -6426,6 +6431,9 @@ function onRateChange(event: Event): void {
                 @click="chooseAgent(agent.id)"
               >
                 {{ agent.name }}
+                <span v-if="agent.origin === 'server'" class="chat-panel__agent-tag">{{
+                  t("chat.agentOnServer")
+                }}</span>
               </button>
             </div>
           </div>
@@ -6957,6 +6965,7 @@ function onRateChange(event: Event): void {
             v-for="item in serverSessions"
             :key="item.id"
             type="button"
+            :disabled="serverDialogBusy"
             @click="openRemoteSession(item.id)"
           >
             <span>{{ item.title }}</span>
@@ -8777,6 +8786,16 @@ function onRateChange(event: Event): void {
   font-size: 0.88rem;
   text-align: start;
   cursor: pointer;
+}
+
+.chat-panel__agent-tag {
+  margin-inline-start: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  font-size: 0.72rem;
+  vertical-align: 1px;
 }
 
 .chat-panel__agent-option:hover,

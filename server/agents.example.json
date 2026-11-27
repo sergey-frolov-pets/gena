@@ -1,0 +1,19 @@
+{
+  "agents": [
+    {
+      "id": "deepseek-chat",
+      "name": "DeepSeek Chat",
+      "baseUrl": "https://api.deepseek.com",
+      "model": "deepseek-chat",
+      "apiKey": "sk-замените-на-ключ",
+      "systemPrompt": "Отвечай по-русски, коротко и по делу."
+    },
+    {
+      "id": "qwen-flash",
+      "name": "Qwen Flash",
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "model": "qwen/qwen3-flash",
+      "apiKey": "sk-or-замените-на-ключ"
+    }
+  ]
+}

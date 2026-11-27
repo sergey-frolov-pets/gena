@@ -9,7 +9,7 @@
 
 import { ref } from "vue";
 import { newId } from "@/lib/id";
-import { clientFor } from "@/lib/gena-server";
+import { clientFor, GenaServerError } from "@/lib/gena-server";
 import {
   getServer,
   getSession,
@@ -44,13 +44,37 @@ export async function createServerSession(
     updatedAt: remote.updatedAt || now,
     messageCount: 0,
     serverId: remote.id,
+    // Какое подключение держит этот диалог: по нему синхронизация находит сервер.
+    // Раньше поле не заполнялось, и переименование не доходило до сервера.
+    serverRef: server.id,
   };
   await putSession(session);
   return session;
 }
 
+/**
+ * Открытия в работе: два быстрых тапа по одной строке списка иначе успевают
+ * обе пройти проверку «локальной копии нет» и создают два одинаковых диалога.
+ */
+const opening = new Map<string, Promise<Session>>();
+
 /** Открыть серверный диалог локально: есть копия — обновляем, нет — создаём. */
 export async function openServerSession(
+  serverId: string,
+  remoteId: string,
+  agentId: string,
+): Promise<Session> {
+  const key = `${serverId}:${remoteId}`;
+  const running = opening.get(key);
+  if (running) return running;
+  const task = openServerSessionOnce(serverId, remoteId, agentId).finally(() => {
+    opening.delete(key);
+  });
+  opening.set(key, task);
+  return task;
+}
+
+async function openServerSessionOnce(
   serverId: string,
   remoteId: string,
   agentId: string,
@@ -65,6 +89,12 @@ export async function openServerSession(
   );
   if (existing) {
     await pullMessages(existing, payload.session, payload.messages);
+    // Старые записи не знали, каким подключением созданы: чиним при открытии,
+    // иначе переименование снова не дойдёт до сервера.
+    if (existing.serverRef !== server.id) {
+      existing.serverRef = server.id;
+      await putSession(existing);
+    }
     return existing;
   }
 
@@ -77,6 +107,7 @@ export async function openServerSession(
     updatedAt: payload.session.updatedAt || now,
     messageCount: 0,
     serverId: payload.session.id,
+    serverRef: server.id,
     ...(payload.session.pinned ? { pinned: true } : {}),
     ...(payload.session.tags?.length ? { tags: [...payload.session.tags] } : {}),
     ...(payload.session.tokenMode ? { tokenMode: true } : {}),
@@ -112,7 +143,10 @@ async function pullMessages(
     await putMessage(message);
     added += 1;
   }
-  if (remote.title && remote.title !== session.title) session.title = remote.title;
+  // Название сервер не должен затирать, если локально его правили позже:
+  // иначе переименование откатывается к «Новый диалог» при следующем открытии.
+  const localNewer = session.updatedAt > (remote.updatedAt || 0);
+  if (!localNewer && remote.title && remote.title !== session.title) session.title = remote.title;
   session.messageCount = local.length + added;
   session.updatedAt = Math.max(session.updatedAt, remote.updatedAt || 0);
   await putSession(session);
@@ -139,41 +173,61 @@ export function scheduleServerSync(sessionId: string): void {
 export async function syncSessionToServer(sessionId: string): Promise<boolean> {
   const session = await getSession(sessionId);
   if (!session?.serverId) return false;
-  const server = (await listServers()).find((item) => item.id === session.serverId);
-  if (!server) return false;
-  try {
-    const client = await clientFor(server);
-    const messages = await listMessages(sessionId);
-    await client.importSession(
-      session.serverId,
-      {
-        title: session.title,
-        agentId: session.agentId,
-        pinned: session.pinned,
-        tags: session.tags,
-        tokenMode: session.tokenMode,
-      },
-      messages.map((message) => ({
-        id: message.remoteId ?? message.id,
-        role: message.role,
-        content: message.content,
-        createdAt: message.createdAt,
-        kind: message.kind,
-        model: message.model,
-        responderId: message.responderId,
-        ...(message.usage !== undefined ? { usage: message.usage } : {}),
-        ...(message.attachments ? { attachments: message.attachments } : {}),
-      })),
-    );
-    serverSyncError.value = null;
-    return true;
-  } catch (e) {
-    serverSyncError.value = {
-      sessionId,
-      message: e instanceof Error ? e.message : String(e),
-    };
-    return false;
+  const servers = await listServers();
+  // Подключение хранится в serverRef. У записей, созданных до этого поля, его нет:
+  // тогда берём сервер, на котором такая сессия действительно есть.
+  // Проверка client.get обязательна — importSession создаёт сессию на любом
+  // сервере, и без неё переименование плодило бы пустые диалоги-дубли.
+  const preferred = session.serverRef
+    ? servers.filter((item) => item.id === session.serverRef)
+    : [];
+  const candidates = [
+    ...preferred,
+    ...servers.filter((item) => !preferred.includes(item)),
+  ];
+  if (candidates.length === 0) return false;
+
+  const messages = await listMessages(sessionId);
+  let failure = "";
+  for (const server of candidates) {
+    try {
+      const client = await clientFor(server);
+      await client.get(session.serverId);
+      await client.importSession(
+        session.serverId,
+        {
+          title: session.title,
+          agentId: session.agentId,
+          pinned: session.pinned,
+          tags: session.tags,
+          tokenMode: session.tokenMode,
+        },
+        messages.map((message) => ({
+          id: message.remoteId ?? message.id,
+          role: message.role,
+          content: message.content,
+          createdAt: message.createdAt,
+          kind: message.kind,
+          model: message.model,
+          responderId: message.responderId,
+          ...(message.usage !== undefined ? { usage: message.usage } : {}),
+          ...(message.attachments ? { attachments: message.attachments } : {}),
+        })),
+      );
+      if (session.serverRef !== server.id) {
+        // Запомнили подключение: следующий синк пойдёт сразу на нужный сервер.
+        await putSession({ ...session, serverRef: server.id });
+      }
+      serverSyncError.value = null;
+      return true;
+    } catch (e) {
+      // 404 — это не ошибка синхронизации, а «сессии здесь нет»: идём дальше.
+      if (e instanceof GenaServerError && e.status === 404) continue;
+      failure = e instanceof Error ? e.message : String(e);
+    }
   }
+  if (failure) serverSyncError.value = { sessionId, message: failure };
+  return false;
 }
 
 /** Список диалогов на сервере — для выбора перед открытием. */

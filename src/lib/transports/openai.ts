@@ -116,7 +116,11 @@ export function parseSseEvents(text: string): unknown[] {
   return events;
 }
 
-async function readSseStream(
+/**
+ * Читать SSE-поток по событию за раз. Экспортируется: транспорт
+ * `gena_server` получает тот же формат от нашего Go-сервера.
+ */
+export async function readSseStream(
   response: Response,
   onEvent: (data: unknown) => void,
 ): Promise<void> {

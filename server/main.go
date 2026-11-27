@@ -38,6 +38,7 @@ func main() {
 	tokenFile := flag.String("token-file", os.Getenv("GENA_TOKEN_FILE"), "файл с токеном (или GENA_TOKEN_FILE)")
 	origins := flag.String("cors", envOr("GENA_CORS", "*"), "разрешённые Origin через запятую; * — любые")
 	name := flag.String("name", envOr("GENA_NAME", "Gena server"), "имя сервера в интерфейсе")
+	agentsFile := flag.String("agents-file", envOr("GENA_AGENTS_FILE", "/etc/gena-server/agents.json"), "файл серверных агентов (id, модель, ключ)")
 	noAuth := flag.Bool("no-auth", false, "работать без токена (только для локальной отладки)")
 	flag.Parse()
 
@@ -59,7 +60,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("хранилище: %v", err)
 	}
-	api := &API{store: store, name: *name, started: time.Now()}
+	api := &API{
+		store:   store,
+		name:    *name,
+		started: time.Now(),
+		agents:  NewAgentRegistry(*agentsFile),
+		client:  &http.Client{},
+	}
 
 	mux := http.NewServeMux()
 	api.routes(mux)
@@ -159,6 +166,19 @@ type statusWriter struct {
 func (s *statusWriter) WriteHeader(code int) {
 	s.code = code
 	s.ResponseWriter.WriteHeader(code)
+}
+
+// Flush отдаёт накопленное в сеть: обёртка стоит вокруг обработчиков,
+// и без этого метода стрим (SSE) копится в буфере целиком.
+func (s *statusWriter) Flush() {
+	if f, ok := s.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// Unwrap — для http.ResponseController: он достаёт исходный писатель.
+func (s *statusWriter) Unwrap() http.ResponseWriter {
+	return s.ResponseWriter
 }
 
 func withLogging(next http.Handler) http.Handler {

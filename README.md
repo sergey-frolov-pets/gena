@@ -80,6 +80,19 @@ Response:
 
 The agent must allow CORS for the site origin.
 
+## Gena server agents
+
+A server (see `server/`) can hold provider keys itself. Then the browser
+stores only the server token and the chat goes through
+`POST /api/agents/{id}/chat`.
+
+- `GET /api/agents` returns `[{ id, name, model, provider? }]` — never keys.
+- Agents from a connected server show up in the chat agent picker with a
+  "on server" tag and are read-only in Connections: they come from
+  `/etc/gena-server/agents.json`, not from the device database.
+- They are kept in memory only (`serverAgents` in `lib/store.ts`), so a
+  backup or export never contains them.
+
 ## Security
 
 - The agent key is stored **only encrypted**; it never appears in a backup.

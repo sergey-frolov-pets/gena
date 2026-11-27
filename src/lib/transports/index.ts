@@ -4,6 +4,7 @@
 
 import type { Agent } from "@/storage/types";
 import { HTTP_CAPABILITIES } from "./capabilities";
+import { genaServerTransport } from "./gena-server";
 import { httpJsonTransport } from "./http-json";
 import { openaiTransport } from "./openai";
 import { picoTransport } from "./pico-ws";
@@ -31,6 +32,8 @@ export function getTransport(agent: Agent): AgentTransport {
       return openaiTransport;
     case "pico_ws":
       return picoTransport;
+    case "gena_server":
+      return genaServerTransport;
     case "http_json":
     default:
       return httpJsonTransport;
