@@ -93,6 +93,24 @@ stores only the server token and the chat goes through
 - They are kept in memory only (`serverAgents` in `lib/store.ts`), so a
   backup or export never contains them.
 
+## Server sessions
+
+A dialogue can live both on the device and on the server, so it opens from
+another device. The local copy in IndexedDB stays the working one; the
+server keeps the same conversation.
+
+- Opening a server dialogue pulls missing messages by `remoteId`; own
+  messages are never touched, so a repeated open adds nothing.
+- Sync is a full import (`POST /api/sessions/{id}/import`) debounced by
+  400 ms: the server replaces the message list, so sending twice is safe.
+- Which connection holds the dialogue is remembered in `serverRef`; records
+  created earlier fall back to trying connections until `GET` succeeds.
+- A dialogue created here is marked `serverOwned`. Only that client removes
+  it from the server (`DELETE /api/sessions/{id}`); a dialogue opened from
+  the server is deleted locally, the original stays for everyone else.
+- A local title newer than the server one is not overwritten on open.
+
+
 ## Security
 
 - The agent key is stored **only encrypted**; it never appears in a backup.
