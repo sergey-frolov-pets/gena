@@ -21,7 +21,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   open: [id: string];
   close: [id: string];
-  title: [title: string];
+  /** Долгий тап по вкладке: открыть модалку с названием и переименованием. */
+  rename: [id: string, title: string];
 }>();
 
 const { t } = useLocale();
@@ -154,7 +155,7 @@ onBeforeUnmount(() => {
           class="chat-panel__tab-open"
           :aria-current="s.id === activeId ? 'true' : undefined"
           :title="s.title"
-          v-longpress="() => emit('title', s.title)"
+          v-longpress="() => emit('rename', s.id, s.title)"
           @click="emit('open', s.id)"
         >
           <span v-if="busyIds.has(s.id)" class="chat-panel__busy-dot" aria-hidden="true" />

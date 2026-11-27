@@ -218,6 +218,7 @@ import {
 } from "@/lib/tokens/trigger";
 import ConfirmModal from "@/components/ConfirmModal.vue";
 import DocumentViewer from "@/components/DocumentViewer.vue";
+import SessionNameModal from "@/components/SessionNameModal.vue";
 import TextModal from "@/components/TextModal.vue";
 import PrivacyCheckPanel from "@/components/PrivacyCheckPanel.vue";
 import { detectFindings, type Finding, type FindingType } from "@/lib/privacy/detect";
@@ -2298,10 +2299,6 @@ const composerLayout = computed<ComposerLayout>(() =>
 );
 /** Шит истории диалогов (как в AiChatPanel). */
 const historyOpen = ref(false);
-/** Режим переименования диалога в шапке. */
-const renaming = ref(false);
-const renameDraft = ref("");
-const renameEl = ref<HTMLInputElement | null>(null);
 /** Серверы Gena и серверные сессии: кнопка «＋» в шапке. */
 const servers = ref<GenaServer[]>([]);
 const serverDialog = ref(false);
@@ -3242,6 +3239,20 @@ let pressGuardUntil = 0;
 function showTitle(title: string): void {
   titleShown.value = title || t("chat.newDialog");
   pressGuardUntil = Date.now() + 700;
+}
+
+/** Диалог, который переименовываем: модалка открывается долгим тапом по вкладке. */
+const renameTarget = ref<{ id: string; title: string } | null>(null);
+
+function openRename(id: string, title: string): void {
+  renameTarget.value = { id, title: title || t("chat.newDialog") };
+}
+
+async function applyRename(name: string): Promise<void> {
+  const target = renameTarget.value;
+  renameTarget.value = null;
+  if (!target || !name) return;
+  await renameSession(target.id, name);
 }
 
 /** true — этот click пришёл сразу после долгого тапа, действие не нужно. */
@@ -5019,13 +5030,6 @@ async function copyText(id: string, text: string): Promise<void> {
   }
 }
 
-async function copyChat(): Promise<void> {
-  const lines = messages.value
-    .filter((m) => m.kind === undefined || m.kind === "text")
-    .map((m) => `${roleLabel(m)}: ${displayContent(m.content, m.id)}`);
-  if (lines.length === 0) return;
-  await copyText("chat", lines.join("\n\n"));
-}
 
 function toggleAutoSpeak(): void {
   setAutoSpeak(!autoSpeak.value);
@@ -5069,44 +5073,6 @@ function speakChat(): void {
   speakParts(CHAT_SPEECH_ID, parts);
 }
 
-function startRename(): void {
-  renameDraft.value = activeSession.value?.title ?? "";
-  renaming.value = true;
-  // Фокус в поле: иначе не сработает отмена по потере фокуса, а на телефоне
-  // пользователю пришлось бы ещё раз тапать по полю, чтобы начать печатать.
-  void nextTick(() => {
-    renameEl.value?.focus();
-    renameEl.value?.select();
-  });
-}
-
-/** Клик/тап мимо поля заголовка и кнопки «Переименовать» закрывает режим правки. */
-function onRenameOutside(event: Event): void {
-  if (!renaming.value) return;
-  const target = event.target as HTMLElement | null;
-  if (!target?.closest) return;
-  if (target.closest("[data-rename-keep]")) return;
-  renaming.value = false;
-}
-
-/**
- * Второй путь отмены: обычный `click` мимо поля. `pointerdown` на тач-устройствах
- * иногда уходит не в документ (жест забрал браузер), а click приходит всегда.
- */
-function onRenameClickOutside(event: Event): void {
-  if (!renaming.value) return;
-  const target = event.target as HTMLElement | null;
-  if (!target?.closest) return;
-  if (target.closest("[data-rename-keep]")) return;
-  renaming.value = false;
-}
-
-async function commitRename(): Promise<void> {
-  const session = activeSession.value;
-  renaming.value = false;
-  if (!session) return;
-  await renameSession(session.id, renameDraft.value.trim() || session.title);
-}
 
 /** Серверы читаем при открытии окна: их список меняется в «Подключениях». */
 async function loadGenaServers(): Promise<void> {
@@ -5500,8 +5466,6 @@ onMounted(() => {
   // Выделение в поле ввода: плашка «заменить на токен» под полем.
   document.addEventListener("selectionchange", onDocSelectionChange);
   document.addEventListener("pointerdown", onQuickOutside, true);
-  document.addEventListener("pointerdown", onRenameOutside, true);
-  document.addEventListener("click", onRenameClickOutside, true);
   window.addEventListener("keydown", onQuickKey);
   // Постоянное хранилище: IndexedDB не должна вычищаться при нехватке места.
   void navigator.storage?.persist?.();
@@ -5556,8 +5520,6 @@ onUnmounted(() => {
   window.clearTimeout(selectionTimer);
   window.clearTimeout(feedSelectTimer);
   document.removeEventListener("pointerdown", onQuickOutside, true);
-  document.removeEventListener("pointerdown", onRenameOutside, true);
-  document.removeEventListener("click", onRenameClickOutside, true);
   window.removeEventListener("keydown", onQuickKey);
   threadObserver?.disconnect();
   threadObserver = null;
@@ -5618,7 +5580,7 @@ function onRateChange(event: Event): void {
          не дублироваться; без вкладок (истории нет) заголовок остаётся здесь. -->
     <div class="chat-panel__toolbar">
       <span
-        v-if="!renaming && recentTabs.length === 0"
+        v-if="recentTabs.length === 0"
         class="chat-panel__title-text"
         :aria-label="activeSession?.title || t('chat.selectOrCreate')"
         v-longpress="() => showTitle(activeSession?.title || '')"
@@ -5626,196 +5588,149 @@ function onRateChange(event: Event): void {
         {{ activeSession?.title || t("chat.newDialog") }}
       </span>
       <button
-        v-if="!renaming"
         type="button"
         class="chat-panel__tool"
-        v-tip="t('chat.editTitle')"
-        :aria-label="t('chat.editTitle')"
-        :disabled="!activeSession"
-        @click="startRename"
+        v-tip="t('chat.newDialog')"
+        :aria-label="t('chat.newDialog')"
+        :disabled="agents.length === 0"
+        @click="newSession"
       >
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17z" />
-          <path d="M13.5 6.5l3 3" />
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+          <path d="M12 5v14M5 12h14" />
         </svg>
       </button>
-      <template v-else>
-        <input
-          ref="renameEl"
-          v-model="renameDraft"
-          class="chat-panel__rename"
-          data-rename-keep
-          :aria-label="t('chat.renamePlaceholder')"
-          @keydown.enter.prevent="commitRename"
-          @keydown.esc.prevent="renaming = false"
-        />
-        <button class="chat-panel__tool is-text" type="button" data-rename-keep @click="commitRename">
-          {{ t("chat.rename") }}
-        </button>
-      </template>
-
-      <template v-if="!renaming">
-        <button
-          type="button"
-          class="chat-panel__tool"
-          v-tip="t('chat.newDialog')"
-          :aria-label="t('chat.newDialog')"
-          :disabled="agents.length === 0"
-          @click="newSession"
-        >
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          class="chat-panel__tool"
-          v-tip="t('chat.serverSession')"
-          :aria-label="t('chat.serverSession')"
-          :disabled="agents.length === 0"
-          @click="addServerSession"
-        >
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <rect x="3.5" y="4" width="17" height="6" rx="1.6" />
-            <rect x="3.5" y="14" width="17" height="6" rx="1.6" />
-            <path d="M7 7h.01M7 17h.01" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          class="chat-panel__tool"
-          v-tip="mdSaved ? t('chat.saveMdDone') : t('chat.saveMd')"
-          :aria-label="t('chat.saveMd')"
-          :disabled="!activeSession"
-          @click="saveSessionMarkdown"
-        >
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M12 4v10" />
-            <path d="M8 10l4 4 4-4" />
-            <path d="M5 19h14" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          class="chat-panel__tool"
-          v-tip="t('chat.dialogs')"
-          :aria-label="t('chat.dialogs')"
-          :aria-pressed="historyOpen"
-          @click="historyOpen = !historyOpen"
-        >
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M3 12a9 9 0 1 0 3-6.7" />
-            <path d="M3 4v5h5" />
-            <path d="M12 8v4l3 2" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          class="chat-panel__tool"
-          v-if="isTokenSession(activeSession)"
-          v-tip="viewValues ? t('chat.viewTokens') : t('chat.viewData')"
-          :aria-label="viewValues ? t('chat.viewTokens') : t('chat.viewData')"
-          :aria-pressed="!viewValues"
-          @click="viewValues = !viewValues"
-        >
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z" />
-            <circle cx="12" cy="12" r="2.6" />
-            <path v-if="viewValues" d="M4 4l16 16" />
-          </svg>
-        </button>
-        <button
-          v-if="isTokenSession(activeSession)"
-          type="button"
-          class="chat-panel__tool"
-          v-tip="t('chat.tokens.matches')"
-          :aria-label="t('chat.tokens.matches')"
-          @click="openDictionary"
-        >
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <rect x="4" y="4" width="16" height="16" rx="2" />
-            <path d="M4 9h16M9 9v11" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          class="chat-panel__tool"
-          :class="{ 'is-on': isTokenSession(activeSession) }"
-          v-tip="t('chat.tokenMode')"
-          :aria-label="t('chat.tokenMode')"
-          :aria-pressed="isTokenSession(activeSession)"
-          @click="toggleTokenMode"
-        >
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M12 3l7 3v6c0 4.2-2.9 7.4-7 9-4.1-1.6-7-4.8-7-9V6z" />
-            <path d="M9 12l2 2 4-4" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          class="chat-panel__tool"
-          v-tip="copiedId === 'chat' ? t('chat.copied') : t('chat.copyMessage')"
-          :aria-label="t('chat.copyMessage')"
-          :disabled="messages.length === 0"
-          @click="copyChat"
-        >
-          <svg v-if="copiedId === 'chat'" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="m5 13 4 4L19 7" />
-          </svg>
-          <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <rect x="9" y="9" width="11" height="11" rx="2" />
-            <path d="M5 15V5a2 2 0 0 1 2-2h10" />
-          </svg>
-        </button>
-        <button
-          v-if="speechAvailable"
-          type="button"
-          class="chat-panel__tool"
-          :class="{ 'is-on': speakingId === 'chat' }"
-          v-tip="speakingId === 'chat' ? t('chat.stopSpeaking') : t('chat.speakChat')"
-          :aria-label="speakingId === 'chat' ? t('chat.stopSpeaking') : t('chat.speakChat')"
-          :aria-pressed="speakingId === 'chat'"
-          :disabled="messages.length === 0 && !liveStreaming"
-          @click="speakChat"
-        >
-          <svg v-if="speakingId === 'chat'" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
-            <rect x="7" y="7" width="10" height="10" rx="2" />
-          </svg>
-          <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M4 10v4" />
-            <path d="M8 7v10" />
-            <path d="M12 4v16" />
-            <path d="M16 8v8" />
-            <path d="M20 11v2" />
-          </svg>
-        </button>
-        <button
-          v-if="speechAvailable"
-          type="button"
-          class="chat-panel__tool"
-          :class="{ 'is-on': autoSpeak }"
-          v-tip="t('chat.autoSpeak')"
-          :aria-label="t('chat.autoSpeak')"
-          :aria-pressed="autoSpeak"
-          @click="toggleAutoSpeak"
-        >
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M11 5 6 9H3v6h3l5 4z" />
-            <path d="M16 9a4 4 0 0 1 0 6" />
-            <path d="M19 6a8 8 0 0 1 0 12" />
-          </svg>
-        </button>
-        <select
-          v-if="speechAvailable"
-          class="chat-panel__rate"
-          :value="speechRate"
-          v-tip="t('chat.speechRate')"
-          :aria-label="t('chat.speechRate')"
-          @change="onRateChange"
-        >
-          <option v-for="rate in SPEECH_RATES" :key="rate" :value="rate">{{ rate }}×</option>
-        </select>
-      </template>
+      <button
+        type="button"
+        class="chat-panel__tool"
+        v-tip="t('chat.serverSession')"
+        :aria-label="t('chat.serverSession')"
+        :disabled="agents.length === 0"
+        @click="addServerSession"
+      >
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3.5" y="4" width="17" height="6" rx="1.6" />
+          <rect x="3.5" y="14" width="17" height="6" rx="1.6" />
+          <path d="M7 7h.01M7 17h.01" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        class="chat-panel__tool"
+        v-tip="mdSaved ? t('chat.saveMdDone') : t('chat.saveMd')"
+        :aria-label="t('chat.saveMd')"
+        :disabled="!activeSession"
+        @click="saveSessionMarkdown"
+      >
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 4v10" />
+          <path d="M8 10l4 4 4-4" />
+          <path d="M5 19h14" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        class="chat-panel__tool"
+        v-tip="t('chat.dialogs')"
+        :aria-label="t('chat.dialogs')"
+        :aria-pressed="historyOpen"
+        @click="historyOpen = !historyOpen"
+      >
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 12a9 9 0 1 0 3-6.7" />
+          <path d="M3 4v5h5" />
+          <path d="M12 8v4l3 2" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        class="chat-panel__tool"
+        v-if="isTokenSession(activeSession)"
+        v-tip="viewValues ? t('chat.viewTokens') : t('chat.viewData')"
+        :aria-label="viewValues ? t('chat.viewTokens') : t('chat.viewData')"
+        :aria-pressed="!viewValues"
+        @click="viewValues = !viewValues"
+      >
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z" />
+          <circle cx="12" cy="12" r="2.6" />
+          <path v-if="viewValues" d="M4 4l16 16" />
+        </svg>
+      </button>
+      <button
+        v-if="isTokenSession(activeSession)"
+        type="button"
+        class="chat-panel__tool"
+        v-tip="t('chat.tokens.matches')"
+        :aria-label="t('chat.tokens.matches')"
+        @click="openDictionary"
+      >
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="4" y="4" width="16" height="16" rx="2" />
+          <path d="M4 9h16M9 9v11" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        class="chat-panel__tool"
+        :class="{ 'is-on': isTokenSession(activeSession) }"
+        v-tip="t('chat.tokenMode')"
+        :aria-label="t('chat.tokenMode')"
+        :aria-pressed="isTokenSession(activeSession)"
+        @click="toggleTokenMode"
+      >
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 3l7 3v6c0 4.2-2.9 7.4-7 9-4.1-1.6-7-4.8-7-9V6z" />
+          <path d="M9 12l2 2 4-4" />
+        </svg>
+      </button>
+      <button
+        v-if="speechAvailable"
+        type="button"
+        class="chat-panel__tool"
+        :class="{ 'is-on': speakingId === 'chat' }"
+        v-tip="speakingId === 'chat' ? t('chat.stopSpeaking') : t('chat.speakChat')"
+        :aria-label="speakingId === 'chat' ? t('chat.stopSpeaking') : t('chat.speakChat')"
+        :aria-pressed="speakingId === 'chat'"
+        :disabled="messages.length === 0 && !liveStreaming"
+        @click="speakChat"
+      >
+        <svg v-if="speakingId === 'chat'" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+          <rect x="7" y="7" width="10" height="10" rx="2" />
+        </svg>
+        <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 10v4" />
+          <path d="M8 7v10" />
+          <path d="M12 4v16" />
+          <path d="M16 8v8" />
+          <path d="M20 11v2" />
+        </svg>
+      </button>
+      <button
+        v-if="speechAvailable"
+        type="button"
+        class="chat-panel__tool"
+        :class="{ 'is-on': autoSpeak }"
+        v-tip="t('chat.autoSpeak')"
+        :aria-label="t('chat.autoSpeak')"
+        :aria-pressed="autoSpeak"
+        @click="toggleAutoSpeak"
+      >
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M11 5 6 9H3v6h3l5 4z" />
+          <path d="M16 9a4 4 0 0 1 0 6" />
+          <path d="M19 6a8 8 0 0 1 0 12" />
+        </svg>
+      </button>
+      <select
+        v-if="speechAvailable"
+        class="chat-panel__rate"
+        :value="speechRate"
+        v-tip="t('chat.speechRate')"
+        :aria-label="t('chat.speechRate')"
+        @change="onRateChange"
+      >
+        <option v-for="rate in SPEECH_RATES" :key="rate" :value="rate">{{ rate }}×</option>
+      </select>
     </div>
 
     <div v-if="limitLabel" class="chat-panel__agentbar">
@@ -5828,7 +5743,7 @@ function onRateChange(event: Event): void {
       :busy-ids="busySessionIds"
       @open="onTabClick"
       @close="closeChatTab"
-      @title="showTitle"
+      @rename="openRename"
     />
 
     <div class="chat-panel__stage">
@@ -6939,6 +6854,17 @@ function onRateChange(event: Event): void {
       @close="closeDocViewer"
       @download="downloadDocViewer"
       @share="shareDocViewer"
+    />
+
+    <SessionNameModal
+      :open="renameTarget !== null"
+      :name="renameTarget?.title ?? ''"
+      :title="t('chat.editTitle')"
+      :placeholder="t('chat.renamePlaceholder')"
+      :rename-label="t('chat.rename')"
+      :close-label="t('chat.close')"
+      @rename="applyRename"
+      @close="renameTarget = null"
     />
 
     <TextModal
