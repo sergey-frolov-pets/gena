@@ -29,6 +29,7 @@ export const sessionsMessages = {
   "sessions.deleteSelectedText":
     "選択した {count} 件のセッションとメッセージを完全に削除します。他のセッションとエージェントは残ります。",
   "sessions.deleteSelectedDone": "選択分を削除しました: セッション {sessions} 件、メッセージ {messages} 件。",
+  "sessions.serverDeleteFailed": "サーバーで削除できませんでした: {count} 件。ローカルのコピーは削除しました。",
   "sessions.cleanup.needConfirm": "すべて削除するには確認にチェックを入れてください",
   "sessions.cleanup.removedAll": "すべて削除しました: {sessions} セッション、{messages} メッセージ。",
   "sessions.cleanup.agentsKept": "クリーンアップ時もエージェントは保持されます。",

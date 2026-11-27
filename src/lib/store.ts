@@ -19,6 +19,7 @@ import {
   deleteMessage,
   deleteSession,
   getAgent,
+  getSession,
   listAgents,
   listMessages,
   listSessions,
@@ -32,7 +33,7 @@ import { replaceValues, restoreValues } from "@/lib/tokens/registry";
 import { expandDialogAliases, upsertAlias } from "@/lib/tokens/dialog-alias";
 import { normalizeTags } from "@/lib/session-tags";
 import { newId } from "@/lib/id";
-import { scheduleServerSync } from "@/lib/server-sessions";
+import { scheduleServerSync, deleteServerSession } from "@/lib/server-sessions";
 import { SERVER_AGENT_PREFIX, fetchServerAgents, mergeAgents } from "@/lib/server-agents";
 
 /** Настройки из формы: лимиты — целые ≥ 0, модель — без пробелов по краям. */
@@ -390,13 +391,38 @@ export async function duplicateSession(sessionId: string): Promise<Session | nul
   return copy;
 }
 
-/** Удалить диалог вместе с сообщениями. */
-export async function removeSession(sessionId: string): Promise<void> {
+/** Что произошло при удалении: убран ли диалог ещё и с сервера. */
+export interface RemoveSessionResult {
+  /** Диалог убран с сервера (или серверного диалога не было). */
+  remote: boolean;
+  /** Сервер удалить не дал — локальная копия тогда остаётся. */
+  message?: string;
+}
+
+/**
+ * Удалить диалог вместе с сообщениями.
+ *
+ * Инициатор серверного диалога убирает его и с сервера: иначе диалог остаётся
+ * там навсегда. У подключившегося позже пропадает только локальная копия —
+ * серверная переписка принадлежит инициатору (её видят другие устройства).
+ *
+ * Если сервер отказал, локальную копию не трогаем и возвращаем причину:
+ * иначе диалог «вернулся» бы при следующем открытии списка сервера.
+ */
+export async function removeSession(sessionId: string): Promise<RemoveSessionResult> {
+  const session = await getSession(sessionId);
+  let remote = true;
+  if (session) {
+    const result = await deleteServerSession(session);
+    if (!result.ok) return { remote: false, message: result.message };
+    remote = !session.serverId || Boolean(session.serverOwned);
+  }
   await deleteSession(sessionId);
   if (activeSessionId.value === sessionId) {
     clearMessages();
   }
   await loadSessions();
+  return { remote };
 }
 
 export async function appendMessage(

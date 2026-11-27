@@ -6,3 +6,6 @@ dist-ssr
 coverage
 __pycache__/
 tmp/
+
+# Бинарник сервера собирается локально (install.sh), в git не нужен
+server/gena-server

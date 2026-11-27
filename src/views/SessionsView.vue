@@ -34,6 +34,7 @@ import { useLocale } from "@/i18n";
 import { useAgentFilter } from "@/composables/useAgentFilter";
 import { sortSessions } from "@/lib/session-list";
 import { collectTags, filterByTag } from "@/lib/session-tags";
+import { deleteServerSessionsRemote } from "@/lib/server-sessions";
 import { readModelPrices } from "@/lib/provider-account";
 import { sessionCostLabel } from "@/lib/session-cost";
 import type { Message, Session } from "@/storage/types";
@@ -131,16 +132,27 @@ const confirmMessage = computed(() => {
   return t("sessions.cleanup.confirmExceptText", { keep: selectedSessionIds.value.size });
 });
 
+/**
+ * Список вкладки: локальные диалоги и серверные, которые создал этот клиент.
+ *
+ * Чужие серверные диалоги сюда не попадают: удалить их с сервера мы не вправе,
+ * а вкладка — про своё хранилище и свои диалоги (чужие видны в чате и в списке
+ * сервера).
+ */
+const ownSessions = computed<Session[]>(() =>
+  sessions.value.filter((s) => !s.serverId || s.serverOwned),
+);
+
 /** Фильтр по агенту (чипы): список, «выбрать все» и счётчики идут по нему. */
 const {
   filter: agentFilter,
   agentsInUse: filterAgents,
   filtered: sessionsOfAgent,
-} = useAgentFilter(sessions, agents);
+} = useAgentFilter(ownSessions, agents);
 
 /** Фильтр по тегу — второй ряд чипов; теги берём из самих диалогов. */
 const tagFilter = ref("");
-const tagsInUse = computed(() => collectTags(sessions.value));
+const tagsInUse = computed(() => collectTags(ownSessions.value));
 
 /** Видимый список: агент → тег → порядок (закреплённые сверху, свежие первыми). */
 const visibleSessions = computed(() =>
@@ -293,12 +305,24 @@ async function importBackup(event: Event): Promise<void> {
   }
 }
 
+/**
+ * Убрать с сервера то, что создал этот клиент: без этого «удалить» стирало бы
+ * только локальную копию, а на сервере диалог оставался навсегда.
+ * Чужие серверные диалоги функция пропускает — они не наши.
+ */
+async function dropOnServers(list: readonly Session[]): Promise<void> {
+  const { failed } = await deleteServerSessionsRemote(list);
+  if (failed > 0) error.value = t("sessions.serverDeleteFailed", { count: failed });
+}
+
 /** Очистка: удалить всё, кроме отмеченных. */
 async function cleanupExceptSelected(): Promise<void> {
   error.value = "";
   notice.value = "";
   try {
     const keep = [...selectedSessionIds.value];
+    const keepSet = new Set(keep);
+    await dropOnServers(sessions.value.filter((s) => !keepSet.has(s.id)));
     const result = await clearExcept(keep);
     await loadSessions();
     sizes.value = null; // данные изменились — старые размеры недействительны
@@ -318,6 +342,7 @@ async function cleanupAll(): Promise<void> {
   error.value = "";
   notice.value = "";
   try {
+    await dropOnServers(sessions.value);
     const result = await clearAll(false);
     await loadSessions();
     sizes.value = null; // данные изменились — старые размеры недействительны
@@ -338,6 +363,8 @@ async function cleanupSelected(): Promise<void> {
   try {
     const ids = [...selectedSessionIds.value];
     if (ids.length === 0) return;
+    const doomedSet = new Set(ids);
+    await dropOnServers(sessions.value.filter((s) => doomedSet.has(s.id)));
     const removedActive = activeSessionId.value !== null && ids.includes(activeSessionId.value);
     const result = await clearSelected(ids);
     await loadSessions();

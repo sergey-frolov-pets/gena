@@ -29,6 +29,7 @@ export const sessionsMessages = {
   "sessions.deleteSelectedText":
     "{count} sessões selecionadas e as respetivas mensagens serão excluídas definitivamente. As restantes sessões e os agentes são mantidos.",
   "sessions.deleteSelectedDone": "Selecionadas excluídas: {sessions} sessões, {messages} mensagens.",
+  "sessions.serverDeleteFailed": "Não foi possível excluir no servidor: {count}. As cópias locais foram removidas.",
   "sessions.cleanup.needConfirm": "Marque a confirmação para excluir tudo",
   "sessions.cleanup.removedAll": "Tudo excluído: {sessions} sessões, {messages} mensagens.",
   "sessions.cleanup.agentsKept": "Os agentes são mantidos durante a limpeza.",

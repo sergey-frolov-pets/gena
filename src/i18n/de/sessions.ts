@@ -30,6 +30,7 @@ export const sessionsMessages = {
   "sessions.deleteSelectedText":
     "{count} ausgewählte Sitzungen werden mit ihren Nachrichten endgültig gelöscht. Übrige Sitzungen und Agenten bleiben erhalten.",
   "sessions.deleteSelectedDone": "Ausgewählte gelöscht: {sessions} Sitzungen, {messages} Nachrichten.",
+  "sessions.serverDeleteFailed": "Löschen auf dem Server fehlgeschlagen: {count}. Lokale Kopien wurden entfernt.",
   "sessions.cleanup.needConfirm": "Bestätigungsfeld anhaken, um alles zu löschen",
   "sessions.cleanup.removedAll": "Alles gelöscht: {sessions} Sitzungen, {messages} Nachrichten.",
   "sessions.cleanup.agentsKept": "Agenten bleiben bei der Bereinigung erhalten.",

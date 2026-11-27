@@ -30,6 +30,7 @@ export const sessionsMessages = {
   "sessions.deleteSelectedText":
     "{count} selected sessions and their messages will be deleted permanently. Other sessions and agents are kept.",
   "sessions.deleteSelectedDone": "Selected deleted: {sessions} sessions, {messages} messages.",
+  "sessions.serverDeleteFailed": "Could not delete on the server: {count}. Local copies were removed.",
   "sessions.cleanup.needConfirm": "Tick the confirmation box to delete everything",
   "sessions.cleanup.removedAll": "Deleted everything: {sessions} sessions, {messages} messages.",
   "sessions.cleanup.agentsKept": "Agents are kept during cleanup.",

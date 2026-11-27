@@ -19,7 +19,15 @@ import {
 } from "@/storage/db";
 import type { GenaServer, Session } from "@/storage/types";
 
-const clients: Record<string, { get: ReturnType<typeof vi.fn>; importSession: ReturnType<typeof vi.fn>; create: ReturnType<typeof vi.fn> }> = {};
+const clients: Record<
+  string,
+  {
+    get: ReturnType<typeof vi.fn>;
+    importSession: ReturnType<typeof vi.fn>;
+    create: ReturnType<typeof vi.fn>;
+    remove: ReturnType<typeof vi.fn>;
+  }
+> = {};
 
 vi.mock("@/lib/gena-server", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/gena-server")>();
@@ -34,9 +42,8 @@ vi.mock("@/lib/gena-server", async (importOriginal) => {
 });
 
 const { GenaServerError } = await import("@/lib/gena-server");
-const { createServerSession, openServerSession, syncSessionToServer } = await import(
-  "./server-sessions"
-);
+const { createServerSession, openServerSession, syncSessionToServer, deleteServerSession, deleteServerSessionsRemote } =
+  await import("./server-sessions");
 
 function server(id: string): GenaServer {
   return {
@@ -73,6 +80,7 @@ function fakeClient(remote?: {
       };
     }),
     importSession: vi.fn(async () => ({})),
+    remove: vi.fn(async () => undefined),
     create: vi.fn(async (title: string) => ({
       id: "s_created",
       title,
@@ -98,6 +106,19 @@ describe("server-sessions: переименование и копии", () => {
     expect(session.serverId).toBe("s_created");
     expect(session.serverRef).toBe("srv1");
     expect((await getSession(session.id))?.serverRef).toBe("srv1");
+  });
+
+  it("диалог, созданный здесь, помечается инициатором (serverOwned)", async () => {
+    clients.srv1 = fakeClient();
+    const session = await createServerSession("srv1", "Новый диалог", "agent-1");
+    expect(session.serverOwned).toBe(true);
+    expect((await getSession(session.id))?.serverOwned).toBe(true);
+  });
+
+  it("открытый с сервера диалог инициатором не считается", async () => {
+    clients.srv1 = fakeClient({ id: "s_own", title: "Чужой", createdAt: 1, updatedAt: 10 });
+    const opened = await openServerSession("srv1", "s_own", "agent-1");
+    expect(opened.serverOwned).toBeUndefined();
   });
 
   it("синк идёт по serverRef, даже если сервер с таким id не первый в списке", async () => {
@@ -177,5 +198,93 @@ describe("server-sessions: переименование и копии", () => {
     expect(first.id).toBe(second.id);
     const copies = (await listSessions()).filter((item) => item.serverId === "s_7");
     expect(copies).toHaveLength(1);
+  });
+});
+
+describe("server-sessions: удаление с сервера", () => {
+  beforeEach(async () => {
+    await closeDb();
+    for (const key of Object.keys(clients)) delete clients[key];
+    await putServer(server("srv1"));
+    await putServer(server("srv2"));
+  });
+
+  function owned(id: string, remoteId: string, serverRef = "srv1"): Session {
+    return {
+      id,
+      agentId: "agent-1",
+      title: "Мой диалог",
+      createdAt: 1,
+      updatedAt: 2,
+      messageCount: 0,
+      serverId: remoteId,
+      serverRef,
+      serverOwned: true,
+    };
+  }
+
+  it("инициатор удаляет диалог на своём сервере", async () => {
+    clients.srv1 = fakeClient();
+    const result = await deleteServerSession(owned("s-1", "s_1"));
+    expect(result.ok).toBe(true);
+    expect(clients.srv1.remove).toHaveBeenCalledWith("s_1");
+  });
+
+  it("подключившийся позже в сеть не ходит — чужая переписка остаётся", async () => {
+    clients.srv1 = fakeClient();
+    const session: Session = {
+      id: "s-2",
+      agentId: "agent-1",
+      title: "Чужой диалог",
+      createdAt: 1,
+      updatedAt: 2,
+      messageCount: 0,
+      serverId: "s_2",
+      serverRef: "srv1",
+    };
+    const result = await deleteServerSession(session);
+    expect(result.ok).toBe(true);
+    expect(clients.srv1.remove).not.toHaveBeenCalled();
+  });
+
+  it("404 на сервере — цель достигнута, это не ошибка", async () => {
+    clients.srv1 = fakeClient();
+    clients.srv1.remove.mockRejectedValueOnce(new GenaServerError("нет такой", 404));
+    const result = await deleteServerSession(owned("s-3", "s_3"));
+    expect(result.ok).toBe(true);
+    expect(result.message).toBeUndefined();
+  });
+
+  it("сеть отказала — возвращаем причину, чтобы локальную копию не терять", async () => {
+    clients.srv1 = fakeClient();
+    clients.srv1.remove.mockRejectedValue(new GenaServerError("сервер недоступен", 503));
+    clients.srv2 = fakeClient();
+    clients.srv2.remove.mockRejectedValue(new GenaServerError("сервер недоступен", 503));
+    const result = await deleteServerSession(owned("s-4", "s_4"));
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("недоступен");
+  });
+
+  it("массовая чистка: отказ сервера из serverRef не мешает — пробуем остальные", async () => {
+    clients.srv1 = fakeClient();
+    clients.srv2 = fakeClient();
+    clients.srv1.remove.mockRejectedValue(new GenaServerError("сервер недоступен", 503));
+    const result = await deleteServerSessionsRemote([
+      owned("s-5", "s_5", "srv1"),
+      { id: "s-7", agentId: "agent-1", title: "Локальный", createdAt: 1, updatedAt: 2, messageCount: 0 },
+    ]);
+    expect(result.removed).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(clients.srv2.remove).toHaveBeenCalledWith("s_5");
+  });
+
+  it("массовая чистка считает отказы, когда не отвечает ни один сервер", async () => {
+    clients.srv1 = fakeClient();
+    clients.srv2 = fakeClient();
+    clients.srv1.remove.mockRejectedValue(new GenaServerError("сервер недоступен", 503));
+    clients.srv2.remove.mockRejectedValue(new GenaServerError("сервер недоступен", 503));
+    const result = await deleteServerSessionsRemote([owned("s-6", "s_6", "srv1")]);
+    expect(result.removed).toBe(0);
+    expect(result.failed).toBe(1);
   });
 });

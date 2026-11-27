@@ -28,6 +28,7 @@ export const sessionsMessages = {
   "sessions.deleteSelectedText":
     "将永久删除 {count} 个选中的会话及其消息。其他会话和智能体保留。",
   "sessions.deleteSelectedDone": "已删除选中的：{sessions} 个会话，{messages} 条消息。",
+  "sessions.serverDeleteFailed": "无法在服务器上删除：{count} 个。本地副本已删除。",
   "sessions.cleanup.needConfirm": "请勾选确认框以删除全部",
   "sessions.cleanup.removedAll": "已全部删除：{sessions} 个会话，{messages} 条消息。",
   "sessions.cleanup.agentsKept": "清理时会保留智能体。",

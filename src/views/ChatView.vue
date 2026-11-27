@@ -2821,6 +2821,8 @@ async function sendDialogToServer(session: Session): Promise<void> {
     const server = servers[0];
     const client = await clientFor(server);
     const list = session.id === activeSessionId.value ? messages.value : await listMessages(session.id);
+    // Диалога на сервере ещё не было — после отправки инициатор здесь мы.
+    const wasLocal = !session.serverId;
     const remoteId = session.serverId || (await client.create(session.title, session.agentId ?? "")).id;
     await client.importSession(
       remoteId,
@@ -2842,7 +2844,13 @@ async function sendDialogToServer(session: Session): Promise<void> {
         kind: message.kind,
       })),
     );
-    await putSession({ ...session, serverId: remoteId, serverRef: server.id });
+    await putSession({
+      ...session,
+      serverId: remoteId,
+      serverRef: server.id,
+      // Локальный диалог отправили на сервер — значит, инициатор здесь мы.
+      ...(wasLocal ? { serverOwned: true } : {}),
+    });
     await loadSessions();
     showNotice(t("chat.ctx.sentToServer"), 4000);
   } catch (e) {
@@ -3297,6 +3305,19 @@ const confirmRegenerateMessage = computed<Message | undefined>(() =>
 const confirmDeleteSession = computed<Session | undefined>(() =>
   sessions.value.find((s) => s.id === confirmDeleteId.value),
 );
+
+/**
+ * Текст подтверждения удаления: у инициатора серверного диалога предупреждаем,
+ * что он исчезнет и с сервера (у других останутся их локальные копии).
+ */
+const deleteConfirmText = computed(() => {
+  const session = confirmDeleteSession.value;
+  if (!session) return "";
+  if (session.serverId && session.serverOwned) {
+    return t("chat.deleteConfirmServer", { title: session.title });
+  }
+  return t("chat.deleteConfirm", { title: session.title });
+});
 
 const activeSession = computed<Session | undefined>(() =>
   sessions.value.find((s) => s.id === activeSessionId.value),
@@ -5186,10 +5207,16 @@ async function duplicate(session: Session): Promise<void> {
 
 async function removeDialog(sessionId: string): Promise<void> {
   confirmDeleteId.value = "";
+  // Сначала сервер: если он отказал, локальную копию не трогаем — иначе диалог
+  // останется на сервере и вернётся при следующем открытии списка.
+  const result = await removeSession(sessionId);
+  if (result.message) {
+    error.value = t("chat.deleteServerFailed", { message: result.message });
+    return;
+  }
   forgetTab(sessionId);
   // Реплики, ждавшие этого диалога, в чужой не переносим.
   queue.value = queue.value.filter((q) => q.sessionId !== sessionId);
-  await removeSession(sessionId);
 }
 
 function attachMessage(code: string): string {
@@ -5777,6 +5804,7 @@ function onRateChange(event: Event): void {
         :open="historyOpen"
         :sessions="sessions"
         :agents="agents"
+        :servers="servers"
         :active-id="activeSessionId"
         :busy-ids="busySessionIds"
         @close="historyOpen = false"
@@ -6906,9 +6934,7 @@ function onRateChange(event: Event): void {
     <ConfirmModal
       :open="Boolean(confirmDeleteSession)"
       :title="t('chat.deleteDialog')"
-      :message="
-        confirmDeleteSession ? t('chat.deleteConfirm', { title: confirmDeleteSession.title }) : ''
-      "
+      :message="deleteConfirmText"
       :confirm-label="t('chat.confirm')"
       :cancel-label="t('chat.cancel')"
       @confirm="confirmDeleteSession && removeDialog(confirmDeleteSession.id)"

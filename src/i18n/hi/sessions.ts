@@ -28,6 +28,7 @@ export const sessionsMessages = {
   "sessions.deleteSelectedText":
     "{count} चयनित सत्र और उनके संदेश स्थायी रूप से हटा दिए जाएँगे। बाकी सत्र और एजेंट बने रहेंगे।",
   "sessions.deleteSelectedDone": "चयनित हटाए गए: {sessions} सत्र, {messages} संदेश।",
+  "sessions.serverDeleteFailed": "सर्वर पर हटाया नहीं जा सका: {count}। स्थानीय प्रतियाँ हट गईं।",
   "sessions.cleanup.needConfirm": "सब हटाने के लिए पुष्टि बॉक्स चुनें",
   "sessions.cleanup.removedAll": "सब हटा दिया: {sessions} सत्र, {messages} संदेश।",
   "sessions.cleanup.agentsKept": "सफ़ाई के दौरान एजेंट सुरक्षित रहते हैं।",

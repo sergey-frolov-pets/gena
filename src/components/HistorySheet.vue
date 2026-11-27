@@ -24,6 +24,8 @@ const props = defineProps<{
   sessions: Session[];
   /** Все агенты — для подписей строк и чипов фильтра. */
   agents: { id: string; name: string }[];
+  /** Подключения к серверам Gena — чтобы подписать, где лежит диалог. */
+  servers: { id: string; name: string }[];
   /** Открытый диалог. */
   activeId: string | null;
   /** Диалоги, где агент отвечает или ждёт очереди. */
@@ -80,6 +82,15 @@ watch(tagsInUse, (list) => {
 /** Имя агента для строки истории (у каждой сессии своё). */
 function agentNameOf(id: string): string {
   return props.agents.find((agent) => agent.id === id)?.name?.trim() || t("chat.agent");
+}
+
+/**
+ * Имя сервера, на котором лежит диалог. Нет `serverRef` (записи до 27.11.2026)
+ * или сервер удалён из справочника — просто не подписываем вторую строку.
+ */
+function serverNameOf(session: Session): string {
+  if (!session.serverId || !session.serverRef) return "";
+  return props.servers.find((server) => server.id === session.serverRef)?.name?.trim() || "";
 }
 </script>
 
@@ -190,7 +201,12 @@ function agentNameOf(id: string): string {
               />{{ s.title }}
             </span>
             <span v-if="!agentFilter" class="chat-panel__session-agent">
-              {{ agentNameOf(s.agentId) }}
+              {{ agentNameOf(s.agentId)
+              }}<template v-if="serverNameOf(s)">
+                · <span class="chat-panel__session-server">{{
+                  t("chat.sessionOnServer", { name: serverNameOf(s) })
+                }}</span></template
+              >
             </span>
             <span v-if="s.tags && s.tags.length > 0" class="chat-panel__session-tags">
               <span v-for="tag in s.tags" :key="tag" class="chat-panel__session-tag">{{ tag }}</span>
@@ -394,6 +410,11 @@ function agentNameOf(id: string): string {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Серверное происхождение диалога: чуть тише имени агента. */
+.chat-panel__session-server {
+  opacity: 0.8;
 }
 
 /* Теги диалога: мелкие метки под названием, чтобы не спорили с агентом. */

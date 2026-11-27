@@ -47,6 +47,8 @@ export async function createServerSession(
     // Какое подключение держит этот диалог: по нему синхронизация находит сервер.
     // Раньше поле не заполнялось, и переименование не доходило до сервера.
     serverRef: server.id,
+    // Диалог создали здесь: только этот клиент может убрать его с сервера.
+    serverOwned: true,
   };
   await putSession(session);
   return session;
@@ -236,4 +238,65 @@ export async function listServerSessions(serverId: string) {
   if (!server) throw new Error("сервер не найден");
   const client = await clientFor(server);
   return client.list();
+}
+
+/** Итог удаления на сервере: `remote` — удалось ли убрать диалог с сервера. */
+export interface RemoteDeleteResult {
+  ok: boolean;
+  /** Что ответил сервер, если удалить не удалось. */
+  message?: string;
+}
+
+/**
+ * Убрать диалог с сервера — только у инициатора.
+ *
+ * Подключившийся позже диалог с сервера не удаляет: он ему не принадлежит,
+ * у остальных переписка должна остаться. Такой вызов просто возвращает `ok`
+ * и не ходит в сеть — вызывающий удаляет локальную копию.
+ *
+ * `serverRef` заполняется при создании, но у записей до 27.11.2026 его может
+ * не быть: тогда перебираем подключения, как это делает синхронизация.
+ */
+export async function deleteServerSession(session: Session): Promise<RemoteDeleteResult> {
+  if (!session.serverId || !session.serverOwned) return { ok: true };
+  const servers = await listServers();
+  if (servers.length === 0) return { ok: false, message: "нет подключения к серверу" };
+  const preferred = session.serverRef
+    ? servers.filter((item) => item.id === session.serverRef)
+    : [];
+  const candidates = [...preferred, ...servers.filter((item) => !preferred.includes(item))];
+
+  let failure = "";
+  for (const server of candidates) {
+    try {
+      const client = await clientFor(server);
+      await client.remove(session.serverId);
+      return { ok: true };
+    } catch (e) {
+      // 404 — диалога там уже нет: цель достигнута, это не ошибка.
+      if (e instanceof GenaServerError && e.status === 404) return { ok: true };
+      failure = e instanceof Error ? e.message : String(e);
+    }
+  }
+  return { ok: false, message: failure };
+}
+
+/**
+ * Удалить с серверов пачку диалогов — те, где этот клиент инициатор.
+ *
+ * Для массовой чистки («удалить выбранные», «удалить всё»): ошибки сети не
+ * останавливают работу, вызывающий только сообщает, сколько не удалось убрать.
+ */
+export async function deleteServerSessionsRemote(
+  sessions: readonly Session[],
+): Promise<{ removed: number; failed: number }> {
+  let removed = 0;
+  let failed = 0;
+  for (const session of sessions) {
+    if (!session.serverId || !session.serverOwned) continue;
+    const result = await deleteServerSession(session);
+    if (result.ok) removed += 1;
+    else failed += 1;
+  }
+  return { removed, failed };
 }
