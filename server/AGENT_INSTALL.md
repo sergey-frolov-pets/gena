@@ -111,6 +111,31 @@
 | Служба падает: `permission denied` на `/etc/gena-server/token` | Токен должен принадлежать `gena` (`chown gena:gena /etc/gena-server/token`, каталог `gena:gena 0750`); в `install.sh` это уже исправлено |
 | Нужно слушать только локально | `GENA_ADDR=127.0.0.1:8787 sudo bash install.sh` (или поправить `-addr` в юните и `daemon-reload`) |
 | Уже стоит старая служба | Не сносить: `curl /api/health`, сравнить версию, обновить бинарник и перезапустить |
+| `systemctl reload caddy` падает: `dial tcp 127.0.0.1:2019: connection refused` | В Caddyfile стоит `admin off`. Без admin-API reload невозможен, помогает только полный `restart` (обрыв на секунду). Правится строкой `admin 127.0.0.1:2019` в глобальном блоке — один раз, дальше reload работает |
+| Let's Encrypt отдаёт `NXDOMAIN looking up A` сразу после создания записи | Публичный DNS уже отвечает, но резолверы LE кэшируют негативный ответ. Ничего не менять: подождать 2–5 минут или `systemctl restart caddy` — вторая попытка проходит |
+
+### HTTPS через существующий Caddy
+
+Служба слушает только `127.0.0.1`, снаружи её публикует прокси. Готовый блок (добавить
+в конец `/etc/caddy/Caddyfile`, домен заменить на свой):
+
+```
+api.example.com {
+	encode gzip zstd
+
+	reverse_proxy 127.0.0.1:8787 {
+		transport http {
+			read_timeout 600s
+			write_timeout 600s
+		}
+	}
+}
+```
+
+Порядок: `cp Caddyfile Caddyfile.bak` → правка → `caddy validate --config /etc/caddy/Caddyfile`
+→ `systemctl reload caddy` (или `restart`, если admin выключен) → проверить
+`curl https://api.example.com/api/health`. Таймауты 600 с нужны из-за длинных ответов
+модели и загрузки файлов.
 
 ---
 
