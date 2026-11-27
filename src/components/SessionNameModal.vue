@@ -43,6 +43,7 @@ const canSave = computed(() => canRenameSession(draft.value, props.name));
 function fitInput(): void {
   const el = inputEl.value;
   if (!el) return;
+  lastWidth = el.clientWidth;
   const style = getComputedStyle(el);
   // box-sizing: border-box — scrollHeight не учитывает рамку, добавляем её сами,
   // иначе на границе строк появляется лишняя прокрутка.
@@ -53,6 +54,26 @@ function fitInput(): void {
   const needed = el.scrollHeight + borders;
   el.style.height = `${Math.min(needed, limit)}px`;
   el.style.overflowY = needed > limit ? "auto" : "hidden";
+}
+
+/**
+ * Ширина поля поменялась (поворот экрана, другая ширина вьюпорта) — пересчёт.
+ *
+ * Наблюдаем только ширину: высоту мы меняем сами, иначе ушли бы в бесконечный цикл.
+ */
+let lastWidth = 0;
+const widthWatcher =
+  typeof ResizeObserver === "function"
+    ? new ResizeObserver((entries) => {
+        const width = entries[0]?.contentRect.width ?? 0;
+        if (Math.abs(width - lastWidth) < 1) return;
+        fitInput();
+      })
+    : null;
+
+/** Меряем заново, когда догрузится шрифт: до него текст разбит на другие строки. */
+function refitAfterFonts(): void {
+  void document.fonts?.ready.then(() => fitInput()).catch(() => undefined);
 }
 
 function closeNow(): void {
@@ -78,6 +99,7 @@ watch(
     if (!open) {
       window.removeEventListener("keydown", onKeydown);
       window.removeEventListener("resize", fitInput);
+      if (inputEl.value) widthWatcher?.unobserve(inputEl.value);
       return;
     }
     openedAt.value = Date.now();
@@ -89,6 +111,8 @@ watch(
       inputEl.value?.focus();
       inputEl.value?.select();
       fitInput();
+      if (inputEl.value) widthWatcher?.observe(inputEl.value);
+      refitAfterFonts();
     });
   },
   { immediate: true },
