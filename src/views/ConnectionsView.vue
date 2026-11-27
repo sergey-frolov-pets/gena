@@ -162,6 +162,8 @@ async function saveServer(): Promise<void> {
       updatedAt: Date.now(),
     });
     await loadServers();
+    // Агенты нового сервера нужны сразу: пользователь идёт в чат.
+    void loadAgents();
     resetServerForm();
     notice.value = t("connections.servers.saved");
   } catch (e) {
@@ -175,6 +177,7 @@ async function removeServer(server: GenaServer): Promise<void> {
   confirmRemoveServerId.value = "";
   await deleteServer(server.id);
   await loadServers();
+  void loadAgents();
 }
 
 /** id редактируемого агента (null — режим создания). */
