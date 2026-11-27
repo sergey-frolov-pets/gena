@@ -3246,6 +3246,8 @@ const renameTarget = ref<{ id: string; title: string } | null>(null);
 
 function openRename(id: string, title: string): void {
   renameTarget.value = { id, title: title || t("chat.newDialog") };
+  // Тап, завершивший долгое нажатие, не должен открыть диалог под модалкой.
+  pressGuardUntil = Date.now() + 700;
 }
 
 async function applyRename(name: string): Promise<void> {
