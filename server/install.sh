@@ -12,7 +12,8 @@
 set -euo pipefail
 
 PORT="${GENA_PORT:-8787}"
-ADDR=":${PORT}"
+# GENA_ADDR перекрывает адрес целиком: GENA_ADDR=127.0.0.1:8787 — только локально.
+ADDR="${GENA_ADDR:-:${PORT}}"
 PREFIX="/opt/gena-server"
 CONF="/etc/gena-server"
 DATA="/var/lib/gena-server"
@@ -31,7 +32,9 @@ fi
 id -u gena >/dev/null 2>&1 || useradd --system --home-dir "${DATA}" --shell /usr/sbin/nologin gena
 install -d -m 0755 "${PREFIX}"
 install -d -m 0750 -o gena -g gena "${DATA}"
-install -d -m 0750 "${CONF}"
+# Каталог и токен принадлежат gena: служба работает под этим пользователем и читает
+# токен сама; root-владелец с 0600 даёт «permission denied» на старте.
+install -d -m 0750 -o gena -g gena "${CONF}"
 
 if [[ -x "./gena-server" ]]; then
   install -m 0755 ./gena-server "${PREFIX}/gena-server"
@@ -46,9 +49,10 @@ fi
 if [[ ! -s "${CONF}/token" ]]; then
   # 32 байта из /dev/urandom в hex: токен нужен длинный, его вводят в браузере.
   head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "${CONF}/token"
-  chmod 0600 "${CONF}/token"
   echo "токен создан: ${CONF}/token"
 fi
+chown gena:gena "${CONF}/token"
+chmod 0600 "${CONF}/token"
 
 cat > "${UNIT}" <<EOF
 [Unit]
