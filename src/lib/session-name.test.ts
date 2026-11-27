@@ -34,3 +34,15 @@ describe("canRenameSession", () => {
     expect(canRenameSession("  Старое   имя ", "Старое имя")).toBe(false);
   });
 });
+
+describe("длинное название", () => {
+  it("сохраняется целиком, без обрезки", () => {
+    const long = "Планёрка по квартальному планированию и бюджету на следующий год";
+    expect(normalizeSessionName(`  ${long}\n`)).toBe(long);
+    expect(canRenameSession(long, "Старое имя")).toBe(true);
+  });
+
+  it("перевод строки из многострочного поля не ломает сравнение", () => {
+    expect(canRenameSession("Старое имя\n", "Старое имя")).toBe(false);
+  });
+});
