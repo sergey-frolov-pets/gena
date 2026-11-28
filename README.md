@@ -87,6 +87,10 @@ stores only the server token and the chat goes through
 `POST /api/agents/{id}/chat`.
 
 - `GET /api/agents` returns `[{ id, name, model, provider? }]` — never keys.
+- `baseUrl` must already contain the API version, because the server calls
+  `baseUrl + "/chat/completions"`: `https://api.deepseek.com/v1`, not
+  `https://api.deepseek.com`. A wrong `baseUrl` or model name shows up as a
+  502 from the chat endpoint, not as a startup error — check it first.
 - Agents from a connected server show up in the chat agent picker with a
   "on server" tag and are read-only in Connections: they come from
   `/etc/gena-server/agents.json`, not from the device database.

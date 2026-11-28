@@ -13,6 +13,7 @@ import (
 	"crypto/subtle"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -23,6 +24,25 @@ import (
 )
 
 const version = "1.0.0"
+
+// parseAccessUntil разбирает срок доступа из конфига.
+// Принимает дату `2026-12-31` (доступ до конца этого дня, UTC) и полный RFC3339.
+// Второе значение — то, что покажем клиенту: дату оставляем датой, чтобы
+// у пользователя не съезжал день из-за часового пояса.
+func parseAccessUntil(value string) (time.Time, string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, "", nil
+	}
+	if day, err := time.Parse("2006-01-02", value); err == nil {
+		return day.Add(24*time.Hour - time.Second), value, nil
+	}
+	at, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return time.Time{}, "", fmt.Errorf("ожидаю 2026-12-31 или RFC3339, получил %q", value)
+	}
+	return at, at.UTC().Format(time.RFC3339), nil
+}
 
 func envOr(key, fallback string) string {
 	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
@@ -38,6 +58,7 @@ func main() {
 	tokenFile := flag.String("token-file", os.Getenv("GENA_TOKEN_FILE"), "файл с токеном (или GENA_TOKEN_FILE)")
 	origins := flag.String("cors", envOr("GENA_CORS", "*"), "разрешённые Origin через запятую; * — любые")
 	name := flag.String("name", envOr("GENA_NAME", "Gena server"), "имя сервера в интерфейсе")
+	accessUntil := flag.String("access-until", envOr("GENA_ACCESS_UNTIL", ""), "доступ до даты: 2026-12-31 (или GENA_ACCESS_UNTIL)")
 	agentsFile := flag.String("agents-file", envOr("GENA_AGENTS_FILE", "/etc/gena-server/agents.json"), "файл серверных агентов (id, модель, ключ)")
 	noAuth := flag.Bool("no-auth", false, "работать без токена (только для локальной отладки)")
 	flag.Parse()
@@ -56,16 +77,23 @@ func main() {
 		log.Fatal("не задан токен: -token, GENA_TOKEN или -token-file (для отладки -no-auth)")
 	}
 
+	until, untilText, err := parseAccessUntil(*accessUntil)
+	if err != nil {
+		log.Fatalf("срок доступа: %v", err)
+	}
+
 	store, err := NewStore(*dataDir)
 	if err != nil {
 		log.Fatalf("хранилище: %v", err)
 	}
 	api := &API{
-		store:   store,
-		name:    *name,
-		started: time.Now(),
-		agents:  NewAgentRegistry(*agentsFile),
-		client:  &http.Client{},
+		store:       store,
+		name:        *name,
+		started:     time.Now(),
+		agents:      NewAgentRegistry(*agentsFile),
+		client:      &http.Client{},
+		accessUntil: until,
+		accessText:  untilText,
 	}
 
 	mux := http.NewServeMux()

@@ -12,7 +12,12 @@ export interface ServerInfo {
   name: string;
   version: string;
   sessions: number;
+  /** До какого числа сервер доступен (ISO), если сервер это сообщает. */
+  accessUntil?: string;
 }
+
+/** Сколько ждём ответ на проверку связи, прежде чем сказать «не ответил». */
+const CHECK_TIMEOUT_MS = 10_000;
 
 /** Сессия в том виде, в каком её отдаёт сервер. */
 export interface ServerSession {
@@ -138,23 +143,67 @@ async function request<T>(
   }
 }
 
+/**
+ * https-страница не может обратиться к http-серверу: браузер режет запрос молча,
+ * и в интерфейсе это выглядит как «кнопка не работает». Ловим заранее и объясняем.
+ * Localhost браузеры прощают — там проверка разрешена.
+ */
+export function blockedByMixedContent(url: string, pageProtocol: string): boolean {
+  if (pageProtocol !== "https:") return false;
+  if (!/^http:\/\//i.test(url)) return false;
+  const host = url
+    .replace(/^http:\/\//i, "")
+    .split(/[/?#]/)[0]
+    .split(":")[0]
+    .toLowerCase();
+  return !(host === "localhost" || host === "127.0.0.1" || host === "::1" || host.endsWith(".localhost"));
+}
+
 /** Проверка связи до сохранения: health открыт, токен проверяется не здесь. */
-export async function checkGenaServer(url: string, token: string): Promise<ServerInfo> {
+export async function checkGenaServer(
+  url: string,
+  token: string,
+  options: { timeoutMs?: number; pageProtocol?: string } = {},
+): Promise<ServerInfo> {
   const base = normalizeServerUrl(url);
   if (!base) throw new GenaServerError("адрес пустой");
-  const info = await request<{ ok?: boolean; name?: string; version?: string; sessions?: number }>(
-    base,
-    token,
-    "/api/health",
-  );
-  if (!info || info.ok !== true) {
-    throw new GenaServerError("ответ не похож на Gena server");
+  const pageProtocol =
+    options.pageProtocol ?? (typeof location === "undefined" ? "" : location.protocol);
+  if (blockedByMixedContent(base, pageProtocol)) {
+    throw new GenaServerError(
+      "страница открыта по https, а адрес сервера — http: браузер блокирует такой запрос. Укажи https-адрес",
+    );
   }
-  return {
-    name: info.name || "Gena server",
-    version: info.version || "",
-    sessions: Number(info.sessions) || 0,
-  };
+
+  const timeoutMs = options.timeoutMs ?? CHECK_TIMEOUT_MS;
+  const controller = typeof AbortController === "undefined" ? null : new AbortController();
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  try {
+    const info = await request<{
+      ok?: boolean;
+      name?: string;
+      version?: string;
+      sessions?: number;
+      accessUntil?: string;
+    }>(base, token, "/api/health", controller ? { signal: controller.signal } : {});
+    if (!info || info.ok !== true) {
+      throw new GenaServerError("ответ не похож на Gena server");
+    }
+    return {
+      name: info.name || "Gena server",
+      version: info.version || "",
+      sessions: Number(info.sessions) || 0,
+      accessUntil:
+        typeof info.accessUntil === "string" && info.accessUntil.trim() ? info.accessUntil : undefined,
+    };
+  } catch (e) {
+    if (controller?.signal.aborted) {
+      throw new GenaServerError(`сервер не ответил за ${Math.round(timeoutMs / 1000)} с`);
+    }
+    throw e;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 export class GenaServerClient {

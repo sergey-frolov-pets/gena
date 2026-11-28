@@ -18,6 +18,11 @@ type API struct {
 	agents *AgentRegistry
 	// client — HTTP-клиент для запросов к провайдерам (nil → http.Client{}).
 	client *http.Client
+	// accessUntil — до какого числа сервер доступен клиентам (нулевое — не задано).
+	// Показывается в карточке «Подключения» и в /api/health.
+	accessUntil time.Time
+	// accessText — та же дата в исходном виде: дату отдаём датой, без сдвига дня.
+	accessText string
 }
 
 func (a *API) routes(mux *http.ServeMux) {
@@ -70,7 +75,7 @@ func decodeBody(w http.ResponseWriter, r *http.Request, dst any) bool {
 }
 
 func (a *API) health(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
+	payload := map[string]any{
 		"ok":       true,
 		"name":     a.name,
 		"version":  version,
@@ -78,7 +83,13 @@ func (a *API) health(w http.ResponseWriter, _ *http.Request) {
 		"sessions": a.store.Count(),
 		"projects": a.store.CountProjects(),
 		"agents":   a.agents.Count(),
-	})
+	}
+	// Срок доступа задаётся в конфиге сервера. Клиенту нужен тот же факт,
+	// что видит админ: иначе дату пришлось бы дублировать на каждом устройстве.
+	if !a.accessUntil.IsZero() {
+		payload["accessUntil"] = a.accessText
+	}
+	writeJSON(w, http.StatusOK, payload)
 }
 
 func (a *API) serverInfo(w http.ResponseWriter, _ *http.Request) {
