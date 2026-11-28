@@ -42,6 +42,12 @@ import {
 import { connectableProviders, providerByBaseUrl } from "@/lib/providers";
 import { isTrustedProvider, resolvePrivacyMode } from "@/lib/privacy/mode";
 import {
+  isPrivacyModelReady,
+  privacyModel,
+  savePrivacyModel,
+} from "@/lib/privacy/model-settings";
+import { scanWithModel } from "@/lib/privacy/model-scan";
+import {
   parseTrustedProvidersInput,
   setTrustedProviders,
   trustedProviders,
@@ -74,6 +80,50 @@ const quickRepliesText = ref("");
 const privacy = ref<PrivacyMode>("trusted");
 /** Доверенные провайдеры: textarea, одна запись — одна строка. */
 const trustedText = ref(trustedProviders.value.join("\n"));
+
+// --- Поиск персональных данных моделью (отдельное подключение) ---
+// Пока адрес и модель не заданы, щит в чате работает локально и выглядит
+// как раньше. Включённая настройка меняет вид щита (бейдж S) и добавляет
+// второй слой поиска поверх локального детектора.
+const privacyModelForm = ref({
+  enabled: privacyModel.value.enabled,
+  address: privacyModel.value.address,
+  model: privacyModel.value.model,
+  key: "",
+});
+const privacyModelReady = computed(() => isPrivacyModelReady(privacyModel.value));
+const privacyModelHasKey = computed(() => privacyModel.value.sealedKey !== "");
+const privacyModelStatus = ref<"" | "checking" | "ok" | "error">("");
+const privacyModelStatusText = ref("");
+const privacyModelSaved = ref(false);
+
+async function savePrivacyModelSettings(): Promise<void> {
+  await savePrivacyModel({ ...privacyModelForm.value });
+  privacyModelForm.value.key = "";
+  privacyModelSaved.value = true;
+  setTimeout(() => {
+    privacyModelSaved.value = false;
+  }, 1500);
+}
+
+async function testPrivacyModel(): Promise<void> {
+  // Проверяем ровно то, что лежит в настройке: сначала сохраняем введённое,
+  // иначе новый ключ останется только в форме и запрос уйдёт без него.
+  await savePrivacyModelSettings();
+  privacyModelStatus.value = "checking";
+  privacyModelStatusText.value = "";
+  const sample = "Иванов Иван, +7 999 123-45-67, 1 000 ₽";
+  const result = await scanWithModel(sample);
+  if (result.ok) {
+    privacyModelStatus.value = "ok";
+    privacyModelStatusText.value = t("connections.privacy.checkOk", {
+      count: result.findings.length,
+    });
+    return;
+  }
+  privacyModelStatus.value = "error";
+  privacyModelStatusText.value = t("connections.privacy.checkFail", { reason: result.message });
+}
 /** Адрес введён, режим не «только токены», а провайдер не в списке доверенных. */
 const providerUntrusted = computed(
   () =>
@@ -1296,6 +1346,70 @@ function addMixRoute(): void {
       >
         {{ serverStates[server.id].msg }}
       </p>
+    </div>
+
+    <div class="card">
+      <div class="agent-head">
+        <strong>{{ t("connections.privacy.title") }}</strong>
+        <span class="badge" :class="{ ok: privacyModelReady }">
+          {{ privacyModelReady ? t("connections.privacy.badgeOn") : t("connections.privacy.badgeOff") }}
+        </span>
+      </div>
+      <div class="small muted" style="margin-bottom: 10px">{{ t("connections.privacy.lead") }}</div>
+
+      <div class="pair">
+        <div class="field">
+          <label>{{ t("connections.privacy.address") }}</label>
+          <input v-model="privacyModelForm.address" placeholder="http://127.0.0.1:11434/v1" />
+        </div>
+        <div class="field">
+          <label>{{ t("connections.privacy.model") }}</label>
+          <input v-model="privacyModelForm.model" placeholder="scan-model" />
+        </div>
+      </div>
+
+      <div class="field">
+        <label>{{ t("connections.privacy.key") }}</label>
+        <input
+          v-model="privacyModelForm.key"
+          type="password"
+          autocomplete="off"
+          :placeholder="
+            privacyModelHasKey
+              ? t('connections.privacy.keySaved')
+              : t('connections.privacy.keyEmpty')
+          "
+        />
+      </div>
+
+      <label class="check">
+        <input v-model="privacyModelForm.enabled" type="checkbox" />
+        {{ t("connections.privacy.enabled") }}
+      </label>
+
+      <div class="actions">
+        <button type="button" @click="savePrivacyModelSettings">
+          {{ t("connections.privacy.save") }}
+        </button>
+        <button
+          type="button"
+          :disabled="privacyModelStatus === 'checking'"
+          @click="testPrivacyModel"
+        >
+          {{
+            privacyModelStatus === "checking"
+              ? t("connections.testing")
+              : t("connections.privacy.check")
+          }}
+        </button>
+        <span v-if="privacyModelSaved" class="small ok">{{ t("connections.privacy.saved") }}</span>
+        <span v-if="privacyModelStatus === 'ok'" class="small ok">
+          {{ privacyModelStatusText }}
+        </span>
+        <span v-if="privacyModelStatus === 'error'" class="small error">
+          {{ privacyModelStatusText }}
+        </span>
+      </div>
     </div>
 
     <AccessModal

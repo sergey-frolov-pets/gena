@@ -222,7 +222,9 @@ import DocumentViewer from "@/components/DocumentViewer.vue";
 import SessionNameModal from "@/components/SessionNameModal.vue";
 import TextModal from "@/components/TextModal.vue";
 import PrivacyCheckPanel from "@/components/PrivacyCheckPanel.vue";
-import { detectFindings, type Finding, type FindingType } from "@/lib/privacy/detect";
+import type { Finding, FindingType } from "@/lib/privacy/detect";
+import { isPrivacyModelReady, privacyModel } from "@/lib/privacy/model-settings";
+import { scanPrivacy } from "@/lib/privacy/scan";
 import { maskText } from "@/lib/privacy/mask";
 import { agentId } from "@/lib/active-agent";
 import { reportAgentUse } from "@/analytics/usage";
@@ -309,6 +311,18 @@ const privacyDismissed = ref<string | null>(null);
 let privacyTimer: ReturnType<typeof setTimeout> | null = null;
 let privacyMasking = false;
 
+/** Модель поиска ПД настроена в «Подключениях» — щит выглядит иначе. */
+const privacyModelOn = computed(() => isPrivacyModelReady(privacyModel.value));
+/** Модель настроена, но скан шёл локально: последняя попытка не удалась. */
+const privacyModelDown = ref(false);
+const privacyShieldHint = computed(() => {
+  if (!privacyModelOn.value) return t("chat.tokenMode");
+  return privacyModelDown.value ? t("chat.privacy.modelFallback") : t("chat.privacy.modelOn");
+});
+
+/** Номер скана: ответ модели от устаревшего текста не должен перебивать свежий. */
+let privacyScanSeq = 0;
+
 function schedulePrivacyCheck(text: string): void {
   if (privacyTimer) clearTimeout(privacyTimer);
   privacyTimer = setTimeout(() => {
@@ -321,7 +335,13 @@ function schedulePrivacyCheck(text: string): void {
       privacyFindings.value = [];
       return;
     }
-    privacyFindings.value = detectFindings(text);
+    const seq = ++privacyScanSeq;
+    void scanPrivacy(text, { model: privacyModelOn.value }).then((outcome) => {
+      // Текст успел измениться — результат устарел.
+      if (seq !== privacyScanSeq) return;
+      privacyFindings.value = outcome.findings;
+      privacyModelDown.value = outcome.modelError === "network" || outcome.modelError === "bad_response";
+    });
   }, 250);
 }
 
@@ -5738,9 +5758,9 @@ function onRateChange(event: Event): void {
       <button
         type="button"
         class="chat-panel__tool"
-        :class="{ 'is-on': isTokenSession(activeSession) }"
-        v-tip="t('chat.tokenMode')"
-        :aria-label="t('chat.tokenMode')"
+        :class="{ 'is-on': isTokenSession(activeSession), 'is-server': privacyModelOn }"
+        v-tip="privacyShieldHint"
+        :aria-label="privacyShieldHint"
         :aria-pressed="isTokenSession(activeSession)"
         @click="toggleTokenMode"
       >
@@ -5748,6 +5768,12 @@ function onRateChange(event: Event): void {
           <path d="M12 3l7 3v6c0 4.2-2.9 7.4-7 9-4.1-1.6-7-4.8-7-9V6z" />
           <path d="M9 12l2 2 4-4" />
         </svg>
+        <span
+          v-if="privacyModelOn"
+          class="chat-panel__badge"
+          :class="{ 'is-down': privacyModelDown }"
+          aria-hidden="true"
+        >S</span>
       </button>
       <button
         type="button"
@@ -8938,6 +8964,7 @@ function onRateChange(event: Event): void {
    Общие для ChatView и HistorySheet, поэтому глобально (по-прежнему
    под префиксом chat-panel__, в другие экраны не течёт). */
 .chat-panel__tool {
+  position: relative;
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
@@ -8965,6 +8992,31 @@ function onRateChange(event: Event): void {
 .chat-panel__tool.is-on {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+/* Щит в режиме «поиск ПД моделью»: бейдж S и обводка, чтобы режим
+   нельзя было перепутать с локальным. */
+.chat-panel__tool.is-server {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.chat-panel__badge {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  min-width: 12px;
+  padding: 0 3px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.55rem;
+  font-weight: 700;
+  line-height: 12px;
+  text-align: center;
+}
+
+.chat-panel__tool.is-server .chat-panel__badge.is-down {
+  background: var(--muted);
 }
 
 .chat-panel__tool.is-text {

@@ -9,7 +9,15 @@
  * в журнал отправок и в бэкап оно не попадает.
  */
 
-export type FindingType = "money" | "date" | "card" | "phone" | "email" | "account";
+export type FindingType =
+  | "person"
+  | "address"
+  | "phone"
+  | "email"
+  | "money"
+  | "date"
+  | "card"
+  | "account";
 
 export interface Finding {
   start: number;
@@ -23,11 +31,13 @@ export interface Finding {
 
 /** При пересечении спанов побеждает более специфичный тип. */
 const PRIORITY: Record<FindingType, number> = {
-  card: 6,
-  account: 5,
-  phone: 4,
-  date: 3,
-  money: 2,
+  card: 8,
+  account: 7,
+  phone: 6,
+  address: 5,
+  date: 4,
+  money: 3,
+  person: 2,
   email: 1,
 };
 

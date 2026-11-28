@@ -10,6 +10,8 @@
 import type { Finding, FindingType } from "./detect";
 
 export const MASK_LABEL: Record<FindingType, string> = {
+  person: "имя",
+  address: "адрес",
   money: "сумма",
   date: "дата",
   card: "карта",
