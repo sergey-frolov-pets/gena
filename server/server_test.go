@@ -223,7 +223,7 @@ func TestStorePersistsBetweenRestarts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("хранилище: %v", err)
 	}
-	session, err := store.Create("Проверка", "")
+	session, err := store.Create("Проверка", "", "", "")
 	if err != nil {
 		t.Fatalf("создание: %v", err)
 	}

@@ -12,6 +12,7 @@ import (
 // API — HTTP-слой: разбирает запросы и отдаёт JSON.
 type API struct {
 	store   *Store
+	access  *AccessStore
 	name    string
 	started time.Time
 	// client — HTTP-клиент для запросов к провайдерам (nil → http.Client{}).
@@ -39,6 +40,7 @@ func (a *API) routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/sessions/{id}/import", a.importSession)
 
 	a.projectRoutes(mux)
+	a.accessRoutes(mux)
 }
 
 func writeJSON(w http.ResponseWriter, code int, value any) {
@@ -52,11 +54,52 @@ func writeError(w http.ResponseWriter, code int, message string) {
 }
 
 func (a *API) fail(w http.ResponseWriter, err error, action string) {
-	if errors.Is(err, ErrNotFound) {
+	switch {
+	case errors.Is(err, ErrNotFound):
 		writeError(w, http.StatusNotFound, "не найдено")
-		return
+	case errors.Is(err, ErrAccessNotFound):
+		writeError(w, http.StatusNotFound, "код доступа не найден")
+	case errors.Is(err, ErrMessageTooLarge):
+		writeError(w, http.StatusRequestEntityTooLarge,
+			fmt.Sprintf("сообщение больше %d КБ — сократите текст или вложения", maxMessageBytes>>10))
+	case errors.Is(err, ErrSessionTooLarge):
+		writeError(w, http.StatusConflict, "сессия переполнена: начните новый диалог")
+	case errors.Is(err, ErrServerFull):
+		writeError(w, http.StatusInsufficientStorage, "на сервере закончилось место: удалите старые сессии")
+	case errors.Is(err, ErrTooManyCodes):
+		writeError(w, http.StatusConflict,
+			fmt.Sprintf("достигнут предел %d кодов доступа", maxAccessCodes))
+	default:
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("%s: %v", action, err))
 	}
-	writeError(w, http.StatusInternalServerError, fmt.Sprintf("%s: %v", action, err))
+}
+
+// forbidden — отказ по правам. Не раскрываем, чья сессия и почему:
+// гость не должен узнавать лишнего о других участниках.
+func forbidden(w http.ResponseWriter) {
+	writeError(w, http.StatusForbidden, "нет прав на это действие в сессии")
+}
+
+// sessionFor читает заголовок сессии и проверяет права. Если false —
+// ответ клиенту уже отправлен.
+func (a *API) sessionFor(w http.ResponseWriter, r *http.Request, allowed func(Principal, Session) bool) (Session, bool) {
+	session, err := a.store.Meta(r.PathValue("id"))
+	if err != nil {
+		a.fail(w, err, "не прочитал сессию")
+		return Session{}, false
+	}
+	if !allowed(principalOf(r), session) {
+		forbidden(w)
+		return Session{}, false
+	}
+	return session, true
+}
+
+func roleOf(p Principal) string {
+	if p.IsOwner() {
+		return "owner"
+	}
+	return "guest"
 }
 
 func decodeBody(w http.ResponseWriter, r *http.Request, dst any) bool {
@@ -85,15 +128,26 @@ func (a *API) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, payload)
 }
 
-func (a *API) serverInfo(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
-		"name":      a.name,
-		"version":   version,
-		"sessions":  a.store.Count(),
-		"projects":  a.store.CountProjects(),
-		"startedAt": a.started.UTC().Format(time.RFC3339),
-		"time":      time.Now().UTC().Format(time.RFC3339),
-	})
+func (a *API) serverInfo(w http.ResponseWriter, r *http.Request) {
+	p := principalOf(r)
+	payload := map[string]any{
+		"name":            a.name,
+		"version":         version,
+		"sessions":        a.store.Count(),
+		"projects":        a.store.CountProjects(),
+		"startedAt":       a.started.UTC().Format(time.RFC3339),
+		"time":            time.Now().UTC().Format(time.RFC3339),
+		"role":            roleOf(p),
+		"owner":           p.IsOwner(),
+		"canManageAccess": p.IsOwner(),
+		"accessId":        p.AccessID,
+		"label":           p.Label,
+	}
+	// Число кодов — только владельцу: гостю эта цифра ничего не даёт.
+	if p.IsOwner() {
+		payload["accessCodes"] = a.access.Count()
+	}
+	writeJSON(w, http.StatusOK, payload)
 }
 
 func (a *API) listSessions(w http.ResponseWriter, _ *http.Request) {
@@ -102,13 +156,15 @@ func (a *API) listSessions(w http.ResponseWriter, _ *http.Request) {
 
 func (a *API) createSession(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Title   string `json:"title"`
-		AgentID string `json:"agentId"`
+		Title        string `json:"title"`
+		AgentID      string `json:"agentId"`
+		Continuation string `json:"continuation"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
 	}
-	session, err := a.store.Create(body.Title, body.AgentID)
+	p := principalOf(r)
+	session, err := a.store.Create(body.Title, body.AgentID, p.AccessID, body.Continuation)
 	if err != nil {
 		a.fail(w, err, "не создал сессию")
 		return
@@ -127,15 +183,19 @@ func (a *API) getSession(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) patchSession(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Title     *string   `json:"title"`
-		Pinned    *bool     `json:"pinned"`
-		Tags      *[]string `json:"tags"`
-		ProjectID *string   `json:"projectId"`
+		Title        *string   `json:"title"`
+		Pinned       *bool     `json:"pinned"`
+		Tags         *[]string `json:"tags"`
+		ProjectID    *string   `json:"projectId"`
+		Continuation *string   `json:"continuation"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
 	}
-	session, err := a.store.Patch(r.PathValue("id"), body.Title, body.Pinned, body.Tags, body.ProjectID)
+	if _, ok := a.sessionFor(w, r, canManageSession); !ok {
+		return
+	}
+	session, err := a.store.Patch(r.PathValue("id"), body.Title, body.Pinned, body.Tags, body.ProjectID, body.Continuation)
 	if err != nil {
 		a.fail(w, err, "не обновил сессию")
 		return
@@ -144,6 +204,9 @@ func (a *API) patchSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) deleteSession(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.sessionFor(w, r, canManageSession); !ok {
+		return
+	}
 	if err := a.store.Delete(r.PathValue("id")); err != nil {
 		a.fail(w, err, "не удалил сессию")
 		return
@@ -158,6 +221,9 @@ func (a *API) appendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.TrimSpace(message.Content) == "" && message.Kind == "" {
 		writeError(w, http.StatusBadRequest, "пустое сообщение")
+		return
+	}
+	if _, ok := a.sessionFor(w, r, canWriteSession); !ok {
 		return
 	}
 	saved, err := a.store.Append(r.PathValue("id"), message)
@@ -175,6 +241,9 @@ func (a *API) patchMessage(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &body) {
 		return
 	}
+	if _, ok := a.sessionFor(w, r, canManageSession); !ok {
+		return
+	}
 	message, err := a.store.PatchMessage(r.PathValue("id"), r.PathValue("msg"), body.Content)
 	if err != nil {
 		a.fail(w, err, "не обновил сообщение")
@@ -184,6 +253,9 @@ func (a *API) patchMessage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) deleteMessage(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.sessionFor(w, r, canManageSession); !ok {
+		return
+	}
 	if err := a.store.DeleteMessage(r.PathValue("id"), r.PathValue("msg")); err != nil {
 		a.fail(w, err, "не удалил сообщение")
 		return
@@ -199,7 +271,20 @@ func (a *API) importSession(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &body) {
 		return
 	}
-	session, err := a.store.Import(r.PathValue("id"), body.Session, body.Messages)
+	p := principalOf(r)
+	id := r.PathValue("id")
+	// Существующую сессию переписывает только владелец или инициатор:
+	// иначе гость мог бы затереть чужой диалог.
+	if existing, err := a.store.Meta(id); err == nil {
+		if !canManageSession(p, existing) {
+			forbidden(w)
+			return
+		}
+	} else if !errors.Is(err, ErrNotFound) {
+		a.fail(w, err, "не прочитал сессию")
+		return
+	}
+	session, err := a.store.Import(id, body.Session, body.Messages, p.AccessID)
 	if err != nil {
 		a.fail(w, err, "не сохранил сессию")
 		return

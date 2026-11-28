@@ -23,7 +23,7 @@ import (
 	"time"
 )
 
-const version = "1.0.0"
+const version = "1.1.0"
 
 // parseAccessUntil разбирает срок доступа из конфига.
 // Принимает дату `2026-12-31` (доступ до конца этого дня, UTC) и полный RFC3339.
@@ -85,8 +85,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("хранилище: %v", err)
 	}
+	access, err := NewAccessStore(*dataDir)
+	if err != nil {
+		log.Fatalf("коды доступа: %v", err)
+	}
 	api := &API{
 		store:       store,
+		access:      access,
 		name:        *name,
 		started:     time.Now(),
 		client:      &http.Client{},
@@ -97,7 +102,7 @@ func main() {
 	mux := http.NewServeMux()
 	api.routes(mux)
 
-	handler := withLogging(withCORS(withAuth(mux, tok), *origins))
+	handler := withLogging(withCORS(withAuth(mux, tok, access), *origins))
 
 	srv := &http.Server{
 		Addr:              *addr,
@@ -131,27 +136,53 @@ func main() {
 	}
 }
 
-// withAuth пропускает только запросы с верным Bearer-токеном.
-// /api/health открыт: по нему клиент проверяет адрес до ввода токена.
-func withAuth(next http.Handler, token string) http.Handler {
+// withAuth пропускает только запросы с верным Bearer. Мастер-токен —
+// владелец сервера, гостевой код доступа — роль гостя. /api/health открыт:
+// по нему клиент проверяет адрес до ввода токена.
+func withAuth(next http.Handler, token string, stores ...*AccessStore) http.Handler {
+	var access *AccessStore
+	if len(stores) > 0 {
+		access = stores[0]
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodOptions || r.URL.Path == "/api/health" {
 			next.ServeHTTP(w, r)
 			return
 		}
 		if token == "" {
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(w, withPrincipal(r, Principal{Owner: true, Label: "владелец"}))
 			return
 		}
 		given := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer"))
 		given = strings.TrimSpace(given)
-		if subtle.ConstantTimeCompare([]byte(given), []byte(token)) != 1 {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="gena"`)
-			writeError(w, http.StatusUnauthorized, "нужен токен доступа")
+		if given == "" {
+			unauthorized(w, "нужен токен доступа")
 			return
 		}
-		next.ServeHTTP(w, r)
+		if subtle.ConstantTimeCompare([]byte(given), []byte(token)) == 1 {
+			next.ServeHTTP(w, withPrincipal(r, Principal{Owner: true, Label: "владелец"}))
+			return
+		}
+		if access != nil {
+			item, err := access.Lookup(given)
+			switch {
+			case err == nil:
+				next.ServeHTTP(w, withPrincipal(r, Principal{AccessID: item.ID, Label: item.Label}))
+				return
+			case errors.Is(err, ErrAccessBlocked), errors.Is(err, ErrAccessExpired):
+				// Код верный, но доступ закрыт: 403, а не 401 — токен
+				// перевыпускать не нужно, нужен доступ.
+				writeError(w, http.StatusForbidden, err.Error())
+				return
+			}
+		}
+		unauthorized(w, "нужен токен доступа")
 	})
+}
+
+func unauthorized(w http.ResponseWriter, message string) {
+	w.Header().Set("WWW-Authenticate", `Bearer realm="gena"`)
+	writeError(w, http.StatusUnauthorized, message)
 }
 
 // withCORS: SPA живёт на другом домене, поэтому браузер спрашивает разрешение.

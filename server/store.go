@@ -31,10 +31,32 @@ type Session struct {
 	TokenMode bool     `json:"tokenMode,omitempty"`
 	// ProjectID — проект, в который входит диалог (пусто — без проекта).
 	ProjectID string `json:"projectId,omitempty"`
+	// OwnerID — код доступа инициатора сессии. Пусто — сессия владельца
+	// сервера (так читаются и все сессии, созданные до 0.2.105).
+	OwnerID string `json:"ownerId,omitempty"`
+	// Continuation — можно ли гостям продолжать диалог: "all" или "view".
+	// Пусто трактуется как "all" (прежнее поведение).
+	Continuation string `json:"continuation,omitempty"`
 	// Summary — сжатое содержание диалога; Stale считается при отдаче.
 	Summary *Summary `json:"summary,omitempty"`
 	// Messages — число сообщений, считается при отдаче (в файле его нет).
 	Messages int `json:"messageCount"`
+}
+
+// Режим продолжения сессии: "all" — любой гость может писать,
+// "view" — только просмотр (пишет владелец и инициатор).
+const (
+	ContinuationAll  = "all"
+	ContinuationView = "view"
+)
+
+// normalizeContinuation приводит значение к двум допустимым: всё, что
+// не "view", считается "all" — так старые сессии ведут себя как раньше.
+func normalizeContinuation(value string) string {
+	if strings.EqualFold(strings.TrimSpace(value), ContinuationView) {
+		return ContinuationView
+	}
+	return ContinuationAll
 }
 
 // Message — сообщение диалога.
@@ -56,6 +78,9 @@ type Message struct {
 type sessionFile struct {
 	Session  Session   `json:"session"`
 	Messages []Message `json:"messages"`
+	// size — вес сессии для лимитов; в файл не пишется, считается при
+	// загрузке и обновляется инкрементально.
+	size int64
 }
 
 // Store — все диалоги в памяти + файл на каждый диалог.
@@ -66,6 +91,8 @@ type Store struct {
 	mu       sync.RWMutex
 	sessions map[string]*sessionFile
 	projects map[string]*Project
+	// totalSize — сумма размеров всех сессий, для лимита maxServerBytes.
+	totalSize int64
 }
 
 func NewStore(dir string) (*Store, error) {
@@ -97,6 +124,8 @@ func NewStore(dir string) (*Store, error) {
 		if file.Session.ID == "" {
 			continue
 		}
+		file.size = sessionBytes(&file)
+		s.totalSize += file.size
 		s.sessions[file.Session.ID] = &file
 	}
 	if err := s.loadProjects(); err != nil {
@@ -129,6 +158,7 @@ func (s *Store) List() []Session {
 func buildSession(file *sessionFile) Session {
 	session := file.Session
 	session.Messages = len(file.Messages)
+	session.Continuation = normalizeContinuation(session.Continuation)
 	if session.Summary != nil {
 		summary := *session.Summary
 		summary.Stale = summary.Revision != revisionOf(file.Messages)
@@ -150,34 +180,59 @@ func (s *Store) Get(id string) (Session, []Message, error) {
 	return buildSession(file), messages, nil
 }
 
-func (s *Store) Create(title, agentID string) (Session, error) {
+// Meta отдаёт только заголовок сессии — для проверки прав без копирования
+// всех сообщений.
+func (s *Store) Meta(id string) (Session, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	file, ok := s.sessions[id]
+	if !ok {
+		return Session{}, ErrNotFound
+	}
+	return buildSession(file), nil
+}
+
+func (s *Store) Create(title, agentID, ownerID, continuation string) (Session, error) {
 	now := time.Now().UnixMilli()
 	session := Session{
-		ID:        newID("s"),
-		Title:     cleanTitle(title),
-		AgentID:   strings.TrimSpace(agentID),
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:           newID("s"),
+		Title:        cleanTitle(title),
+		AgentID:      strings.TrimSpace(agentID),
+		CreatedAt:    now,
+		UpdatedAt:    now,
+		OwnerID:      ownerID,
+		Continuation: normalizeContinuation(continuation),
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if len(s.sessions) >= maxSessions {
+		return Session{}, ErrServerFull
+	}
 	file := &sessionFile{Session: session}
+	file.size = sessionBytes(file)
+	if s.totalSize+file.size > maxServerBytes {
+		return Session{}, ErrServerFull
+	}
 	s.sessions[session.ID] = file
+	s.totalSize += file.size
 	if err := s.save(session.ID); err != nil {
 		delete(s.sessions, session.ID)
+		s.totalSize -= file.size
 		return Session{}, err
 	}
 	return buildSession(file), nil
 }
 
 // Patch меняет метаданные сессии. nil-поля не трогаются.
-func (s *Store) Patch(id string, title *string, pinned *bool, tags *[]string, projectID *string) (Session, error) {
+func (s *Store) Patch(id string, title *string, pinned *bool, tags *[]string, projectID *string, continuation *string) (Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	file, ok := s.sessions[id]
 	if !ok {
 		return Session{}, ErrNotFound
 	}
+	previous := *file
+	oldSize := file.size
 	if title != nil {
 		file.Session.Title = cleanTitle(*title)
 	}
@@ -196,21 +251,39 @@ func (s *Store) Patch(id string, title *string, pinned *bool, tags *[]string, pr
 		}
 		file.Session.ProjectID = value
 	}
+	if continuation != nil {
+		file.Session.Continuation = normalizeContinuation(*continuation)
+	}
 	file.Session.UpdatedAt = time.Now().UnixMilli()
+	file.size = sessionBytes(file)
+	if file.size > maxSessionBytes {
+		*file = previous
+		return Session{}, ErrSessionTooLarge
+	}
+	if s.totalSize-oldSize+file.size > maxServerBytes {
+		*file = previous
+		return Session{}, ErrServerFull
+	}
 	if err := s.save(id); err != nil {
+		*file = previous
 		return Session{}, err
 	}
+	s.totalSize += file.size - oldSize
 	return buildSession(file), nil
 }
 
 func (s *Store) Delete(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.sessions[id]; !ok {
+	file, ok := s.sessions[id]
+	if !ok {
 		return ErrNotFound
 	}
 	delete(s.sessions, id)
+	s.totalSize -= file.size
 	if err := os.Remove(s.file(id)); err != nil && !os.IsNotExist(err) {
+		s.sessions[id] = file
+		s.totalSize += file.size
 		return err
 	}
 	return nil
@@ -234,6 +307,19 @@ func (s *Store) Append(sessionID string, message Message) (Message, error) {
 		message.ID = newID("m")
 	}
 	message.SessionID = sessionID
+	if err := checkMessageSize(message); err != nil {
+		return Message{}, err
+	}
+	if len(file.Messages)+1 > maxMessagesPerSession {
+		return Message{}, ErrSessionTooLarge
+	}
+	delta := messageBytes(message)
+	if file.size+delta > maxSessionBytes {
+		return Message{}, ErrSessionTooLarge
+	}
+	if s.totalSize+delta > maxServerBytes {
+		return Message{}, ErrServerFull
+	}
 	file.Messages = append(file.Messages, message)
 	if message.CreatedAt > file.Session.UpdatedAt {
 		file.Session.UpdatedAt = message.CreatedAt
@@ -244,6 +330,8 @@ func (s *Store) Append(sessionID string, message Message) (Message, error) {
 		file.Messages = file.Messages[:len(file.Messages)-1]
 		return Message{}, err
 	}
+	file.size += delta
+	s.totalSize += delta
 	return message, nil
 }
 
@@ -258,13 +346,27 @@ func (s *Store) PatchMessage(sessionID, messageID, content string) (Message, err
 		if file.Messages[i].ID != messageID {
 			continue
 		}
-		file.Messages[i].Content = content
-		file.Messages[i].EditedAt = time.Now().UnixMilli()
-		file.Session.UpdatedAt = file.Messages[i].EditedAt
+		updated := file.Messages[i]
+		updated.Content = content
+		if err := checkMessageSize(updated); err != nil {
+			return Message{}, err
+		}
+		delta := messageBytes(updated) - messageBytes(file.Messages[i])
+		if file.size+delta > maxSessionBytes {
+			return Message{}, ErrSessionTooLarge
+		}
+		if s.totalSize+delta > maxServerBytes {
+			return Message{}, ErrServerFull
+		}
+		updated.EditedAt = time.Now().UnixMilli()
+		file.Messages[i] = updated
+		file.Session.UpdatedAt = updated.EditedAt
 		if err := s.save(sessionID); err != nil {
 			return Message{}, err
 		}
-		return file.Messages[i], nil
+		file.size += delta
+		s.totalSize += delta
+		return updated, nil
 	}
 	return Message{}, ErrNotFound
 }
@@ -281,6 +383,7 @@ func (s *Store) DeleteMessage(sessionID, messageID string) error {
 			continue
 		}
 		removed := file.Messages[i]
+		removedSize := messageBytes(removed)
 		file.Messages = append(file.Messages[:i], file.Messages[i+1:]...)
 		file.Session.UpdatedAt = time.Now().UnixMilli()
 		if err := s.save(sessionID); err != nil {
@@ -288,21 +391,45 @@ func (s *Store) DeleteMessage(sessionID, messageID string) error {
 			file.Messages = append(file.Messages[:i], append([]Message{removed}, file.Messages[i:]...)...)
 			return err
 		}
+		file.size -= removedSize
+		s.totalSize -= removedSize
 		return nil
 	}
 	return ErrNotFound
 }
 
 // Import заменяет сессию и сообщения целиком — так клиент синхронизирует
-// локальный диалог с сервером.
-func (s *Store) Import(sessionID string, session Session, messages []Message) (Session, error) {
+// локальный диалог с сервером. ownerID задаёт инициатора только при создании
+// новой сессии: подменить владельца через import нельзя.
+func (s *Store) Import(sessionID string, session Session, messages []Message, ownerID string) (Session, error) {
+	// Лимиты проверяем до любых изменений в памяти: либо импорт целиком,
+	// либо ничего.
+	if len(messages) > maxMessagesPerSession {
+		return Session{}, ErrSessionTooLarge
+	}
+	for _, message := range messages {
+		if err := checkMessageSize(message); err != nil {
+			return Session{}, err
+		}
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now().UnixMilli()
 	file, exists := s.sessions[sessionID]
 	if !exists {
-		file = &sessionFile{Session: Session{ID: sessionID, CreatedAt: now}}
+		if len(s.sessions) >= maxSessions {
+			return Session{}, ErrServerFull
+		}
+		file = &sessionFile{Session: Session{
+			ID:           sessionID,
+			CreatedAt:    now,
+			OwnerID:      ownerID,
+			Continuation: normalizeContinuation(session.Continuation),
+		}}
 	}
+	previous := *file
+	oldSize := file.size
 	if file.Session.CreatedAt == 0 {
 		file.Session.CreatedAt = session.CreatedAt
 	}
@@ -352,21 +479,30 @@ func (s *Store) Import(sessionID string, session Session, messages []Message) (S
 		clean = append(clean, message)
 	}
 	sort.SliceStable(clean, func(i, j int) bool { return clean[i].CreatedAt < clean[j].CreatedAt })
-	previous := file.Messages
 	file.Messages = clean
 	if file.Session.Summary != nil && strings.TrimSpace(file.Session.Summary.Text) != "" {
 		file.Session.Summary.Revision = revisionOf(clean)
 	}
 	file.Session.UpdatedAt = now
+	file.size = sessionBytes(file)
+	if file.size > maxSessionBytes {
+		*file = previous
+		return Session{}, ErrSessionTooLarge
+	}
+	if s.totalSize-oldSize+file.size > maxServerBytes {
+		*file = previous
+		return Session{}, ErrServerFull
+	}
 	// Новая сессия попадает в карту до записи: save ищет файл по карте.
 	s.sessions[sessionID] = file
 	if err := s.save(sessionID); err != nil {
-		file.Messages = previous
+		*file = previous
 		if !exists {
 			delete(s.sessions, sessionID)
 		}
 		return Session{}, err
 	}
+	s.totalSize += file.size - oldSize
 	return buildSession(file), nil
 }
 

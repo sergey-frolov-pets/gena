@@ -71,6 +71,38 @@ scp gena-server root@server:/opt/gena-server/gena-server
 | `-name` | `GENA_NAME` | `Gena server` | имя в интерфейсе |
 | `-no-auth` | — | выкл. | без токена, только для локальной отладки |
 
+## Коды доступа и права
+
+Мастер-токен (`-token`) — владелец сервера. Гостям владелец выпускает коды:
+`POST /api/access {"label": "Алиса"}`. В ответе `code` показывается **один раз**,
+в `access.json` остаётся только SHA-256 — восстановить код нельзя, при потере
+выпускается новый.
+
+| Кто | Читает | Пишет сообщения | Правит и удаляет сессию |
+|---|---|---|---|
+| владелец сервера | все | везде | все |
+| инициатор сессии | все | свою всегда | свою |
+| гость | все | если инициатор разрешил (`continuation: "all"`) | нет |
+
+- Инициатор — тот, кто создал сессию. Режим переключается
+  `PATCH /api/sessions/{id} {"continuation": "view"}` (только просмотр)
+  или `"all"` (продолжать можно всем).
+- Сессии, созданные до 1.1.0, считаются сессиями владельца, режим — `all`.
+- Блокировка кода действует со следующего запроса (403), удаление — 401.
+
+## Лимиты
+
+| Что | Предел | Ответ сверх лимита |
+|---|---|---|
+| одно сообщение | 256 КБ | 413 |
+| сообщений в сессии | 5000 | 409 |
+| файл сессии | 16 МБ | 409 |
+| все сессии сервера | 256 МБ | 507 |
+| число сессий | 2000 | 507 |
+| число кодов доступа | 50 | 409 |
+
+Данные не режутся молча: запрос отклоняется целиком, сессия остаётся как была.
+
 ## API
 
 Все методы, кроме `/api/health`, требуют `Authorization: Bearer <токен>`.
@@ -78,17 +110,21 @@ scp gena-server root@server:/opt/gena-server/gena-server
 | Метод | Путь | Назначение |
 |---|---|---|
 | GET | `/api/health` | проверка связи, без токена |
-| GET | `/api/server` | имя, версия, число сессий |
+| GET | `/api/server` | имя, версия, число сессий, роль (`owner`/`guest`) |
 | GET | `/api/sessions` | список сессий |
-| POST | `/api/sessions` | создать `{title, agentId}` |
+| POST | `/api/sessions` | создать `{title, agentId, continuation}` |
 | GET | `/api/sessions/{id}` | сессия + сообщения |
-| PATCH | `/api/sessions/{id}` | `{title, pinned, tags}` |
+| PATCH | `/api/sessions/{id}` | `{title, pinned, tags, projectId, continuation}` |
 | DELETE | `/api/sessions/{id}` | удалить сессию |
 | POST | `/api/sessions/{id}/messages` | добавить сообщение |
 | PATCH | `/api/sessions/{id}/messages/{msg}` | правка текста |
 | DELETE | `/api/sessions/{id}/messages/{msg}` | удалить сообщение |
 | POST | `/api/sessions/{id}/import` | полная синхронизация с клиента |
 | GET | `/api/sessions/{id}/export.md` | диалог в markdown |
+| GET | `/api/access` | коды доступа (только владелец) |
+| POST | `/api/access` | выпустить код `{label, expiresAt}` |
+| PATCH | `/api/access/{id}` | `{label, blocked, expiresAt}` |
+| DELETE | `/api/access/{id}` | удалить код |
 
 Пример:
 
@@ -103,6 +139,7 @@ curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
 
 ```
 /var/lib/gena-server/sessions/<id>.json   # один диалог = один файл
+/var/lib/gena-server/access.json          # коды доступа (только хеши)
 ```
 
 Файл — `{session, messages}`, запись атомарная (временный файл + rename).
@@ -112,6 +149,8 @@ curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
 ## Безопасность
 
 - Токен обязателен; без него сервер не стартует.
+- Мастер-токен даёт полный доступ — его не пересылать. Гостям — коды доступа:
+  их можно отозвать в любой момент, мастер-токен при этом не меняется.
 - Наружу — только HTTPS (Caddy/Nginx), `/api` проксируется на `127.0.0.1:8787`.
 - Токен — это доступ ко всей переписке: не пересылать в мессенджерах,
   при утечке сгенерировать новый файл токена и перезапустить службу.
