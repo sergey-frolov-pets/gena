@@ -174,6 +174,7 @@ export const chatMessages = {
   "chat.ctx.full": "完整",
   "chat.ctx.summary": "摘要",
   "chat.ctx.deleteProject": "删除项目",
+  "chat.ctx.projectLocked": "服务器仅允许查看这些项目，不能新建或删除。",
   "chat.ctx.newProject": "新建项目",
   "chat.ctx.projectName": "项目名称",
   "chat.ctx.create": "创建",

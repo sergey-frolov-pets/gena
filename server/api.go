@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,6 +24,9 @@ type API struct {
 	accessUntil time.Time
 	// accessText — та же дата в исходном виде: дату отдаём датой, без сдвига дня.
 	accessText string
+	// token — мастер-токен сервера. Нужен /api/health: эндпоинт открыт всем,
+	// но счётчики в нём считаем только для тех, кто прислал токен.
+	token string
 }
 
 func (a *API) routes(mux *http.ServeMux) {
@@ -157,14 +161,26 @@ func decodeBody(w http.ResponseWriter, r *http.Request, dst any) bool {
 	return true
 }
 
-func (a *API) health(w http.ResponseWriter, _ *http.Request) {
+// health: жив ли сервер, какая версия, когда закрывается доступ. Эндпоинт
+// открыт всем (по нему клиент понимает, что сервер жив), поэтому счётчики
+// отдаём только тому, кто прислал токен, и считаем их по области доступа:
+// иначе гость с одним проектом видел бы размер всего сервера.
+func (a *API) health(w http.ResponseWriter, r *http.Request) {
 	payload := map[string]any{
-		"ok":       true,
-		"name":     a.name,
-		"version":  version,
-		"time":     time.Now().UTC().Format(time.RFC3339),
-		"sessions": a.store.Count(),
-		"projects": a.store.CountProjects(),
+		"ok":      true,
+		"name":    a.name,
+		"version": version,
+		"time":    time.Now().UTC().Format(time.RFC3339),
+	}
+	if p, ok := a.principalFrom(r); ok {
+		sessions, projects := a.visibleCounts(p)
+		payload["sessions"] = sessions
+		payload["projects"] = projects
+		payload["role"] = roleOf(p)
+		payload["scopeAll"] = p.SeesAllProjects()
+		if !p.SeesAllProjects() {
+			payload["projectScope"] = p.Projects
+		}
 	}
 	// Срок доступа задаётся в конфиге сервера. Клиенту нужен тот же факт,
 	// что видит админ: иначе дату пришлось бы дублировать на каждом устройстве.
@@ -174,6 +190,31 @@ func (a *API) health(w http.ResponseWriter, _ *http.Request) {
 		payload["expired"] = accessClosed(a.accessUntil, time.Now())
 	}
 	writeJSON(w, http.StatusOK, payload)
+}
+
+// principalFrom — то же, что делает withAuth, но по запросу: health проходит
+// мимо посредника и сам решает, кому верить. Неизвестный или пустой токен —
+// не ошибка: ответ остаётся без счётчиков.
+func (a *API) principalFrom(r *http.Request) (Principal, bool) {
+	if a.token == "" && a.access == nil {
+		return Principal{Owner: true, Label: "владелец"}, true
+	}
+	given := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer"))
+	given = strings.TrimSpace(given)
+	if given == "" {
+		return Principal{}, false
+	}
+	if a.token != "" && subtle.ConstantTimeCompare([]byte(given), []byte(a.token)) == 1 {
+		return Principal{Owner: true, Label: "владелец"}, true
+	}
+	if a.access == nil {
+		return Principal{}, false
+	}
+	item, err := a.access.Lookup(given)
+	if err != nil {
+		return Principal{}, false
+	}
+	return Principal{AccessID: item.ID, Label: item.Label, Projects: item.Projects}, true
 }
 
 func (a *API) serverInfo(w http.ResponseWriter, r *http.Request) {

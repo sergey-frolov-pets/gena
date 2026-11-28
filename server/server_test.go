@@ -17,7 +17,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 	if err != nil {
 		t.Fatalf("хранилище: %v", err)
 	}
-	api := &API{store: store, name: "test", started: time.Now()}
+	api := &API{store: store, name: "test", started: time.Now(), token: "secret"}
 	mux := http.NewServeMux()
 	api.routes(mux)
 	srv := httptest.NewServer(withAuth(mux, "secret"))

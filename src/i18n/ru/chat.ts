@@ -174,6 +174,7 @@ export const chatMessages = {
   "chat.ctx.full": "Целиком",
   "chat.ctx.summary": "Саммари",
   "chat.ctx.deleteProject": "Удалить проект",
+  "chat.ctx.projectLocked": "Сервер разрешает только смотреть эти проекты — создать или удалить нельзя.",
   "chat.ctx.newProject": "Новый проект",
   "chat.ctx.projectName": "Название проекта",
   "chat.ctx.create": "Создать",

@@ -174,6 +174,7 @@ export const chatMessages = {
   "chat.ctx.full": "كامل",
   "chat.ctx.summary": "ملخص",
   "chat.ctx.deleteProject": "حذف المشروع",
+  "chat.ctx.projectLocked": "الخادم يسمح بعرض هذه المشاريع فقط — الإنشاء أو الحذف غير متاح.",
   "chat.ctx.newProject": "مشروع جديد",
   "chat.ctx.projectName": "اسم المشروع",
   "chat.ctx.create": "إنشاء",

@@ -174,6 +174,7 @@ export const chatMessages = {
   "chat.ctx.full": "全文",
   "chat.ctx.summary": "要約",
   "chat.ctx.deleteProject": "プロジェクトを削除",
+  "chat.ctx.projectLocked": "このサーバーではプロジェクトの閲覧のみ可能で、作成や削除はできません。",
   "chat.ctx.newProject": "新しいプロジェクト",
   "chat.ctx.projectName": "プロジェクト名",
   "chat.ctx.create": "作成",

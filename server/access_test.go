@@ -25,7 +25,7 @@ func newAuthServerDir(t *testing.T) (*httptest.Server, *AccessStore, string) {
 	if err != nil {
 		t.Fatalf("коды доступа: %v", err)
 	}
-	api := &API{store: store, access: access, name: "test", started: time.Now()}
+	api := &API{store: store, access: access, name: "test", started: time.Now(), token: "secret"}
 	mux := routesFor(api)
 	srv := httptest.NewServer(withAuth(mux, "secret", access))
 	t.Cleanup(srv.Close)

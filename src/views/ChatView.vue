@@ -66,6 +66,7 @@ import {
 } from "@/lib/projects";
 import { summarizeSession } from "@/lib/summary";
 import { clientFor } from "@/lib/gena-server";
+import { projectScope } from "@/lib/project-scope";
 import { listenToAgent, sendToAgent, type TransportAttachment } from "@/lib/agent-client";
 import { cancelAgentTurn } from "@/lib/agent-client";
 import { describeError } from "@/lib/errors";
@@ -2706,6 +2707,8 @@ const queue = ref<QueuedMessage[]>([]);
 const contextChips = ref<ContextChip[]>([]);
 /** Модалка «@» — поиск диалогов и проектов. */
 const contextPickerOpen = ref(false);
+/** Сервер разрешает управлять проектами (гость с ограничением — нет). */
+const projectManageable = ref(true);
 /** Состояние чипа: идёт расчёт саммари или случилась ошибка. */
 const contextStates = ref<Record<string, "summarizing" | "error" | undefined>>({});
 /** Проекты для модалки. */
@@ -2752,6 +2755,10 @@ async function refreshContextSources(): Promise<void> {
 
 function openContextPicker(): void {
   void refreshContextSources();
+  // Ограниченный гость видит проекты, но не управляет ими — кнопки прячем.
+  void projectScope().then((scope) => {
+    projectManageable.value = scope.manage;
+  });
   contextPickerOpen.value = true;
 }
 
@@ -5867,6 +5874,7 @@ function onRateChange(event: Event): void {
         :projects="contextProjects"
         :remote-sessions="contextRemote"
         :chips="contextChips"
+        :can-manage-projects="projectManageable"
         @close="contextPickerOpen = false"
         @toggle="toggleContextChip"
         @create-project="newContextProject"

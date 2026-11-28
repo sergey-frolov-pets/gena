@@ -101,6 +101,7 @@ func main() {
 		client:      &http.Client{},
 		accessUntil: until,
 		accessText:  untilText,
+		token:       tok,
 	}
 
 	mux := http.NewServeMux()

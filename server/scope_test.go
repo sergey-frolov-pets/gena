@@ -220,3 +220,51 @@ func TestAccessScopeRejectsUnknownProject(t *testing.T) {
 		t.Fatalf("неизвестный проект принят: %d %s", status, raw)
 	}
 }
+
+// health открыт всем, но счётчики в нём — по области доступа: гость с одним
+// проектом не должен видеть размер всего сервера, а без токена цифр нет вовсе.
+func TestHealthCountsFollowScope(t *testing.T) {
+	srv, _ := newAuthServer(t)
+	alpha := makeProject(t, srv, "Альфа")
+	beta := makeProject(t, srv, "Бета")
+	sessionIn(t, srv, alpha.ID)
+	sessionIn(t, srv, alpha.ID)
+	sessionIn(t, srv, beta.ID)
+	_, guest := issueScoped(t, srv, "Альфа", []string{alpha.ID})
+
+	// Без токена: жив/версия есть, счётчиков нет.
+	status, raw := do(t, srv, "GET", "/api/health", nil, "")
+	if status != 200 {
+		t.Fatalf("health без токена: %d %s", status, raw)
+	}
+	anon := decode[map[string]any](t, raw)
+	if anon["ok"] != true {
+		t.Fatalf("health без токена не отвечает ok: %s", raw)
+	}
+	if _, ok := anon["sessions"]; ok {
+		t.Fatalf("health без токена выдаёт размер сервера: %s", raw)
+	}
+
+	// Гость: только свои проект и диалоги.
+	status, raw = do(t, srv, "GET", "/api/health", nil, guest)
+	scoped := decode[map[string]any](t, raw)
+	if status != 200 || scoped["sessions"].(float64) != 2 || scoped["projects"].(float64) != 1 {
+		t.Fatalf("health гостя считает чужое: %d %s", status, raw)
+	}
+	if scoped["scopeAll"].(bool) || scoped["role"] != "guest" {
+		t.Fatalf("health гостя: роль/область неверны: %s", raw)
+	}
+	if ids, ok := scoped["projectScope"].([]any); !ok || len(ids) != 1 || ids[0] != alpha.ID {
+		t.Fatalf("health гостя: projectScope неверен: %s", raw)
+	}
+
+	// Владелец: всё и scopeAll.
+	status, raw = do(t, srv, "GET", "/api/health", nil, "secret")
+	owner := decode[map[string]any](t, raw)
+	if status != 200 || owner["sessions"].(float64) != 3 || owner["projects"].(float64) != 2 {
+		t.Fatalf("health владельца: %d %s", status, raw)
+	}
+	if !owner["scopeAll"].(bool) || owner["role"] != "owner" {
+		t.Fatalf("health владельца: роль/область неверны: %s", raw)
+	}
+}

@@ -20,6 +20,8 @@ const props = defineProps<{
   /** Диалоги с сервера, которых нет на устройстве. */
   remoteSessions: { id: string; remoteId: string; serverId: string; title: string; messageCount?: number; updatedAt: number }[];
   chips: ContextChip[];
+  /** Сервер выдал доступ только к своим проектам — управление прячем. */
+  canManageProjects?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -46,6 +48,9 @@ watch(
 );
 
 const needle = computed(() => query.value.trim().toLowerCase());
+
+/** Проп не передан — значит ограничений нет (локальный режим). */
+const manageProjects = computed(() => props.canManageProjects !== false);
 
 function matches(title: string): boolean {
   if (!needle.value) return true;
@@ -174,6 +179,7 @@ function closeOnEscape(event: KeyboardEvent): void {
                 {{ t("chat.ctx.summary") }}
               </button>
               <button
+                v-if="manageProjects"
                 type="button"
                 class="ctx-drop"
                 :aria-label="t('chat.ctx.deleteProject')"
@@ -184,7 +190,8 @@ function closeOnEscape(event: KeyboardEvent): void {
               </button>
             </div>
           </div>
-          <div class="ctx-new">
+          <p v-if="!manageProjects" class="ctx-hint">{{ t("chat.ctx.projectLocked") }}</p>
+          <div v-if="manageProjects" class="ctx-new">
             <button
               v-if="!showNewProject"
               type="button"
