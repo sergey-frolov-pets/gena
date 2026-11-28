@@ -241,8 +241,18 @@ export interface GenaServer {
   url: string;
   /** Запечатанный токен (`enc:v1:...`). */
   sealedToken: string;
+  /** Итог успешной проверки связи: показываем в карточке сервера. */
+  lastCheck?: ServerLastCheck;
   createdAt: number;
   updatedAt: number;
+}
+
+/** Снимок ответа `/api/health` на момент последней успешной проверки. */
+export interface ServerLastCheck {
+  at: number;
+  name?: string;
+  version?: string;
+  sessions?: number;
 }
 
 /**

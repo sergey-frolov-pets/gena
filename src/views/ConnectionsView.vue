@@ -48,7 +48,14 @@ import {
 import type { PrivacyMode } from "@/storage/types";
 
 import { checkGenaServer, normalizeServerUrl } from "@/lib/gena-server";
-import { sealAgentKey } from "@/crypto/agent-key-cipher";
+import { openAgentKey, sealAgentKey } from "@/crypto/agent-key-cipher";
+import {
+  mergeServers,
+  parseServersFile,
+  serializeServersJson,
+  serializeServersYaml,
+  serversFileFrom,
+} from "@/lib/server-settings-file";
 import { newId } from "@/lib/id";
 import type { GenaServer } from "@/storage/types";
 
@@ -110,6 +117,20 @@ const confirmRemoveServer = computed(() =>
   servers.value.find((item) => item.id === confirmRemoveServerId.value),
 );
 
+/** Состояние проверки связи по serverId — как testStates у агентов. */
+const serverStates = ref<Record<string, { state: "checking" | "ok" | "fail"; msg?: string }>>({});
+/** id редактируемого сервера (null — режим создания). */
+const editingServerId = ref<string | null>(null);
+const serversFileInput = ref<HTMLInputElement | null>(null);
+
+const serverFormTitle = computed(() =>
+  editingServerId.value ? t("connections.servers.editTitle") : t("connections.servers.add"),
+);
+
+const serverSaveLabel = computed(() =>
+  editingServerId.value ? t("connections.servers.saveChanges") : t("connections.servers.save"),
+);
+
 async function loadServers(): Promise<void> {
   servers.value = await listServers();
 }
@@ -142,30 +163,60 @@ function resetServerForm(): void {
   serverUrl.value = "";
   serverToken.value = "";
   serverCheck.value = { state: "idle" };
+  editingServerId.value = null;
+}
+
+/** Правка сервера: токен не показываем — пустое поле оставит прежний. */
+function startEditServer(server: GenaServer): void {
+  editingServerId.value = server.id;
+  serverName.value = server.name;
+  serverUrl.value = server.url;
+  serverToken.value = "";
+  serverCheck.value = { state: "idle" };
+  error.value = "";
+  notice.value = "";
 }
 
 async function saveServer(): Promise<void> {
   const url = normalizeServerUrl(serverUrl.value);
   const token = serverToken.value.trim();
-  if (!url || !token) return;
+  const editing =
+    editingServerId.value === null
+      ? undefined
+      : servers.value.find((item) => item.id === editingServerId.value);
+  // Новому серверу токен обязателен; при правке пустое поле оставляет прежний.
+  if (!url || (!token && !editing)) return;
   serverBusy.value = true;
   error.value = "";
   notice.value = "";
   try {
-    const id = newId("srv");
-    await putServer({
-      id,
-      name: serverName.value.trim() || url.replace(/^https?:\/\//, ""),
-      url,
-      sealedToken: await sealAgentKey(token, id),
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    });
+    const name = serverName.value.trim() || url.replace(/^https?:\/\//, "");
+    if (editing) {
+      await putServer({
+        ...editing,
+        name,
+        url,
+        sealedToken: token ? await sealAgentKey(token, editing.id) : editing.sealedToken,
+        updatedAt: Date.now(),
+      });
+    } else {
+      const id = newId("srv");
+      await putServer({
+        id,
+        name,
+        url,
+        sealedToken: await sealAgentKey(token, id),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    }
     await loadServers();
-    // Агенты нового сервера нужны сразу: пользователь идёт в чат.
+    // Агенты сервера нужны сразу: пользователь идёт в чат.
     void loadAgents();
     resetServerForm();
-    notice.value = t("connections.servers.saved");
+    notice.value = editing
+      ? t("connections.servers.updated")
+      : t("connections.servers.saved");
   } catch (e) {
     error.value = describeError(e, t);
   } finally {
@@ -173,8 +224,59 @@ async function saveServer(): Promise<void> {
   }
 }
 
+/** Проверка сохранённого сервера: токен разворачиваем на устройстве. */
+async function testServer(server: GenaServer): Promise<void> {
+  if (!server.sealedToken) {
+    serverStates.value[server.id] = { state: "fail", msg: t("connections.servers.tokenMissing") };
+    return;
+  }
+  serverStates.value[server.id] = { state: "checking" };
+  try {
+    const token = await openAgentKey(server.sealedToken, server.id);
+    const info = await checkGenaServer(server.url, token);
+    await putServer({
+      ...server,
+      lastCheck: {
+        at: Date.now(),
+        name: info.name,
+        version: info.version || undefined,
+        sessions: info.sessions,
+      },
+    });
+    await loadServers();
+    serverStates.value[server.id] = {
+      state: "ok",
+      msg: t("connections.servers.ok", {
+        name: info.name,
+        version: info.version || "—",
+        sessions: info.sessions,
+      }),
+    };
+  } catch (e) {
+    serverStates.value[server.id] = {
+      state: "fail",
+      msg: t("connections.servers.fail", {
+        error: e instanceof Error ? e.message : String(e),
+      }),
+    };
+  }
+}
+
+/** Строка снимка проверки в карточке сервера. */
+function serverCheckLine(server: GenaServer): string {
+  const check = server.lastCheck;
+  if (!check) return "";
+  return t("connections.servers.info", {
+    version: check.version || "—",
+    sessions: check.sessions ?? 0,
+    when: new Date(check.at).toLocaleString(),
+  });
+}
+
 async function removeServer(server: GenaServer): Promise<void> {
   confirmRemoveServerId.value = "";
+  if (editingServerId.value === server.id) resetServerForm();
+  delete serverStates.value[server.id];
   await deleteServer(server.id);
   await loadServers();
   void loadAgents();
@@ -575,7 +677,7 @@ function addPoolModel(): void {
   // if (poolModels.value.length > 1 && protocol.value === "openai") protocol.value = "model_pool";
 }
 
-function downloadAgents(filename: string, body: string, type: string): void {
+function downloadFile(filename: string, body: string, type: string): void {
   const blob = new Blob([body], { type });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -590,9 +692,9 @@ function exportAgents(kind: "json" | "yaml"): void {
   const file = agentsFileFrom(agents.value);
   const stamp = new Date().toISOString().slice(0, 10);
   if (kind === "json") {
-    downloadAgents(`gena-agents-${stamp}.json`, serializeAgentsJson(file), "application/json");
+    downloadFile(`gena-agents-${stamp}.json`, serializeAgentsJson(file), "application/json");
   } else {
-    downloadAgents(`gena-agents-${stamp}.yaml`, serializeAgentsYaml(file), "application/yaml");
+    downloadFile(`gena-agents-${stamp}.yaml`, serializeAgentsYaml(file), "application/yaml");
   }
   notice.value = t("connections.file.exported", { count: file.agents.length });
 }
@@ -609,6 +711,41 @@ async function importAgents(event: Event): Promise<void> {
     for (const agent of merged.toWrite) await putAgent(agent);
     await loadAgents();
     notice.value = t("connections.file.imported", { added: merged.added, updated: merged.updated });
+  } catch (e) {
+    error.value = describeError(e, t);
+  } finally {
+    input.value = "";
+  }
+}
+
+function exportServers(kind: "json" | "yaml"): void {
+  error.value = "";
+  const file = serversFileFrom(servers.value);
+  const stamp = new Date().toISOString().slice(0, 10);
+  if (kind === "json") {
+    downloadFile(`gena-servers-${stamp}.json`, serializeServersJson(file), "application/json");
+  } else {
+    downloadFile(`gena-servers-${stamp}.yaml`, serializeServersYaml(file), "application/yaml");
+  }
+  notice.value = t("connections.servers.file.exported", { count: file.servers.length });
+}
+
+async function importServers(event: Event): Promise<void> {
+  error.value = "";
+  notice.value = "";
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  try {
+    const incoming = parseServersFile(await file.text());
+    const merged = mergeServers(await listServers(), incoming);
+    for (const server of merged.toWrite) await putServer(server);
+    await loadServers();
+    void loadAgents();
+    notice.value = t("connections.servers.file.imported", {
+      added: merged.added,
+      updated: merged.updated,
+    });
   } catch (e) {
     error.value = describeError(e, t);
   } finally {
@@ -986,11 +1123,60 @@ function addMixRoute(): void {
     </div>
     <hr class="block-split" />
 
-    <h3 class="block-title">{{ t("connections.servers.title") }}</h3>
+    <div class="agent-head">
+      <h3 class="block-title">{{ t("connections.servers.title") }}</h3>
+      <button
+        type="button"
+        class="icon-btn"
+        v-tip="t('connections.file.saveJson')"
+        :aria-label="t('connections.file.saveJson')"
+        @click="exportServers('json')"
+      >
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1" />
+          <path d="M16 21h1a2 2 0 0 0 2-2v-5c0-1.1.9-2 2-2a2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        class="icon-btn"
+        v-tip="t('connections.file.saveYaml')"
+        :aria-label="t('connections.file.saveYaml')"
+        @click="exportServers('yaml')"
+      >
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M10 12.5 8 15l2 2.5" />
+          <path d="m14 12.5 2 2.5-2 2.5" />
+          <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+          <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        class="icon-btn"
+        v-tip="t('connections.file.load')"
+        :aria-label="t('connections.file.load')"
+        @click="serversFileInput?.click()"
+      >
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="17 8 12 3 7 8" />
+          <line x1="12" x2="12" y1="3" y2="15" />
+        </svg>
+      </button>
+      <input
+        ref="serversFileInput"
+        class="file-input"
+        type="file"
+        accept=".json,.yaml,.yml,application/json,application/yaml"
+        @change="importServers"
+      />
+    </div>
     <p class="muted">{{ t("connections.servers.lead") }}</p>
+    <p class="muted small">{{ t("connections.servers.file.note") }}</p>
 
     <div class="card">
-      <h3>{{ t("connections.servers.add") }}</h3>
+      <h3>{{ serverFormTitle }}</h3>
       <div class="pair">
         <div class="field">
           <label>{{ t("connections.servers.name") }}</label>
@@ -1003,7 +1189,12 @@ function addMixRoute(): void {
       </div>
       <div class="field">
         <label>{{ t("connections.servers.token") }}</label>
-        <input v-model="serverToken" type="password" autocomplete="off" placeholder="•••" />
+        <input
+          v-model="serverToken"
+          type="password"
+          autocomplete="off"
+          :placeholder="editingServerId ? t('connections.servers.tokenKeep') : '•••'"
+        />
       </div>
       <p
         v-if="serverCheck.state !== 'idle'"
@@ -1017,7 +1208,10 @@ function addMixRoute(): void {
           {{ serverCheck.state === "checking" ? t("connections.servers.checking") : t("connections.servers.check") }}
         </button>
         <button type="button" :disabled="serverBusy" @click="saveServer">
-          {{ t("connections.servers.save") }}
+          {{ serverSaveLabel }}
+        </button>
+        <button v-if="editingServerId" type="button" :disabled="serverBusy" @click="resetServerForm">
+          {{ t("connections.cancelEdit") }}
         </button>
       </div>
       <p class="muted small">{{ t("connections.servers.hint") }}</p>
@@ -1025,13 +1219,61 @@ function addMixRoute(): void {
 
     <p v-if="servers.length === 0" class="muted">{{ t("connections.servers.empty") }}</p>
     <div v-for="server in servers" :key="server.id" class="card server-card">
-      <strong>{{ server.name }}</strong>
-      <div class="muted">{{ server.url }}</div>
-      <div class="row-actions">
-        <button type="button" @click="confirmRemoveServerId = server.id">
-          {{ t("connections.servers.remove") }}
+      <div class="agent-head">
+        <strong>{{ server.name }}</strong>
+        <span v-if="!server.sealedToken" class="badge">{{ t("connections.servers.tokenMissingShort") }}</span>
+        <button
+          type="button"
+          class="icon-btn"
+          v-tip="t('connections.edit')"
+          :aria-label="t('connections.edit')"
+          @click="startEditServer(server)"
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+            <path d="m15 5 4 4" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="icon-btn"
+          :disabled="serverStates[server.id]?.state === 'checking'"
+          v-tip="serverStates[server.id]?.state === 'checking' ? t('connections.testing') : t('connections.test')"
+          :aria-label="serverStates[server.id]?.state === 'checking' ? t('connections.testing') : t('connections.test')"
+          @click="testServer(server)"
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 22v-5" />
+            <path d="M9 8V2" />
+            <path d="M15 8V2" />
+            <path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="icon-btn danger"
+          v-tip="t('connections.remove')"
+          :aria-label="t('connections.remove')"
+          @click="confirmRemoveServerId = server.id"
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 6h18" />
+            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+            <line x1="10" x2="10" y1="11" y2="17" />
+            <line x1="14" x2="14" y1="11" y2="17" />
+          </svg>
         </button>
       </div>
+      <div class="muted">{{ server.url }}</div>
+      <div v-if="server.lastCheck" class="muted small">{{ serverCheckLine(server) }}</div>
+      <p
+        v-if="serverStates[server.id] && serverStates[server.id].state !== 'checking'"
+        class="small"
+        :class="serverStates[server.id].state === 'ok' ? 'ok' : 'error'"
+      >
+        {{ serverStates[server.id].msg }}
+      </p>
     </div>
 
     <ConfirmModal
