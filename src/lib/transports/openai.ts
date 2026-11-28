@@ -117,8 +117,8 @@ export function parseSseEvents(text: string): unknown[] {
 }
 
 /**
- * Читать SSE-поток по событию за раз. Экспортируется: транспорт
- * `gena_server` получает тот же формат от нашего Go-сервера.
+ * Читать SSE-поток по событию за раз. Экспортируется: тот же формат
+ * приходит от прокси и от OpenAI-совместимых серверов.
  */
 export async function readSseStream(
   response: Response,

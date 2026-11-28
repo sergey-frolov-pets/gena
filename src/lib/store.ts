@@ -34,7 +34,6 @@ import { expandDialogAliases, upsertAlias } from "@/lib/tokens/dialog-alias";
 import { normalizeTags } from "@/lib/session-tags";
 import { newId } from "@/lib/id";
 import { scheduleServerSync, deleteServerSession } from "@/lib/server-sessions";
-import { SERVER_AGENT_PREFIX, fetchServerAgents, mergeAgents } from "@/lib/server-agents";
 
 /** Настройки из формы: лимиты — целые ≥ 0, модель — без пробелов по краям. */
 function normalizeSettings(input: Partial<typeof DEFAULT_AGENT_SETTINGS>) {
@@ -48,8 +47,6 @@ function normalizeSettings(input: Partial<typeof DEFAULT_AGENT_SETTINGS>) {
 }
 
 export const agents = ref<Agent[]>([]);
-/** Агенты с Gena-серверов: только в памяти, в базу не попадают. */
-export const serverAgents = ref<Agent[]>([]);
 export const sessions = ref<Session[]>([]);
 export const messages = ref<Message[]>([]);
 export const activeSessionId = ref<string | null>(null);
@@ -59,22 +56,7 @@ export const selectedSessionIds = ref<Set<string>>(new Set());
 export const sessionsLoaded = ref(false);
 
 export async function loadAgents(): Promise<void> {
-  const [local, remote] = await Promise.all([listAgents(), refreshServerAgents()]);
-  agents.value = mergeAgents(local, remote);
-}
-
-/**
- * Перечитать агентов с Gena-серверов. Серверные агенты живут только в
- * памяти: в базу устройства они не пишутся, иначе размножатся при бэкапе.
- */
-export async function refreshServerAgents(): Promise<Agent[]> {
-  try {
-    serverAgents.value = await fetchServerAgents();
-  } catch (error) {
-    console.warn("серверные агенты: не обновил", error);
-    serverAgents.value = [];
-  }
-  return serverAgents.value;
+  agents.value = await listAgents();
 }
 
 export async function loadSessions(): Promise<void> {
@@ -141,8 +123,6 @@ export async function createAgent(input: {
 
 /** Обновить ключ агента (перешифровать под тот же id). */
 export async function updateAgentKey(agentId: string, apiKey: string): Promise<void> {
-  // Ключ серверного агента задаётся на сервере — локально его не переписать.
-  if (agentId.startsWith(SERVER_AGENT_PREFIX)) return;
   const agent = await getAgent(agentId);
   if (!agent) return;
   agent.sealedKey = apiKey ? await sealAgentKey(apiKey, agentId) : "";
@@ -166,7 +146,6 @@ export async function updateAgent(
     tokenOnly?: boolean;
   },
 ): Promise<void> {
-  if (agentId.startsWith(SERVER_AGENT_PREFIX)) return;
   const agent = await getAgent(agentId);
   if (!agent) return;
   agent.name = input.name;
@@ -185,25 +164,15 @@ export async function updateAgent(
 }
 
 export async function removeAgent(agentId: string): Promise<void> {
-  // Серверный агент убирается на сервере, а не в базе устройства.
-  if (agentId.startsWith(SERVER_AGENT_PREFIX)) return;
   await deleteAgent(agentId);
   await loadAgents();
   // Подключений не осталось — значит, их убрали осознанно: страховочную
   // копию тоже чистим, иначе при следующем запуске они вернутся сами.
-  // Считаем только локальные: серверные в снапшот не входят.
-  const local = agents.value.filter((agent) => agent.origin !== "server");
-  if (local.length === 0) clearSnapshot();
+  if (agents.value.length === 0) clearSnapshot();
 }
 
 /** Получить расшифрованный ключ агента для запроса. */
 export async function getAgentKey(agent: Agent): Promise<string> {
-  // У серверного агента ключ — это токен сервера, запечатанный его id.
-  if (agent.origin === "server") {
-    const serverId = (agent.config as { serverId?: string } | undefined)?.serverId;
-    if (!serverId) return "";
-    return openAgentKey(agent.sealedKey, serverId);
-  }
   return openAgentKey(agent.sealedKey, agent.id);
 }
 

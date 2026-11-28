@@ -5650,20 +5650,6 @@ function onRateChange(event: Event): void {
       <button
         type="button"
         class="chat-panel__tool"
-        v-tip="mdSaved ? t('chat.saveMdDone') : t('chat.saveMd')"
-        :aria-label="t('chat.saveMd')"
-        :disabled="!activeSession"
-        @click="saveSessionMarkdown"
-      >
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M12 4v10" />
-          <path d="M8 10l4 4 4-4" />
-          <path d="M5 19h14" />
-        </svg>
-      </button>
-      <button
-        type="button"
-        class="chat-panel__tool"
         v-tip="t('chat.dialogs')"
         :aria-label="t('chat.dialogs')"
         :aria-pressed="historyOpen"
@@ -5715,6 +5701,20 @@ function onRateChange(event: Event): void {
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M12 3l7 3v6c0 4.2-2.9 7.4-7 9-4.1-1.6-7-4.8-7-9V6z" />
           <path d="M9 12l2 2 4-4" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        class="chat-panel__tool"
+        v-tip="mdSaved ? t('chat.saveMdDone') : t('chat.saveMd')"
+        :aria-label="t('chat.saveMd')"
+        :disabled="!activeSession"
+        @click="saveSessionMarkdown"
+      >
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 4v10" />
+          <path d="M8 10l4 4 4-4" />
+          <path d="M5 19h14" />
         </svg>
       </button>
       <button
@@ -6459,9 +6459,6 @@ function onRateChange(event: Event): void {
                 @click="chooseAgent(agent.id)"
               >
                 {{ agent.name }}
-                <span v-if="agent.origin === 'server'" class="chat-panel__agent-tag">{{
-                  t("chat.agentOnServer")
-                }}</span>
               </button>
             </div>
           </div>

@@ -84,15 +84,6 @@ export class GenaServerError extends Error {
   }
 }
 
-/** Агент на сервере: ключ провайдера остаётся там, клиент видит только описание. */
-export interface ServerAgent {
-  id: string;
-  name: string;
-  model: string;
-  /** Хост провайдера, без ключа — для подписи в списке. */
-  provider?: string;
-}
-
 /** Адрес без хвоста `/api` и без завершающего слеша: `https://host` или `http://ip:8787`. */
 export function normalizeServerUrl(input: string): string {
   let value = String(input ?? "").trim();
@@ -208,13 +199,6 @@ export async function checkGenaServer(
 
 export class GenaServerClient {
   constructor(readonly url: string, readonly token: string) {}
-
-  /** Агенты, доступные на сервере: id, имя, модель. Ключей здесь нет. */
-  async listAgents(): Promise<ServerAgent[]> {
-    const list = await request<ServerAgent[]>(this.url, this.token, "/api/agents");
-    if (!Array.isArray(list)) return [];
-    return list.filter((a) => a && typeof a.id === "string" && a.id.trim() !== "");
-  }
 
   list(): Promise<ServerSession[]> {
     return request<ServerSession[]>(this.url, this.token, "/api/sessions");

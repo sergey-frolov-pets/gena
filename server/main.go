@@ -59,7 +59,6 @@ func main() {
 	origins := flag.String("cors", envOr("GENA_CORS", "*"), "разрешённые Origin через запятую; * — любые")
 	name := flag.String("name", envOr("GENA_NAME", "Gena server"), "имя сервера в интерфейсе")
 	accessUntil := flag.String("access-until", envOr("GENA_ACCESS_UNTIL", ""), "доступ до даты: 2026-12-31 (или GENA_ACCESS_UNTIL)")
-	agentsFile := flag.String("agents-file", envOr("GENA_AGENTS_FILE", "/etc/gena-server/agents.json"), "файл серверных агентов (id, модель, ключ)")
 	noAuth := flag.Bool("no-auth", false, "работать без токена (только для локальной отладки)")
 	flag.Parse()
 
@@ -90,7 +89,6 @@ func main() {
 		store:       store,
 		name:        *name,
 		started:     time.Now(),
-		agents:      NewAgentRegistry(*agentsFile),
 		client:      &http.Client{},
 		accessUntil: until,
 		accessText:  untilText,

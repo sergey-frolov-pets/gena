@@ -69,44 +69,7 @@ scp gena-server root@server:/opt/gena-server/gena-server
 | `-token-file` | `GENA_TOKEN_FILE` | — | файл с токеном |
 | `-cors` | `GENA_CORS` | `*` | разрешённые Origin через запятую |
 | `-name` | `GENA_NAME` | `Gena server` | имя в интерфейсе |
-| `-agents-file` | `GENA_AGENTS_FILE` | `/etc/gena-server/agents.json` | серверные агенты: id, модель, ключ |
 | `-no-auth` | — | выкл. | без токена, только для локальной отладки |
-
-## Серверные агенты
-
-Ключ провайдера можно держать не в браузере, а на сервере. Тогда клиент
-видит только имя и модель, а запросы идут через сервер.
-
-1. Возьмите образец `agents.example.json` из этого каталога и положите его
-   как `/etc/gena-server/agents.json` (это делает `install.sh` при первой
-   установке), затем впишите свои ключи:
-
-   ```json
-   {
-     "agents": [
-       {
-         "id": "deepseek-chat",
-         "name": "DeepSeek Chat",
-         "baseUrl": "https://api.deepseek.com",
-         "model": "deepseek-chat",
-         "apiKey": "sk-…",
-         "systemPrompt": "Отвечай по-русски, коротко и по делу."
-       }
-     ]
-   }
-   ```
-
-   Права: `chown gena:gena /etc/gena-server/agents.json && chmod 0640`.
-   Файл читается на каждый запрос — править состав можно без рестарта.
-
-2. В клиенте подключите сервер («Подключения» → «Добавить сервер Gena»).
-   Его агенты появятся в списке чата с меткой «с сервера».
-
-3. Удаление агента из файла убирает его из списка при следующем открытии
-   чата; локальная база устройства при этом не меняется.
-
-`id` — латиница, цифры и дефис: он попадает в путь `/api/agents/{id}/chat`.
-Записи без `id`, `baseUrl` или `model` пропускаются, остальные работают.
 
 ## API
 
@@ -115,8 +78,6 @@ scp gena-server root@server:/opt/gena-server/gena-server
 | Метод | Путь | Назначение |
 |---|---|---|
 | GET | `/api/health` | проверка связи, без токена |
-| GET | `/api/agents` | серверные агенты: id, имя, модель (без ключей) |
-| POST | `/api/agents/{id}/chat` | чат через агента, SSE-поток как у OpenAI |
 | GET | `/api/server` | имя, версия, число сессий |
 | GET | `/api/sessions` | список сессий |
 | POST | `/api/sessions` | создать `{title, agentId}` |

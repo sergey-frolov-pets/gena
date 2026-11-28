@@ -20,7 +20,7 @@ export interface AgentSettings {
 }
 
 /** Протокол подключения к агенту. Нет поля `protocol` у старого агента → `http_json`. */
-export type Protocol = "http_json" | "openai" | "pico_ws" | "model_pool" | "model_mix" | "gena_server";
+export type Protocol = "http_json" | "openai" | "pico_ws" | "model_pool" | "model_mix";
 
 /**
  * Режим приватности подключения.
@@ -74,23 +74,12 @@ export interface HttpJsonConfig {
   // Поведение как у прежнего `POST {message, sessionId, settings, history}`.
 }
 
-/** Настройки агента, который живёт на Gena-сервере (`gena_server`). */
-export interface ServerAgentConfig {
-  /** Запись сервера в справочнике `GenaServer`. */
-  serverId: string;
-  /** id агента на сервере (`/api/agents`). */
-  agentId: string;
-  /** Модель, которую сервер покажет клиенту (только для подписи). */
-  model?: string;
-}
-
 export type AgentConfig =
   | OpenAIConfig
   | PicoConfig
   | HttpJsonConfig
   | ModelPoolConfig
-  | ModelMixConfig
-  | ServerAgentConfig;
+  | ModelMixConfig;
 
 
 export interface Agent {
@@ -118,11 +107,6 @@ export interface Agent {
    * @deprecated заменено на `privacy: "tokens"`, читается для старых записей.
    */
   tokenOnly?: boolean;
-  /**
-   * Источник агента. `server` — агент живёт на Gena-сервере (протокол
-   * `gena_server`): в базе его нет, список приходит с сервера при загрузке.
-   */
-  origin?: "server";
   createdAt: number;
   updatedAt: number;
 }

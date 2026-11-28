@@ -54,14 +54,6 @@ fi
 chown gena:gena "${CONF}/token"
 chmod 0600 "${CONF}/token"
 
-# Файл серверных агентов: ключи провайдеров живут только здесь, на сервере.
-# Готовый образец с заглушками лежит рядом с install.sh. Файл читается на
-# каждый запрос, поэтому правка состава агентов не требует рестарта службы.
-if [[ ! -f "${CONF}/agents.json" && -f "./agents.example.json" ]]; then
-  install -m 0640 -o gena -g gena ./agents.example.json "${CONF}/agents.json"
-  echo "создан ${CONF}/agents.json из образца — впишите свои ключи"
-fi
-
 cat > "${UNIT}" <<EOF
 [Unit]
 Description=Gena server (диалоги Gena)

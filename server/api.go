@@ -14,8 +14,6 @@ type API struct {
 	store   *Store
 	name    string
 	started time.Time
-	// agents — серверные агенты: список из JSON-файла, ключи только здесь.
-	agents *AgentRegistry
 	// client — HTTP-клиент для запросов к провайдерам (nil → http.Client{}).
 	client *http.Client
 	// accessUntil — до какого числа сервер доступен клиентам (нулевое — не задано).
@@ -28,10 +26,6 @@ type API struct {
 func (a *API) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/health", a.health)
 	mux.HandleFunc("GET /api/server", a.serverInfo)
-
-	// Серверные агенты: список без ключей и чат через сервер.
-	mux.HandleFunc("GET /api/agents", a.listAgents)
-	mux.HandleFunc("POST /api/agents/{id}/chat", a.chatWithAgent)
 
 	mux.HandleFunc("GET /api/sessions", a.listSessions)
 	mux.HandleFunc("POST /api/sessions", a.createSession)
@@ -82,7 +76,6 @@ func (a *API) health(w http.ResponseWriter, _ *http.Request) {
 		"time":     time.Now().UTC().Format(time.RFC3339),
 		"sessions": a.store.Count(),
 		"projects": a.store.CountProjects(),
-		"agents":   a.agents.Count(),
 	}
 	// Срок доступа задаётся в конфиге сервера. Клиенту нужен тот же факт,
 	// что видит админ: иначе дату пришлось бы дублировать на каждом устройстве.
