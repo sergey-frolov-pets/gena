@@ -27,9 +27,14 @@ export function parseAccessDate(value?: string | null): Date | null {
   if (!raw) return null;
   const dayOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
   if (dayOnly) {
-    const [, year, month, day] = dayOnly;
+    const year = Number(dayOnly[1]);
+    const month = Number(dayOnly[2]);
+    const day = Number(dayOnly[3]);
     // Дата без времени — «доступен до конца этого дня» по местным часам.
-    return new Date(Number(year), Number(month) - 1, Number(day), 23, 59, 59);
+    const at = new Date(year, month - 1, day, 23, 59, 59);
+    // Date молча перекатывает «2026-13-45» в февраль 2027-го — такой ввод отвергаем.
+    if (at.getFullYear() !== year || at.getMonth() !== month - 1 || at.getDate() !== day) return null;
+    return at;
   }
   const at = new Date(raw);
   return Number.isNaN(at.getTime()) ? null : at;

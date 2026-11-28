@@ -284,3 +284,86 @@ func TestMarkdownKeepsThoughts(t *testing.T) {
 	}
 	_ = fmt.Sprintf("%v", messages)
 }
+
+// Срок доступа: сервер сообщает клиенту ту же дату, что видит админ,
+// и не подставляет её, если срок не задан.
+func TestHealthReportsAccessUntil(t *testing.T) {
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("хранилище: %v", err)
+	}
+
+	plain := httptest.NewServer(withAuth(routesFor(&API{store: store, name: "test", started: time.Now()}), "secret"))
+	t.Cleanup(plain.Close)
+	if body, _ := getHealth(t, plain); body["accessUntil"] != nil {
+		t.Fatalf("без срока accessUntil быть не должно: %v", body["accessUntil"])
+	}
+
+	until, text, err := parseAccessUntil("2026-12-31")
+	if err != nil {
+		t.Fatalf("разбор даты: %v", err)
+	}
+	api := &API{store: store, name: "test", started: time.Now(), accessUntil: until, accessText: text}
+	withDate := httptest.NewServer(withAuth(routesFor(api), "secret"))
+	t.Cleanup(withDate.Close)
+	body, _ := getHealth(t, withDate)
+	if got := body["accessUntil"]; got != "2026-12-31" {
+		t.Fatalf("accessUntil = %v, жду 2026-12-31", got)
+	}
+}
+
+func routesFor(api *API) *http.ServeMux {
+	mux := http.NewServeMux()
+	api.routes(mux)
+	return mux
+}
+
+func getHealth(t *testing.T, srv *httptest.Server) (map[string]any, []byte) {
+	t.Helper()
+	res, err := http.Get(srv.URL + "/api/health")
+	if err != nil {
+		t.Fatalf("health: %v", err)
+	}
+	defer res.Body.Close()
+	var body map[string]any
+	dec := json.NewDecoder(res.Body)
+	if err := dec.Decode(&body); err != nil {
+		t.Fatalf("health json: %v", err)
+	}
+	if body["ok"] != true {
+		t.Fatalf("health: %v", body)
+	}
+	return body, nil
+}
+
+func TestParseAccessUntil(t *testing.T) {
+	if _, _, err := parseAccessUntil(""); err != nil {
+		t.Fatalf("пустая дата — не ошибка: %v", err)
+	}
+
+	until, text, err := parseAccessUntil("2026-12-31")
+	if err != nil {
+		t.Fatalf("дата: %v", err)
+	}
+	if text != "2026-12-31" {
+		t.Fatalf("текст = %q, жду исходную дату", text)
+	}
+	if got := until.Format("2006-01-02 15:04:05"); got != "2026-12-31 23:59:59" {
+		t.Fatalf("доступ до %s, жду конец дня", got)
+	}
+
+	at, text, err := parseAccessUntil("2026-11-01T09:00:00Z")
+	if err != nil {
+		t.Fatalf("RFC3339: %v", err)
+	}
+	if !at.Equal(time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)) {
+		t.Fatalf("время = %s", at)
+	}
+	if text != "2026-11-01T09:00:00Z" {
+		t.Fatalf("текст = %q", text)
+	}
+
+	if _, _, err := parseAccessUntil("31.12.2026"); err == nil {
+		t.Fatal("неверный формат должен давать ошибку")
+	}
+}
