@@ -3,6 +3,7 @@ import App from "./App.vue";
 import { vTip } from "./lib/tooltip";
 import { vLongPress } from "./lib/longpress";
 import { recordError } from "./lib/error-log";
+import { isBundleStale } from "./lib/bundle-version";
 import "./lib/appearance";
 import "./style.css";
 
@@ -57,31 +58,12 @@ if (import.meta.env.PROD && "serviceWorker" in navigator) {
   /**
    * Сверка «моя сборка == сборка на сервере».
    *
-   * Между деплоем и перезагрузкой вкладка живёт на старом коде: имя
-   * хешированного бандла меняется, а страница об этом не знает. Смотрим
-   * свежий index.html (no-store) и сравниваем имя файла с тем, что реально
-   * исполняется. Разошлось — показываем плашку «доступна новая версия».
+   * Сама логика — в `lib/bundle-version.ts`: по ней же `App.vue` решает,
+   * нужна ли плашка после `controllerchange`.
    */
-  const currentBundle = (): string => {
-    const src =
-      document.querySelector<HTMLScriptElement>('script[type="module"][src*="/assets/"]')
-        ?.src ?? "";
-    return src.split("/").pop() ?? "";
-  };
   const checkFreshBundle = async (): Promise<void> => {
-    try {
-      const res = await fetch(`${import.meta.env.BASE_URL}index.html`, {
-        cache: "no-store",
-      });
-      if (!res.ok) return;
-      const html = await res.text();
-      const fresh = /assets\/(index-[A-Za-z0-9_-]+\.js)/.exec(html)?.[1] ?? "";
-      const mine = currentBundle();
-      if (fresh && mine && fresh !== mine) {
-        window.dispatchEvent(new Event("app:update-available"));
-      }
-    } catch {
-      // офлайн или сеть отвалилась — молча, проверим позже
+    if (await isBundleStale()) {
+      window.dispatchEvent(new Event("app:update-available"));
     }
   };
   window.setInterval(() => void checkFreshBundle(), 180_000);

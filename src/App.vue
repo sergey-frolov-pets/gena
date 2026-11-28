@@ -35,6 +35,7 @@ import { readSnapshot, writeSnapshot } from "./storage/snapshot";
 import { describeStorageFailure, storageError, storageNotice } from "./lib/storage-state";
 import { useTheme } from "./lib/theme";
 import { watchForUpdate } from "./lib/version-update";
+import { isBundleStale } from "./lib/bundle-version";
 import { useLocale } from "./i18n";
 import { reportAppVisit, reportPage } from "./analytics/usage";
 
@@ -61,10 +62,18 @@ const { theme } = useTheme();
 const brandIcon = computed(
   () => `${import.meta.env.BASE_URL}icon${theme.value === "dark" ? "-dark" : ""}.svg?v=2`,
 );
-/** Плашка «доступна новая версия»: ставится, когда SW перешёл на новую сборку. */
+/** Плашка «доступна новая версия»: ставится, когда сборка на странице устарела. */
 const updateReady = ref(false);
+/**
+ * SW перешёл на новую версию — но страница могла уже быть свежей: первый клик
+ * плашки и был обновлением, а `clients.claim()` после него даёт
+ * `controllerchange` на актуальном бандле. Сверяемся с сервером, прежде чем
+ * просить пользователя перезагружаться второй раз.
+ */
 watchForUpdate(() => {
-  updateReady.value = true;
+  void isBundleStale().then((stale) => {
+    if (stale) updateReady.value = true;
+  });
 });
 /** Тот же сигнал, но от сверки бандла с сервером (`main.ts`) — без SW-события. */
 function markUpdateAvailable(): void {
