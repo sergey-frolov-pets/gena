@@ -9,6 +9,13 @@ import (
 // newAuthServer — сервер с мастер-токеном "secret" и реестром кодов доступа.
 func newAuthServer(t *testing.T) (*httptest.Server, *AccessStore) {
 	t.Helper()
+	srv, access, _ := newAuthServerDir(t)
+	return srv, access
+}
+
+// newAuthServerDir — то же плюс каталог данных: тесты читают файлы напрямую.
+func newAuthServerDir(t *testing.T) (*httptest.Server, *AccessStore, string) {
+	t.Helper()
 	dir := t.TempDir()
 	store, err := NewStore(dir)
 	if err != nil {
@@ -22,7 +29,7 @@ func newAuthServer(t *testing.T) (*httptest.Server, *AccessStore) {
 	mux := routesFor(api)
 	srv := httptest.NewServer(withAuth(mux, "secret", access))
 	t.Cleanup(srv.Close)
-	return srv, access
+	return srv, access, dir
 }
 
 // issueCode выпускает гостевой код от имени владельца.

@@ -31,6 +31,8 @@ export interface ServerAccess {
   blocked?: boolean;
   lastSeenAt?: number;
   expired?: boolean;
+  /** Проекты, к которым ограничен гость. Пусто — весь сервер. */
+  projects?: string[];
 }
 
 /** Ответ `/api/server`: роль, подпись и счётчики. */
@@ -45,6 +47,9 @@ export interface ServerStatus {
   label?: string;
   accessCodes?: number;
   startedAt?: string;
+  /** false — гость ограничен проектами из projectScope. */
+  scopeAll?: boolean;
+  projectScope?: string[];
 }
 
 /** Сколько ждём ответ на проверку связи, прежде чем сказать «не ответил». */
@@ -332,16 +337,20 @@ export class GenaServerClient {
   }
 
   /** Код возвращается один раз — в `access.json` остаётся только хеш. */
-  createAccess(label: string, expiresAt = 0): Promise<{ access: ServerAccess; code: string }> {
+  createAccess(
+    label: string,
+    expiresAt = 0,
+    projects: string[] = [],
+  ): Promise<{ access: ServerAccess; code: string }> {
     return request<{ access: ServerAccess; code: string }>(this.url, this.token, "/api/access", {
       method: "POST",
-      body: JSON.stringify({ label, expiresAt }),
+      body: JSON.stringify({ label, expiresAt, projects }),
     });
   }
 
   patchAccess(
     id: string,
-    body: { label?: string; blocked?: boolean; expiresAt?: number },
+    body: { label?: string; blocked?: boolean; expiresAt?: number; projects?: string[] },
   ): Promise<ServerAccess> {
     return request<ServerAccess>(this.url, this.token, this.path("/api/access", id), {
       method: "PATCH",

@@ -96,11 +96,56 @@ func (a *API) sessionFor(w http.ResponseWriter, r *http.Request, allowed func(Pr
 	return session, true
 }
 
+// canSeeAndManage — диалог в области доступа гостя и он вправе им управлять.
+func canSeeAndManage(p Principal, s Session) bool {
+	return canSeeSession(p, s) && canManageSession(p, s)
+}
+
+// canSeeAndWrite — диалог в области доступа гостя и он вправе писать.
+func canSeeAndWrite(p Principal, s Session) bool {
+	return canSeeSession(p, s) && canWriteSession(p, s)
+}
+
 func roleOf(p Principal) string {
 	if p.IsOwner() {
 		return "owner"
 	}
 	return "guest"
+}
+
+// sessionVisible читает метаданные и проверяет область доступа. Чужой
+// проект отдаём как «не найдено»: гость не должен узнавать о существовании
+// чужих диалогов.
+func (a *API) sessionVisible(w http.ResponseWriter, r *http.Request) (Session, bool) {
+	session, err := a.store.Meta(r.PathValue("id"))
+	if err != nil {
+		a.fail(w, err, "не прочитал сессию")
+		return Session{}, false
+	}
+	if !canSeeSession(principalOf(r), session) {
+		writeError(w, http.StatusNotFound, "не найдено")
+		return Session{}, false
+	}
+	return session, true
+}
+
+// visibleCounts считает только то, что гость вправе видеть: счётчики в
+// карточке подключения не должны выдавать чужие проекты.
+func (a *API) visibleCounts(p Principal) (sessions, projects int) {
+	if p.SeesAllProjects() {
+		return a.store.Count(), a.store.CountProjects()
+	}
+	for _, session := range a.store.List() {
+		if canSeeSession(p, session) {
+			sessions++
+		}
+	}
+	for _, project := range a.store.ListProjects() {
+		if p.CanSeeProject(project.ID) {
+			projects++
+		}
+	}
+	return sessions, projects
 }
 
 func decodeBody(w http.ResponseWriter, r *http.Request, dst any) bool {
@@ -133,11 +178,12 @@ func (a *API) health(w http.ResponseWriter, _ *http.Request) {
 
 func (a *API) serverInfo(w http.ResponseWriter, r *http.Request) {
 	p := principalOf(r)
+	sessions, projects := a.visibleCounts(p)
 	payload := map[string]any{
 		"name":            a.name,
 		"version":         version,
-		"sessions":        a.store.Count(),
-		"projects":        a.store.CountProjects(),
+		"sessions":        sessions,
+		"projects":        projects,
 		"startedAt":       a.started.UTC().Format(time.RFC3339),
 		"time":            time.Now().UTC().Format(time.RFC3339),
 		"role":            roleOf(p),
@@ -145,6 +191,11 @@ func (a *API) serverInfo(w http.ResponseWriter, r *http.Request) {
 		"canManageAccess": p.IsOwner(),
 		"accessId":        p.AccessID,
 		"label":           p.Label,
+		"scopeAll":        p.SeesAllProjects(),
+	}
+	// Область ограниченного гостя: клиент прячет управление чужими проектами.
+	if !p.SeesAllProjects() {
+		payload["projectScope"] = p.Projects
 	}
 	// Число кодов — только владельцу: гостю эта цифра ничего не даёт.
 	if p.IsOwner() {
@@ -153,21 +204,39 @@ func (a *API) serverInfo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, payload)
 }
 
-func (a *API) listSessions(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, a.store.List())
+func (a *API) listSessions(w http.ResponseWriter, r *http.Request) {
+	p := principalOf(r)
+	all := a.store.List()
+	if p.SeesAllProjects() {
+		writeJSON(w, http.StatusOK, all)
+		return
+	}
+	visible := make([]Session, 0, len(all))
+	for _, session := range all {
+		if canSeeSession(p, session) {
+			visible = append(visible, session)
+		}
+	}
+	writeJSON(w, http.StatusOK, visible)
 }
 
 func (a *API) createSession(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Title        string `json:"title"`
 		AgentID      string `json:"agentId"`
+		ProjectID    string `json:"projectId"`
 		Continuation string `json:"continuation"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
 	}
 	p := principalOf(r)
-	session, err := a.store.Create(body.Title, body.AgentID, p.AccessID, body.Continuation)
+	// Гость с ограничением создаёт диалоги только в выданных проектах.
+	if !p.IsOwner() && !p.SeesAllProjects() && !p.CanSeeProject(body.ProjectID) {
+		writeError(w, http.StatusForbidden, "в этот проект доступ не выдан: выберите один из своих проектов")
+		return
+	}
+	session, err := a.store.Create(body.Title, body.AgentID, p.AccessID, body.Continuation, body.ProjectID)
 	if err != nil {
 		a.fail(w, err, "не создал сессию")
 		return
@@ -176,6 +245,9 @@ func (a *API) createSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) getSession(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.sessionVisible(w, r); !ok {
+		return
+	}
 	session, messages, err := a.store.Get(r.PathValue("id"))
 	if err != nil {
 		a.fail(w, err, "не прочитал сессию")
@@ -195,8 +267,16 @@ func (a *API) patchSession(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &body) {
 		return
 	}
-	if _, ok := a.sessionFor(w, r, canManageSession); !ok {
+	if _, ok := a.sessionFor(w, r, canSeeAndManage); !ok {
 		return
+	}
+	// Перенос диалога: ограниченный гость может двигать его только между
+	// своими проектами, «без проекта» ему недоступно.
+	if body.ProjectID != nil {
+		if p := principalOf(r); !p.SeesAllProjects() && !p.CanSeeProject(*body.ProjectID) {
+			forbidden(w)
+			return
+		}
 	}
 	session, err := a.store.Patch(r.PathValue("id"), body.Title, body.Pinned, body.Tags, body.ProjectID, body.Continuation)
 	if err != nil {
@@ -207,7 +287,7 @@ func (a *API) patchSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) deleteSession(w http.ResponseWriter, r *http.Request) {
-	if _, ok := a.sessionFor(w, r, canManageSession); !ok {
+	if _, ok := a.sessionFor(w, r, canSeeAndManage); !ok {
 		return
 	}
 	if err := a.store.Delete(r.PathValue("id")); err != nil {
@@ -226,7 +306,7 @@ func (a *API) appendMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "пустое сообщение")
 		return
 	}
-	if _, ok := a.sessionFor(w, r, canWriteSession); !ok {
+	if _, ok := a.sessionFor(w, r, canSeeAndWrite); !ok {
 		return
 	}
 	saved, err := a.store.Append(r.PathValue("id"), message)
@@ -244,7 +324,7 @@ func (a *API) patchMessage(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &body) {
 		return
 	}
-	if _, ok := a.sessionFor(w, r, canManageSession); !ok {
+	if _, ok := a.sessionFor(w, r, canSeeAndManage); !ok {
 		return
 	}
 	message, err := a.store.PatchMessage(r.PathValue("id"), r.PathValue("msg"), body.Content)
@@ -256,7 +336,7 @@ func (a *API) patchMessage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) deleteMessage(w http.ResponseWriter, r *http.Request) {
-	if _, ok := a.sessionFor(w, r, canManageSession); !ok {
+	if _, ok := a.sessionFor(w, r, canSeeAndManage); !ok {
 		return
 	}
 	if err := a.store.DeleteMessage(r.PathValue("id"), r.PathValue("msg")); err != nil {
@@ -277,14 +357,18 @@ func (a *API) importSession(w http.ResponseWriter, r *http.Request) {
 	p := principalOf(r)
 	id := r.PathValue("id")
 	// Существующую сессию переписывает только владелец или инициатор:
-	// иначе гость мог бы затереть чужой диалог.
+	// иначе гость мог бы затереть чужой диалог. Новая сессия от гостя с
+	// ограничением попадает только в выданный ему проект.
 	if existing, err := a.store.Meta(id); err == nil {
-		if !canManageSession(p, existing) {
+		if !canSeeAndManage(p, existing) {
 			forbidden(w)
 			return
 		}
 	} else if !errors.Is(err, ErrNotFound) {
 		a.fail(w, err, "не прочитал сессию")
+		return
+	} else if !p.CanSeeProject(body.Session.ProjectID) {
+		forbidden(w)
 		return
 	}
 	session, err := a.store.Import(id, body.Session, body.Messages, p.AccessID)
@@ -298,6 +382,9 @@ func (a *API) importSession(w http.ResponseWriter, r *http.Request) {
 // exportMarkdown отдаёт диалог файлом: имя в Content-Disposition,
 // чтобы браузер сразу предложил «Сохранить».
 func (a *API) exportMarkdown(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.sessionVisible(w, r); !ok {
+		return
+	}
 	id := r.PathValue("id")
 	session, messages, err := a.store.Get(id)
 	if err != nil {

@@ -31,5 +31,9 @@ export const accessMessages = {
   "access.write": "लिख सकते हैं",
   "access.read": "केवल पढ़ें",
   "access.guestHint": "आप कोड से लॉग इन हैं। जो बातचीत आपने शुरू की, उसमें आप तय करते हैं कि अतिथि लिख सके या नहीं।",
+  "access.scope": "प्रोजेक्ट पहुँच",
+  "access.scopeAll": "पूरा सर्वर",
+  "access.scopeHint": "कुछ चुना नहीं — अतिथि पूरा सर्वर देखेगा। सीमित करने के लिए प्रोजेक्ट चुनें।",
+  "access.scopeEmpty": "कम से कम एक प्रोजेक्ट चुनें या पूरा सर्वर अनुमत करें।",
   "access.close": "बंद करें",
 } as const satisfies LocaleMessages;

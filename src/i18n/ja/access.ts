@@ -31,5 +31,9 @@ export const accessMessages = {
   "access.write": "書き込み可",
   "access.read": "閲覧のみ",
   "access.guestHint": "コードでログインしています。自分が始めた対話では、ゲストが書き込めるかを選べます。",
+  "access.scope": "プロジェクト公開範囲",
+  "access.scopeAll": "サーバー全体",
+  "access.scopeHint": "未選択ならゲストはサーバー全体を表示します。制限するにはプロジェクトを選んでください。",
+  "access.scopeEmpty": "プロジェクトを1つ以上選ぶか、サーバー全体を許可してください。",
   "access.close": "閉じる",
 } as const satisfies LocaleMessages;

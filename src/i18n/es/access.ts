@@ -31,5 +31,9 @@ export const accessMessages = {
   "access.write": "puede escribir",
   "access.read": "solo lectura",
   "access.guestHint": "Ha entrado con un código. En los diálogos que inició usted elige si el invitado puede escribir.",
+  "access.scope": "Acceso a proyectos",
+  "access.scopeAll": "todo el servidor",
+  "access.scopeHint": "Sin selección el invitado ve todo el servidor. Elige proyectos para limitar.",
+  "access.scopeEmpty": "Elige al menos un proyecto o permite todo el servidor.",
   "access.close": "Cerrar",
 } as const satisfies LocaleMessages;

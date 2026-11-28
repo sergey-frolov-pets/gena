@@ -192,7 +192,8 @@ func (s *Store) Meta(id string) (Session, error) {
 	return buildSession(file), nil
 }
 
-func (s *Store) Create(title, agentID, ownerID, continuation string) (Session, error) {
+func (s *Store) Create(title, agentID, ownerID, continuation, projectID string) (Session, error) {
+	projectID = strings.TrimSpace(projectID)
 	now := time.Now().UnixMilli()
 	session := Session{
 		ID:           newID("s"),
@@ -202,9 +203,16 @@ func (s *Store) Create(title, agentID, ownerID, continuation string) (Session, e
 		UpdatedAt:    now,
 		OwnerID:      ownerID,
 		Continuation: normalizeContinuation(continuation),
+		ProjectID:    projectID,
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Несуществующий проект — ошибка: иначе сессия молча окажется вне проекта.
+	if projectID != "" {
+		if _, ok := s.projects[projectID]; !ok {
+			return Session{}, ErrNotFound
+		}
+	}
 	if len(s.sessions) >= maxSessions {
 		return Session{}, ErrServerFull
 	}

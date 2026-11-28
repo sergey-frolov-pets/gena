@@ -31,5 +31,9 @@ export const accessMessages = {
   "access.write": "可以写入",
   "access.read": "只读",
   "access.guestHint": "您用访问码登录。在您发起的对话中，由您决定访客能否写入。",
+  "access.scope": "项目访问范围",
+  "access.scopeAll": "整个服务器",
+  "access.scopeHint": "未选择时访客可见整个服务器。选择项目即可限制范围。",
+  "access.scopeEmpty": "请至少选择一个项目，或允许整个服务器。",
   "access.close": "关闭",
 } as const satisfies LocaleMessages;

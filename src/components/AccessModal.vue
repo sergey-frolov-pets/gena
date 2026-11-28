@@ -6,7 +6,7 @@
  * Код показывается один раз: сервер хранит только хеш, восстановить нельзя.
  */
 import { computed, ref, watch } from "vue";
-import { clientFor, type ServerAccess } from "@/lib/gena-server";
+import { clientFor, type ServerAccess, type ServerProject } from "@/lib/gena-server";
 import type { GenaServer } from "@/storage/types";
 import { useLocale } from "@/i18n";
 
@@ -25,6 +25,11 @@ const copied = ref(false);
 const draftLabel = ref("");
 const draftDays = ref(30);
 const confirmId = ref("");
+/** Проекты сервера — для выбора области доступа. */
+const projects = ref<ServerProject[]>([]);
+/** Область нового кода: весь сервер или выбранные проекты. */
+const draftScopeAll = ref(true);
+const draftProjects = ref<string[]>([]);
 
 const canManage = computed(() => role.value === "owner");
 const dayOptions = computed(() => [7, 30, 90, 0]);
@@ -53,6 +58,13 @@ async function load(): Promise<void> {
     const list = await client.listAccess();
     items.value = Array.isArray(list?.items) ? list.items : [];
     max.value = Number(list?.max) || 0;
+    try {
+      const all = await client.listProjects();
+      projects.value = Array.isArray(all) ? all : [];
+    } catch {
+      // Проекты — подсказка для выбора области; без них коды выпускаются как раньше.
+      projects.value = [];
+    }
   } catch (e) {
     error.value = t("access.failed", { error: describe(e) });
   } finally {
@@ -66,6 +78,8 @@ watch(
     if (!open) return;
     draftLabel.value = "";
     draftDays.value = 30;
+    draftScopeAll.value = true;
+    draftProjects.value = [];
     freshCode.value = "";
     copied.value = false;
     confirmId.value = "";
@@ -75,16 +89,25 @@ watch(
 
 async function createCode(): Promise<void> {
   if (!props.server || busy.value) return;
+  // Пустой список проектов на сервере означает «весь сервер», поэтому
+  // «ограничить, но ничего не выбрать» ловим на клиенте.
+  if (!draftScopeAll.value && !draftProjects.value.length) {
+    error.value = t("access.scopeEmpty");
+    return;
+  }
   busy.value = true;
   error.value = "";
   try {
     const client = await clientFor(props.server);
     const days = Number(draftDays.value) || 0;
     const expiresAt = days > 0 ? Date.now() + days * 24 * 60 * 60 * 1000 : 0;
-    const created = await client.createAccess(draftLabel.value.trim(), expiresAt);
+    const scope = draftScopeAll.value ? [] : [...draftProjects.value];
+    const created = await client.createAccess(draftLabel.value.trim(), expiresAt, scope);
     freshCode.value = created.code;
     copied.value = false;
     draftLabel.value = "";
+    draftScopeAll.value = true;
+    draftProjects.value = [];
     await load();
   } catch (e) {
     error.value = describe(e);
@@ -101,6 +124,57 @@ async function copyCode(): Promise<void> {
   } catch {
     copied.value = false;
   }
+}
+
+function projectName(id: string): string {
+  return projects.value.find((project) => project.id === id)?.name || id;
+}
+
+/** Область кода одной строкой: «весь сервер» или перечень проектов. */
+function scopeLabel(item: ServerAccess): string {
+  const ids = item.projects ?? [];
+  if (!ids.length) return t("access.scopeAll");
+  return ids.map(projectName).join(", ");
+}
+
+function pickDraft(projectId: string): void {
+  draftScopeAll.value = false;
+  const next = draftProjects.value.includes(projectId)
+    ? draftProjects.value.filter((id) => id !== projectId)
+    : [...draftProjects.value, projectId];
+  draftProjects.value = next;
+  // Сняли последний проект — возвращаемся к «весь сервер», иначе сервер
+  // поймёт пустой список как полный доступ.
+  if (!next.length) draftScopeAll.value = true;
+}
+
+/** Меняет область уже выпущенного кода. Пустой список — весь сервер. */
+async function patchScope(item: ServerAccess, next: string[]): Promise<void> {
+  if (!props.server || busy.value) return;
+  busy.value = true;
+  error.value = "";
+  try {
+    const client = await clientFor(props.server);
+    const updated = await client.patchAccess(item.id, { projects: next });
+    item.projects = Array.isArray(updated.projects) ? updated.projects : [];
+  } catch (e) {
+    error.value = describe(e);
+  } finally {
+    busy.value = false;
+  }
+}
+
+function toggleProject(item: ServerAccess, projectId: string): void {
+  const current = item.projects ?? [];
+  const next = current.includes(projectId)
+    ? current.filter((id) => id !== projectId)
+    : [...current, projectId];
+  void patchScope(item, next);
+}
+
+function allowWholeServer(item: ServerAccess): void {
+  if ((item.projects ?? []).length === 0) return;
+  void patchScope(item, []);
 }
 
 async function toggleBlocked(item: ServerAccess): Promise<void> {
@@ -185,6 +259,32 @@ function metaOf(item: ServerAccess): string {
               </option>
             </select>
           </label>
+          <div class="access-modal__scope">
+            <span class="access-modal__scope-title">{{ t("access.scope") }}</span>
+            <div class="access-modal__chips">
+              <button
+                type="button"
+                class="access-modal__chip"
+                :class="{ 'is-on': draftScopeAll }"
+                :aria-pressed="draftScopeAll"
+                @click="draftScopeAll = true; draftProjects = []"
+              >
+                {{ t("access.scopeAll") }}
+              </button>
+              <button
+                v-for="project in projects"
+                :key="project.id"
+                type="button"
+                class="access-modal__chip"
+                :class="{ 'is-on': !draftScopeAll && draftProjects.includes(project.id) }"
+                :aria-pressed="!draftScopeAll && draftProjects.includes(project.id)"
+                @click="pickDraft(project.id)"
+              >
+                {{ project.name }}
+              </button>
+            </div>
+            <p class="muted small">{{ t("access.scopeHint") }}</p>
+          </div>
           <button type="button" class="access-modal__btn is-primary" :disabled="busy || limitReached" @click="createCode">
             {{ t("access.create") }}
           </button>
@@ -209,6 +309,31 @@ function metaOf(item: ServerAccess): string {
               <span v-if="stateOf(item)" class="badge">{{ stateOf(item) }}</span>
             </div>
             <div class="muted small">{{ metaOf(item) }}</div>
+            <div class="access-modal__scope">
+              <span class="access-modal__scope-title">{{ t("access.scope") }}: {{ scopeLabel(item) }}</span>
+              <div class="access-modal__chips">
+                <button
+                  type="button"
+                  class="access-modal__chip"
+                  :class="{ 'is-on': !(item.projects ?? []).length }"
+                  :disabled="busy"
+                  @click="allowWholeServer(item)"
+                >
+                  {{ t("access.scopeAll") }}
+                </button>
+                <button
+                  v-for="project in projects"
+                  :key="project.id"
+                  type="button"
+                  class="access-modal__chip"
+                  :class="{ 'is-on': (item.projects ?? []).includes(project.id) }"
+                  :disabled="busy"
+                  @click="toggleProject(item, project.id)"
+                >
+                  {{ project.name }}
+                </button>
+              </div>
+            </div>
             <div class="access-modal__row">
               <button type="button" class="access-modal__btn" :disabled="busy" @click="toggleBlocked(item)">
                 {{ item.blocked ? t("access.unblock") : t("access.block") }}
@@ -352,6 +477,45 @@ function metaOf(item: ServerAccess): string {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+.access-modal__scope {
+  display: flex;
+  flex: 1 1 100%;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.access-modal__scope-title {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.access-modal__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.access-modal__chip {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.access-modal__chip.is-on {
+  border-color: var(--accent, #4f8cff);
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.access-modal__chip:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .access-modal__btn {

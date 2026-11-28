@@ -194,7 +194,7 @@ func withAuth(next http.Handler, token string, stores ...*AccessStore) http.Hand
 			item, err := access.Lookup(given)
 			switch {
 			case err == nil:
-				next.ServeHTTP(w, withPrincipal(r, Principal{AccessID: item.ID, Label: item.Label}))
+				next.ServeHTTP(w, withPrincipal(r, Principal{AccessID: item.ID, Label: item.Label, Projects: item.Projects}))
 				return
 			case errors.Is(err, ErrAccessBlocked), errors.Is(err, ErrAccessExpired):
 				// Код верный, но доступ закрыт: 403, а не 401 — токен

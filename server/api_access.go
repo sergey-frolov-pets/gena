@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -39,8 +40,9 @@ func (a *API) createAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Label     string `json:"label"`
-		ExpiresAt int64  `json:"expiresAt"`
+		Label     string   `json:"label"`
+		ExpiresAt int64    `json:"expiresAt"`
+		Projects  []string `json:"projects"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
@@ -49,7 +51,10 @@ func (a *API) createAccess(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "срок действия уже прошёл")
 		return
 	}
-	item, code, err := a.access.Create(body.Label, body.ExpiresAt)
+	if !a.checkScopeProjects(w, body.Projects) {
+		return
+	}
+	item, code, err := a.access.Create(body.Label, body.ExpiresAt, body.Projects)
 	if err != nil {
 		a.fail(w, err, "не выпустил код доступа")
 		return
@@ -67,9 +72,10 @@ func (a *API) patchAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Label     *string `json:"label"`
-		Blocked   *bool   `json:"blocked"`
-		ExpiresAt *int64  `json:"expiresAt"`
+		Label     *string   `json:"label"`
+		Blocked   *bool     `json:"blocked"`
+		ExpiresAt *int64    `json:"expiresAt"`
+		Projects  *[]string `json:"projects"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
@@ -78,12 +84,27 @@ func (a *API) patchAccess(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "срок действия уже прошёл: чтобы закрыть доступ, заблокируйте код")
 		return
 	}
-	item, err := a.access.Update(r.PathValue("id"), body.Label, body.Blocked, body.ExpiresAt)
+	if body.Projects != nil && !a.checkScopeProjects(w, *body.Projects) {
+		return
+	}
+	item, err := a.access.Update(r.PathValue("id"), body.Label, body.Blocked, body.ExpiresAt, body.Projects)
 	if err != nil {
 		a.fail(w, err, "не обновил код доступа")
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
+}
+
+// checkScopeProjects проверяет, что все проекты из области существуют:
+// опечатка в id иначе превратилась бы в «пустой» доступ.
+func (a *API) checkScopeProjects(w http.ResponseWriter, ids []string) bool {
+	for _, id := range ids {
+		if _, err := a.store.GetProject(strings.TrimSpace(id)); err != nil {
+			writeError(w, http.StatusBadRequest, "проект не найден: "+id)
+			return false
+		}
+	}
+	return true
 }
 
 func (a *API) deleteAccess(w http.ResponseWriter, r *http.Request) {

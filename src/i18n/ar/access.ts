@@ -31,5 +31,9 @@ export const accessMessages = {
   "access.write": "يمكنه الكتابة",
   "access.read": "قراءة فقط",
   "access.guestHint": "دخلت برمز وصول. في المحادثات التي بدأتها أنت تختار هل يستطيع الضيف الكتابة.",
+  "access.scope": "الوصول إلى المشاريع",
+  "access.scopeAll": "الخادم كامل",
+  "access.scopeHint": "بدون اختيار يرى الضيف الخادم كاملاً. اختر مشاريع للتقييد.",
+  "access.scopeEmpty": "اختر مشروعاً واحداً على الأقل أو اسمح بالخادم كاملاً.",
   "access.close": "إغلاق",
 } as const satisfies LocaleMessages;

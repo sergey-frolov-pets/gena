@@ -20,6 +20,8 @@ var (
 	maxSessions = 2000
 	// maxAccessCodes — сколько гостевых кодов можно выпустить.
 	maxAccessCodes = 50
+	// maxScopeProjects — сколько проектов можно выдать одному коду.
+	maxScopeProjects = 200
 )
 
 // Ошибки лимитов: API превращает их в 413 / 409 / 507.

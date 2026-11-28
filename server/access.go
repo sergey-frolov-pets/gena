@@ -49,6 +49,8 @@ type Access struct {
 	ExpiresAt  int64  `json:"expiresAt,omitempty"`
 	Blocked    bool   `json:"blocked,omitempty"`
 	LastSeenAt int64  `json:"lastSeenAt,omitempty"`
+	// Projects — проекты, к которым ограничен гость. Пусто — весь сервер.
+	Projects []string `json:"projects,omitempty"`
 }
 
 // AccessView — запись для владельца: без хеша и с признаком просрочки.
@@ -60,6 +62,8 @@ type AccessView struct {
 	Blocked    bool   `json:"blocked,omitempty"`
 	LastSeenAt int64  `json:"lastSeenAt,omitempty"`
 	Expired    bool   `json:"expired,omitempty"`
+	// Projects — проекты, к которым ограничен гость. Пусто — весь сервер.
+	Projects []string `json:"projects,omitempty"`
 }
 
 func (a *Access) view(now time.Time) AccessView {
@@ -71,6 +75,7 @@ func (a *Access) view(now time.Time) AccessView {
 		Blocked:    a.Blocked,
 		LastSeenAt: a.LastSeenAt,
 		Expired:    a.ExpiresAt > 0 && now.UnixMilli() > a.ExpiresAt,
+		Projects:   append([]string(nil), a.Projects...),
 	}
 }
 
@@ -126,7 +131,7 @@ func (s *AccessStore) List() []AccessView {
 }
 
 // Create выпускает новый код. Возвращает запись и сам код — единственный раз.
-func (s *AccessStore) Create(label string, expiresAt int64) (AccessView, string, error) {
+func (s *AccessStore) Create(label string, expiresAt int64, projects []string) (AccessView, string, error) {
 	buf := make([]byte, accessCodeBytes)
 	if _, err := rand.Read(buf); err != nil {
 		return AccessView{}, "", fmt.Errorf("код доступа: %w", err)
@@ -145,6 +150,7 @@ func (s *AccessStore) Create(label string, expiresAt int64) (AccessView, string,
 		Hash:      hashAccessCode(code),
 		CreatedAt: now.UnixMilli(),
 		ExpiresAt: expiresAt,
+		Projects:  normalizeAccessProjects(projects),
 	}
 	s.items[item.ID] = item
 	if err := s.save(); err != nil {
@@ -154,8 +160,9 @@ func (s *AccessStore) Create(label string, expiresAt int64) (AccessView, string,
 	return item.view(now), code, nil
 }
 
-// Update меняет метку, блокировку и срок. nil-поля не трогаются.
-func (s *AccessStore) Update(id string, label *string, blocked *bool, expiresAt *int64) (AccessView, error) {
+// Update меняет метку, блокировку, срок и область проектов.
+// nil-поля не трогаются; пустой список проектов снимает ограничение.
+func (s *AccessStore) Update(id string, label *string, blocked *bool, expiresAt *int64, projects *[]string) (AccessView, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	item, ok := s.items[id]
@@ -171,6 +178,9 @@ func (s *AccessStore) Update(id string, label *string, blocked *bool, expiresAt 
 	}
 	if expiresAt != nil {
 		item.ExpiresAt = *expiresAt
+	}
+	if projects != nil {
+		item.Projects = normalizeAccessProjects(*projects)
 	}
 	if err := s.save(); err != nil {
 		*item = previous
@@ -283,15 +293,63 @@ func cleanAccessLabel(label string) string {
 	return label
 }
 
+// normalizeAccessProjects чистит список проектов кода доступа: пробелы,
+// дубли и слишком длинные id отбрасываем. Пустой результат — «весь сервер».
+func normalizeAccessProjects(ids []string) []string {
+	out := make([]string, 0, len(ids))
+	seen := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" || len(id) > 64 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+		if len(out) >= maxScopeProjects {
+			break
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // Principal — кто пришёл: владелец сервера или гость с кодом.
 type Principal struct {
 	Owner    bool
 	AccessID string
 	Label    string
+	// Projects — проекты, к которым ограничен гость. Пусто — весь сервер.
+	Projects []string
 }
 
 // IsOwner — мастер-токен (или сервер без авторизации).
 func (p Principal) IsOwner() bool { return p.Owner }
+
+// SeesAllProjects — владелец или гость без ограничения по проектам.
+func (p Principal) SeesAllProjects() bool { return p.IsOwner() || len(p.Projects) == 0 }
+
+// CanSeeProject — виден ли проект в области доступа. Сессии без проекта
+// ограниченному гостю не видны: иначе ограничение обходится новым чатом
+// в корне. Владельцу и гостю без ограничения видно всё.
+func (p Principal) CanSeeProject(projectID string) bool {
+	if p.SeesAllProjects() {
+		return true
+	}
+	if projectID == "" {
+		return false
+	}
+	for _, id := range p.Projects {
+		if id == projectID {
+			return true
+		}
+	}
+	return false
+}
+
+// canSeeSession — попал ли диалог в область доступа гостя.
+func canSeeSession(p Principal, s Session) bool { return p.CanSeeProject(s.ProjectID) }
 
 type principalKey struct{}
 
