@@ -80,6 +80,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("срок доступа: %v", err)
 	}
+	if *noAuth {
+		// Локальная отладка без токена: окно доступа не мешает работе.
+		until, untilText = time.Time{}, ""
+	}
 
 	store, err := NewStore(*dataDir)
 	if err != nil {
@@ -102,7 +106,9 @@ func main() {
 	mux := http.NewServeMux()
 	api.routes(mux)
 
-	handler := withLogging(withCORS(withAuth(mux, tok, access), *origins))
+	// Окно доступа ставим внутрь CORS: preflight отвечает 204 ещё до проверки
+	// срока, иначе браузер покажет ошибку CORS вместо понятного 403.
+	handler := withLogging(withCORS(withAccessWindow(withAuth(mux, tok, access), until), *origins))
 
 	srv := &http.Server{
 		Addr:              *addr,
@@ -134,6 +140,27 @@ func main() {
 			log.Printf("остановка с ошибкой: %v", err)
 		}
 	}
+}
+
+// accessClosed: срок доступа задан и уже прошёл. Нулевая дата — сервер без срока.
+func accessClosed(until, now time.Time) bool {
+	return !until.IsZero() && now.After(until)
+}
+
+// withAccessWindow закрывает сервер после даты из -access-until: всё, кроме
+// /api/health (по нему клиент проверяет адрес и видит дату), отвечает 403.
+// Токен при этом верный — перевыпускать нечего, поэтому 403, а не 401.
+func withAccessWindow(next http.Handler, until time.Time) http.Handler {
+	if until.IsZero() {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/health" || !accessClosed(until, time.Now()) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		writeError(w, http.StatusForbidden, "доступ закрыт: срок истёк "+until.UTC().Format("2006-01-02"))
+	})
 }
 
 // withAuth пропускает только запросы с верным Bearer. Мастер-токен —

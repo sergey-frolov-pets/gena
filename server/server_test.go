@@ -367,3 +367,66 @@ func TestParseAccessUntil(t *testing.T) {
 		t.Fatal("неверный формат должен давать ошибку")
 	}
 }
+
+// Срок доступа — не только плашка: после даты сервер отвечает 403 на всё,
+// кроме /api/health, а preflight (OPTIONS) по-прежнему проходит 204.
+func TestAccessWindowClosesServer(t *testing.T) {
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("хранилище: %v", err)
+	}
+
+	past := &API{
+		store: store, name: "test", started: time.Now(),
+		accessUntil: time.Now().Add(-time.Minute), accessText: "2026-01-01",
+	}
+	closed := httptest.NewServer(withCORS(withAccessWindow(withAuth(routesFor(past), "secret"), past.accessUntil), "*"))
+	t.Cleanup(closed.Close)
+
+	if code, body := do(t, closed, "GET", "/api/sessions", nil, "secret"); code != http.StatusForbidden {
+		t.Fatalf("sessions после срока: код %d, жду 403 (%s)", code, body)
+	}
+	if code, body := do(t, closed, "POST", "/api/sessions", map[string]any{"title": "x"}, "secret"); code != http.StatusForbidden {
+		t.Fatalf("создание после срока: код %d, жду 403 (%s)", code, body)
+	}
+	// health открыт всегда: по нему клиент понимает, что сервер жив и почему закрыт.
+	body, _ := getHealth(t, closed)
+	if body["expired"] != true {
+		t.Fatalf("health после срока: expired = %v, жду true", body["expired"])
+	}
+	if body["accessUntil"] != "2026-01-01" {
+		t.Fatalf("health после срока: accessUntil = %v", body["accessUntil"])
+	}
+
+	// Preflight не должен упираться в 403, иначе браузер покажет ошибку CORS.
+	req, err := http.NewRequest(http.MethodOptions, closed.URL+"/api/sessions", nil)
+	if err != nil {
+		t.Fatalf("preflight: %v", err)
+	}
+	req.Header.Set("Origin", "https://gena-ai.space")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("preflight: %v", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		t.Fatalf("preflight после срока: код %d, жду 204", res.StatusCode)
+	}
+	if got := res.Header.Get("Access-Control-Allow-Origin"); got != "https://gena-ai.space" {
+		t.Fatalf("preflight: allow-origin = %q", got)
+	}
+
+	// Срок в будущем ничего не закрывает и не врёт про expired.
+	future := &API{
+		store: store, name: "test", started: time.Now(),
+		accessUntil: time.Now().Add(time.Hour), accessText: "2099-12-31",
+	}
+	open := httptest.NewServer(withCORS(withAccessWindow(withAuth(routesFor(future), "secret"), future.accessUntil), "*"))
+	t.Cleanup(open.Close)
+	if code, body := do(t, open, "GET", "/api/sessions", nil, "secret"); code != http.StatusOK {
+		t.Fatalf("sessions до срока: код %d, жду 200 (%s)", code, body)
+	}
+	if body, _ := getHealth(t, open); body["expired"] != false {
+		t.Fatalf("health до срока: expired = %v, жду false", body["expired"])
+	}
+}

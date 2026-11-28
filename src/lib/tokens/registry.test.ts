@@ -162,3 +162,80 @@ describe("lib/tokens/registry", () => {
     expect(restoreValues(hidden.text)).toBe("открытие 1 234 567 ₽: 1 234 567 ₽");
   });
 });
+
+describe("P0: конверт метаданных и миграция v2 → v3", () => {
+  beforeEach(async () => {
+    await closeDb();
+    await clearTokenRecords();
+    resetDeviceStore();
+    resetAgentKeyCipherCache();
+    resetTokenCipherCache();
+    const { loadTokens } = await import("./registry");
+    await loadTokens();
+  });
+
+  it("падежи и заметка едут одним конвертом, наружу не просвечивают", async () => {
+    const { sealTokenPayload, openTokenPayload, isSealedTokenPayload } = await import(
+      "@/crypto/token-cipher"
+    );
+    const sealed = await sealTokenPayload(
+      { value: "Иванов Иван", variants: ["Иванова"], note: "паспорт" },
+      "tok-1",
+    );
+    expect(isSealedTokenPayload(sealed)).toBe(true);
+    expect(sealed.startsWith("enc:tp1:")).toBe(true);
+    expect(sealed).not.toContain("Иванов");
+    expect(sealed).not.toContain("паспорт");
+
+    expect(await openTokenPayload(sealed, "tok-1")).toEqual({
+      value: "Иванов Иван",
+      variants: ["Иванова"],
+      note: "паспорт",
+    });
+    expect(await openTokenPayload(sealed, "tok-2")).toBeNull();
+    expect(await openTokenPayload("enc:tk1:нет", "tok-1")).toBeNull();
+  });
+
+  it("старая запись: падежи и заметка уходят в конверт, чтение не теряет данные", async () => {
+    const { sealTokenValue } = await import("@/crypto/token-cipher");
+    const { putTokenRecord, listTokenRecords } = await import("@/storage/tokens");
+    const { loadTokens, tokenEntries } = await import("./registry");
+
+    await putTokenRecord({
+      id: "tok-legacy",
+      name: "старый",
+      nameKey: "старый",
+      sealedValue: await sealTokenValue("Иванов Иван", "tok-legacy"),
+      variants: ["Иванова"],
+      note: "паспорт",
+      createdAt: 1,
+      updatedAt: 1,
+    });
+
+    await loadTokens();
+
+    const entry = tokenEntries.value.find((item) => item.id === "tok-legacy");
+    expect(entry?.value).toBe("Иванов Иван");
+    expect(entry?.variants).toEqual(["Иванова"]);
+    expect(entry?.note).toBe("паспорт");
+
+    const [record] = await listTokenRecords();
+    expect(record.sealedPayload?.startsWith("enc:tp1:")).toBe(true);
+    expect(record.variants).toBeUndefined();
+    expect(record.note).toBeUndefined();
+    const onDisk = JSON.stringify(record);
+    expect(onDisk).not.toContain("Иванов");
+    expect(onDisk).not.toContain("паспорт");
+  });
+
+  it("тип и номер серии доходят до записи в памяти (G9)", async () => {
+    const { saveToken, loadTokens, tokenEntries } = await import("./registry");
+    await saveToken({ name: "имя-1", value: "Иванов Иван", type: "person", ordinal: 1, source: "auto" });
+    await loadTokens();
+    const entry = tokenEntries.value.find((item) => item.name === "имя-1");
+    expect(entry?.type).toBe("person");
+    expect(entry?.ordinal).toBe(1);
+    expect(entry?.source).toBe("auto");
+    expect(entry?.variants).toBeUndefined();
+  });
+});

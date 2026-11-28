@@ -4,16 +4,26 @@
  * На диск значения попадают только запечатанными ( ключ устройства ),
  * в памяти живут открытыми — иначе подстановку в чате не сделать.
  * Наружу (интерфейс, движок чата) отдаём `TokenEntry` с открытым значением.
+ *
+ * v3: значение, падежи и заметка лежат одним запечатанным блоком
+ * (`sealedPayload`). Открытые `variants`/`note` — признак записи v2,
+ * их прячет ленивая миграция при загрузке.
  */
 
 import { ref } from "vue";
-import type { TokenRecord } from "@/storage/types";
+import type { TokenRecord, TokenSource, TokenType } from "@/storage/types";
 import {
   deleteTokenRecord,
   listTokenRecords,
   putTokenRecord,
 } from "@/storage/tokens";
-import { openTokenValue, sealTokenValue } from "@/crypto/token-cipher";
+import {
+  openTokenPayload,
+  openTokenValue,
+  sealTokenPayload,
+  sealTokenValue,
+  type TokenPayload,
+} from "@/crypto/token-cipher";
 import { CryptoUnavailableError } from "@/crypto/subtle";
 import { isValidTokenName, normalizeTokenName, tokenNameKey, tokensToValues } from "./format";
 import { valuesToTokens, type SubstitutionResult } from "./substitute";
@@ -39,6 +49,14 @@ export interface TokenEntry {
   sessionId?: string;
   /** Общий токен: значение подсвечивается в любом диалоге. */
   shared?: boolean;
+  /** Тип сущности. Нет поля — старая запись, читается как `generic`. */
+  type?: TokenType;
+  /** Номер в серии типа: «имя-1», «адрес-2». */
+  ordinal?: number;
+  /** Кто создал: человек или автоподсказка. */
+  source?: TokenSource;
+  /** Уверенность детектора 0..1. */
+  confidence?: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -66,19 +84,60 @@ export const tokensLoaded = ref(false);
 /** Сколько записей не удалось расшифровать (сменился ключ устройства). */
 export const tokensBroken = ref(0);
 
-function toEntry(record: TokenRecord, value: string): TokenEntry {
+function toEntry(record: TokenRecord, payload: TokenPayload): TokenEntry {
   return {
     id: record.id,
     name: record.name,
-    value,
-    ...(record.note ? { note: record.note } : {}),
-    ...(record.variants && record.variants.length > 0 ? { variants: record.variants } : {}),
+    value: payload.value,
+    ...(payload.note ? { note: payload.note } : {}),
+    ...(payload.variants && payload.variants.length > 0 ? { variants: payload.variants } : {}),
     ...(record.caseSensitive ? { caseSensitive: true } : {}),
     ...(record.sessionId ? { sessionId: record.sessionId } : {}),
     ...(record.shared === true ? { shared: true } : record.shared === false ? { shared: false } : {}),
+    ...(record.type ? { type: record.type } : {}),
+    ...(record.ordinal !== undefined ? { ordinal: record.ordinal } : {}),
+    ...(record.source ? { source: record.source } : {}),
+    ...(record.confidence !== undefined ? { confidence: record.confidence } : {}),
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
+}
+
+/**
+ * Открыть запись: сначала конверт v3, затем (для старых) значение + открытые
+ * падежи и заметка.
+ */
+async function readRecordPayload(record: TokenRecord): Promise<TokenPayload> {
+  if (record.sealedPayload) {
+    const opened = await openTokenPayload(record.sealedPayload, record.id);
+    if (opened) return opened;
+  }
+  const value = await openTokenValue(record.sealedValue, record.id);
+  return {
+    value,
+    ...(record.variants && record.variants.length > 0 ? { variants: record.variants } : {}),
+    ...(record.note ? { note: record.note } : {}),
+  };
+}
+
+/**
+ * v2 → v3: спрятать падежи и заметку в конверт.
+ *
+ * Ошибка шифрования (нет сида, http) не ломает чтение: запись остаётся v2
+ * и будет переписана при следующем запуске на нормальном устройстве.
+ */
+async function sealLegacyRecord(record: TokenRecord, payload: TokenPayload): Promise<void> {
+  if (record.sealedPayload) return;
+  if (!payload.variants && !payload.note) return;
+  try {
+    const sealedPayload = await sealTokenPayload(payload, record.id);
+    const next: TokenRecord = { ...record, sealedPayload };
+    delete next.variants;
+    delete next.note;
+    await putTokenRecord(next);
+  } catch {
+    // см. комментарий выше
+  }
 }
 
 /**
@@ -111,14 +170,16 @@ export function entriesForSession(
   return entries.filter((entry) => tokenInSession(entry, sessionId));
 }
 
-/** Прочитать справочник из базы и расшифровать значения. */
+/** Прочитать справочник из базы, расшифровать значения, спрятать v2-хвосты. */
 export async function loadTokens(): Promise<void> {
   const records = await listTokenRecords();
   const result: TokenEntry[] = [];
   let broken = 0;
   for (const record of records) {
     try {
-      result.push(toEntry(record, await openTokenValue(record.sealedValue, record.id)));
+      const payload = await readRecordPayload(record);
+      result.push(toEntry(record, payload));
+      await sealLegacyRecord(record, payload);
     } catch {
       broken += 1;
     }
@@ -141,6 +202,14 @@ export interface TokenInput {
   sessionId?: string;
   /** Общий токен подсвечивается в любом диалоге. */
   shared?: boolean;
+  /** Тип сущности (из справочника типов). */
+  type?: TokenType;
+  /** Номер в серии типа. */
+  ordinal?: number;
+  /** Кто создал запись. */
+  source?: TokenSource;
+  /** Уверенность детектора 0..1. */
+  confidence?: number;
 }
 
 function normalizeVariants(input: string[] | undefined): string[] {
@@ -164,6 +233,22 @@ function sessionFields(
   return {
     ...(sessionId ? { sessionId } : {}),
     ...(shared === true ? { shared: true } : shared === false ? { shared: false } : {}),
+  };
+}
+
+function typeFields(
+  input: TokenInput,
+  existing: TokenEntry | undefined,
+): { type?: TokenType; ordinal?: number; source?: TokenSource; confidence?: number } {
+  const type = input.type ?? existing?.type;
+  const ordinal = input.ordinal ?? existing?.ordinal;
+  const source = input.source ?? existing?.source;
+  const confidence = input.confidence ?? existing?.confidence;
+  return {
+    ...(type ? { type } : {}),
+    ...(ordinal !== undefined ? { ordinal } : {}),
+    ...(source ? { source } : {}),
+    ...(confidence !== undefined ? { confidence } : {}),
   };
 }
 
@@ -192,10 +277,17 @@ export async function saveToken(input: TokenInput): Promise<TokenEntry> {
   const now = Date.now();
   const variants = normalizeVariants(input.variants);
   const note = String(input.note ?? "").trim();
+  const payload: TokenPayload = {
+    value,
+    ...(variants.length > 0 ? { variants } : {}),
+    ...(note ? { note } : {}),
+  };
 
   let sealedValue: string;
+  let sealedPayload: string;
   try {
     sealedValue = await sealTokenValue(value, id);
+    sealedPayload = await sealTokenPayload(payload, id);
   } catch (error) {
     // Нет WebCrypto — сайт открыт по http; это не «нет хранилища», и лечится иначе.
     if (error instanceof CryptoUnavailableError) throw new TokenError("insecure_context");
@@ -207,16 +299,16 @@ export async function saveToken(input: TokenInput): Promise<TokenEntry> {
     name,
     nameKey,
     sealedValue,
-    ...(note ? { note } : {}),
-    ...(variants.length > 0 ? { variants } : {}),
+    sealedPayload,
     ...(input.caseSensitive ? { caseSensitive: true } : {}),
+    ...typeFields(input, existing),
     ...sessionFields(input, existing),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };
   await putTokenRecord(record);
   await loadTokens();
-  return toEntry(record, value);
+  return toEntry(record, payload);
 }
 
 /** Удалить запись справочника. */

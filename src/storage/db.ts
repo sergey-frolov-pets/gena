@@ -1,7 +1,7 @@
 /**
  * Слой IndexedDB поверх `idb`.
  *
- * База `gena`, версия 7. Сторы:
+ * База `gena`, версия 10. Сторы:
  *   agents   (keyPath id)                       — подключения к агентам
  *   sessions (keyPath id, index by-agent, by-updated) — диалоги
  *   messages (keyPath id, index by-session)     — сообщения
@@ -9,6 +9,8 @@
  *   queue    (keyPath id)                       — реплики, ждущие ответа агента
  *   tokens   (keyPath id, index by-name-key, by-updated, by-type, by-canonical-key)
  *                                              — справочник подстановок
+ *   occurrences (keyPath id, index by-session, by-entity, by-message)
+ *                                              — вхождения токенов: где стоял и что было
  *   morph    (keyPath id)                       — скачанный морфологический словарь
  *   audit    (keyPath id, index by-created-at)  — журнал отправок: режим, хост,
  *                                              — число подстановок (без содержимого)
@@ -18,7 +20,8 @@
  * Все функции тонкие; бизнес-логика (шифрование, бэкап, очистка) — выше.
  * Миграции идемпотентны: существующие данные не трогаются, добавляются
  * только новые сторы (v2 — `usage`, v3 — `queue`, v4 — `tokens`, v5 — `morph`,
- * v6 — индексы типа и канонизации в `tokens`, v8 — `servers`, v9 — `projects`).
+ * v6 — индексы типа и канонизации в `tokens`, v8 — `servers`, v9 — `projects`,
+ * v10 — `occurrences`).
  */
 
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
@@ -29,6 +32,7 @@ import {
   type GenaServer,
   type Message,
   type MorphRecord,
+  type PrivacyOccurrence,
   type Project,
   type Session,
   type TokenRecord,
@@ -37,7 +41,7 @@ import {
 import type { QueuedRecord } from "./queue";
 
 const DB_NAME = "gena";
-const DB_VERSION = 9;
+const DB_VERSION = 10;
 
 interface GenaDB extends DBSchema {
   agents: {
@@ -89,6 +93,15 @@ interface GenaDB extends DBSchema {
       "by-updated": number;
       "by-type": string;
       "by-canonical-key": string;
+    };
+  };
+  occurrences: {
+    key: string;
+    value: PrivacyOccurrence;
+    indexes: {
+      "by-session": string;
+      "by-entity": string;
+      "by-message": string;
     };
   };
   morph: {
@@ -188,6 +201,13 @@ function openDatabase(): Promise<IDBPDatabase<GenaDB>> {
         if (!db.objectStoreNames.contains("projects")) {
           const store = db.createObjectStore("projects", { keyPath: "id" });
           store.createIndex("by-updated", "updatedAt");
+        }
+        // v10: вхождения токенов — где стоял токен и что было на этом месте.
+        if (!db.objectStoreNames.contains("occurrences")) {
+          const store = db.createObjectStore("occurrences", { keyPath: "id" });
+          store.createIndex("by-session", "sessionId");
+          store.createIndex("by-entity", "entityId");
+          store.createIndex("by-message", "messageId");
         }
         // v6: типы и канонизация в справочнике (полуавтоматика).
         if (oldVersion < 6 && db.objectStoreNames.contains("tokens")) {

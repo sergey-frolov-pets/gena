@@ -85,7 +85,7 @@ describe("обновление базы 3 → 5", () => {
     old.close();
 
     const db = await getDb();
-    expect(db.version).toBe(9);
+    expect(db.version).toBe(10);
     expect(db.objectStoreNames.contains("audit")).toBe(true);
     expect(db.objectStoreNames.contains("servers")).toBe(true);
     expect(db.objectStoreNames.contains("projects")).toBe(true);

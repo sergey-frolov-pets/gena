@@ -18,7 +18,8 @@ type API struct {
 	// client — HTTP-клиент для запросов к провайдерам (nil → http.Client{}).
 	client *http.Client
 	// accessUntil — до какого числа сервер доступен клиентам (нулевое — не задано).
-	// Показывается в карточке «Подключения» и в /api/health.
+	// Показывается в карточке «Подключения» и в /api/health; после этой даты
+	// сервер закрыт (withAccessWindow), открыт остаётся только /api/health.
 	accessUntil time.Time
 	// accessText — та же дата в исходном виде: дату отдаём датой, без сдвига дня.
 	accessText string
@@ -124,6 +125,8 @@ func (a *API) health(w http.ResponseWriter, _ *http.Request) {
 	// что видит админ: иначе дату пришлось бы дублировать на каждом устройстве.
 	if !a.accessUntil.IsZero() {
 		payload["accessUntil"] = a.accessText
+		// Срок прошёл — клиент показывает плашку «доступ закрыт», а не «до …».
+		payload["expired"] = accessClosed(a.accessUntil, time.Now())
 	}
 	writeJSON(w, http.StatusOK, payload)
 }

@@ -55,6 +55,53 @@ export function isSealedTokenValue(value: string): boolean {
   return value.startsWith(TOKEN_VALUE_PREFIX);
 }
 
+/** Префикс конверта метаданных: значение, падежи и заметка одним блоком. */
+export const TOKEN_PAYLOAD_PREFIX = "enc:tp1:";
+
+/** Что лежит в конверте метаданных записи справочника. */
+export interface TokenPayload {
+  value: string;
+  variants?: string[];
+  note?: string;
+}
+
+export function isSealedTokenPayload(value: string): boolean {
+  return value.startsWith(TOKEN_PAYLOAD_PREFIX);
+}
+
+/**
+ * Запечатать значение вместе с падежами и заметкой.
+ *
+ * Конверт отличается от `sealTokenValue` префиксом и additionalData: старые
+ * записи (v2) продолжают читаться как раньше, новые несут ПД только внутри.
+ */
+export async function sealTokenPayload(payload: TokenPayload, entryId: string): Promise<string> {
+  const json = JSON.stringify(payload);
+  const sealed = await sealTokenValue(json, payloadAad(entryId));
+  return TOKEN_PAYLOAD_PREFIX + sealed.slice(TOKEN_VALUE_PREFIX.length);
+}
+
+/** Распечатать метаданные. Битая запись или чужой конверт — `null`. */
+export async function openTokenPayload(
+  sealed: string,
+  entryId: string,
+): Promise<TokenPayload | null> {
+  if (!isSealedTokenPayload(sealed)) return null;
+  const inner = TOKEN_VALUE_PREFIX + sealed.slice(TOKEN_PAYLOAD_PREFIX.length);
+  try {
+    const json = await openTokenValue(inner, payloadAad(entryId));
+    const parsed = JSON.parse(json) as TokenPayload;
+    if (!parsed || typeof parsed.value !== "string") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function payloadAad(entryId: string): string {
+  return `${entryId}|payload`;
+}
+
 /** Запечатать значение. Привязка к записи через additionalData. */
 export async function sealTokenValue(value: string, entryId: string): Promise<string> {
   if (!value) return "";
