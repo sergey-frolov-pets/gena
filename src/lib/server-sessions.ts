@@ -97,6 +97,12 @@ async function openServerSessionOnce(
       existing.serverRef = server.id;
       await putSession(existing);
     }
+    // Режим гостя мог поменять инициатор с другого устройства — берём с сервера.
+    const remoteMode = payload.session.continuation === "view" ? "view" : "all";
+    if (existing.continuation !== remoteMode) {
+      existing.continuation = remoteMode;
+      await putSession(existing);
+    }
     return existing;
   }
 
@@ -113,6 +119,7 @@ async function openServerSessionOnce(
     ...(payload.session.pinned ? { pinned: true } : {}),
     ...(payload.session.tags?.length ? { tags: [...payload.session.tags] } : {}),
     ...(payload.session.tokenMode ? { tokenMode: true } : {}),
+    ...(payload.session.continuation === "view" ? { continuation: "view" as const } : {}),
   };
   await putSession(session);
   await pullMessages(session, payload.session, payload.messages);
@@ -299,4 +306,45 @@ export async function deleteServerSessionsRemote(
     else failed += 1;
   }
   return { removed, failed };
+}
+
+/**
+ * Режим гостя в моём серверном диалоге: `all` — гость продолжает переписку,
+ * `view` — только читает.
+ *
+ * Меняет инициатор диалога (владелец сервера или гость, начавший его):
+ * сервер сам проверит права и вернёт 403 чужому. Локальная копия обновляется
+ * сразу — при следующей синхронизации подтянется и на сервер.
+ */
+export async function setSessionContinuation(
+  sessionId: string,
+  mode: "all" | "view",
+): Promise<Session> {
+  const session = await getSession(sessionId);
+  if (!session) throw new Error("диалог не найден");
+  if (!session.serverId) throw new Error("диалог не привязан к серверу");
+
+  const servers = session.serverRef
+    ? [await getServer(session.serverRef)].filter((item): item is NonNullable<typeof item> => Boolean(item))
+    : await listServers();
+  if (servers.length === 0) throw new Error("нет подключения к серверу");
+
+  let failure = "";
+  for (const server of servers) {
+    try {
+      const client = await clientFor(server);
+      await client.patch(session.serverId, { continuation: mode });
+      const updated: Session = { ...session, continuation: mode, serverRef: server.id };
+      await putSession(updated);
+      return updated;
+    } catch (e) {
+      // 404 — этот сервер не знает диалога, пробуем следующее подключение.
+      if (e instanceof GenaServerError && e.status === 404) {
+        failure = e.message;
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw new Error(failure || "диалог не найден ни на одном сервере");
 }

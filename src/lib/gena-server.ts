@@ -14,6 +14,37 @@ export interface ServerInfo {
   sessions: number;
   /** До какого числа сервер доступен (ISO), если сервер это сообщает. */
   accessUntil?: string;
+  /** Кем мы вошли: хозяин сервера или гость по коду доступа. */
+  role?: "owner" | "guest";
+  /** Подпись кода доступа; у владельца — «владелец». */
+  label?: string;
+  /** Управлять кодами доступа может только владелец. */
+  canManageAccess?: boolean;
+}
+
+/** Код доступа в списке владельца: сам код сервер не отдаёт, только хеш. */
+export interface ServerAccess {
+  id: string;
+  label: string;
+  createdAt: number;
+  expiresAt?: number;
+  blocked?: boolean;
+  lastSeenAt?: number;
+  expired?: boolean;
+}
+
+/** Ответ `/api/server`: роль, подпись и счётчики. */
+export interface ServerStatus {
+  name: string;
+  version: string;
+  sessions: number;
+  projects?: number;
+  role: "owner" | "guest";
+  canManageAccess: boolean;
+  accessId?: string;
+  label?: string;
+  accessCodes?: number;
+  startedAt?: string;
 }
 
 /** Сколько ждём ответ на проверку связи, прежде чем сказать «не ответил». */
@@ -32,6 +63,10 @@ export interface ServerSession {
   messageCount?: number;
   /** Проект на сервере (id записи проекта). */
   projectId?: string;
+  /** Кто создал диалог на сервере: пусто — владелец, иначе id кода доступа. */
+  ownerId?: string;
+  /** Может ли гость писать: `all` — да, `view` — только смотреть. */
+  continuation?: "all" | "view";
   /** Саммари сессии, если считали; `stale` — сообщения изменились. */
   summary?: ServerSummary | null;
 }
@@ -180,13 +215,31 @@ export async function checkGenaServer(
     if (!info || info.ok !== true) {
       throw new GenaServerError("ответ не похож на Gena server");
     }
-    return {
+    const result: ServerInfo = {
       name: info.name || "Gena server",
       version: info.version || "",
       sessions: Number(info.sessions) || 0,
       accessUntil:
         typeof info.accessUntil === "string" && info.accessUntil.trim() ? info.accessUntil : undefined,
     };
+    // Здоровье открыто всем, а роль знает только /api/server: там же проверяется
+    // сам токен. Пустой токен — сервер без пароля, значит владелец.
+    if (token.trim()) {
+      const status = await request<ServerStatus | { role?: string; label?: string; canManageAccess?: boolean }>(
+        base,
+        token,
+        "/api/server",
+        controller ? { signal: controller.signal } : {},
+      );
+      const role = status?.role === "guest" ? "guest" : "owner";
+      result.role = role;
+      result.label = status?.label || undefined;
+      result.canManageAccess = role === "owner" && status?.canManageAccess !== false;
+    } else {
+      result.role = "owner";
+      result.canManageAccess = true;
+    }
+    return result;
   } catch (e) {
     if (controller?.signal.aborted) {
       throw new GenaServerError(`сервер не ответил за ${Math.round(timeoutMs / 1000)} с`);
@@ -251,11 +304,54 @@ export class GenaServerClient {
 
   patch(
     id: string,
-    body: { title?: string; pinned?: boolean; tags?: string[]; projectId?: string },
+    body: {
+      title?: string;
+      pinned?: boolean;
+      tags?: string[];
+      projectId?: string;
+      /** `all` — гость продолжает диалог, `view` — только читает. */
+      continuation?: "all" | "view";
+    },
   ): Promise<ServerSession> {
     return request<ServerSession>(this.url, this.token, this.path("/api/sessions", id), {
       method: "PATCH",
       body: JSON.stringify(body),
+    });
+  }
+
+  // ---------- Доступы ----------
+
+  /** Роль, подпись и права текущего токена. */
+  status(): Promise<ServerStatus> {
+    return request<ServerStatus>(this.url, this.token, "/api/server");
+  }
+
+  /** Только владелец: список кодов. Гость получит 403. */
+  listAccess(): Promise<{ items: ServerAccess[]; max: number }> {
+    return request<{ items: ServerAccess[]; max: number }>(this.url, this.token, "/api/access");
+  }
+
+  /** Код возвращается один раз — в `access.json` остаётся только хеш. */
+  createAccess(label: string, expiresAt = 0): Promise<{ access: ServerAccess; code: string }> {
+    return request<{ access: ServerAccess; code: string }>(this.url, this.token, "/api/access", {
+      method: "POST",
+      body: JSON.stringify({ label, expiresAt }),
+    });
+  }
+
+  patchAccess(
+    id: string,
+    body: { label?: string; blocked?: boolean; expiresAt?: number },
+  ): Promise<ServerAccess> {
+    return request<ServerAccess>(this.url, this.token, this.path("/api/access", id), {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
+  }
+
+  deleteAccess(id: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>(this.url, this.token, this.path("/api/access", id), {
+      method: "DELETE",
     });
   }
 

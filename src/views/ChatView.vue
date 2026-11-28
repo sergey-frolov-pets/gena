@@ -81,6 +81,7 @@ import {
   listServerSessions,
   openServerSession,
   serverSyncError,
+  setSessionContinuation,
 } from "@/lib/server-sessions";
 import { downloadText, markdownFileName, sessionToMarkdown } from "@/lib/session-export";
 import type { ServerSession } from "@/lib/gena-server";
@@ -5116,6 +5117,32 @@ async function loadRemoteSessions(): Promise<void> {
 }
 
 /** Кнопка «＋ серверная сессия»: нет серверов — подсказка, один — сразу окно. */
+/** Идёт смена режима гостя — кнопка в шапке не мигает двойным нажатием. */
+const guestModeBusy = ref(false);
+/** Диалог на сервере, который я создал: гость пишет или только смотрит. */
+const canToggleGuestMode = computed(
+  () => Boolean(activeSession.value?.serverId && activeSession.value?.serverOwned),
+);
+
+async function toggleGuestMode(): Promise<void> {
+  const session = activeSession.value;
+  if (!session?.serverId || !session.serverOwned || guestModeBusy.value) return;
+  const next: "all" | "view" = session.continuation === "view" ? "all" : "view";
+  guestModeBusy.value = true;
+  serverNotice.value = "";
+  try {
+    const updated = await setSessionContinuation(session.id, next);
+    const index = sessions.value.findIndex((item) => item.id === updated.id);
+    if (index >= 0) sessions.value[index] = updated;
+    serverNotice.value =
+      t("access.continuation") + ": " + (next === "view" ? t("access.read") : t("access.write"));
+  } catch (e) {
+    serverNotice.value = describeError(e);
+  } finally {
+    guestModeBusy.value = false;
+  }
+}
+
 async function addServerSession(): Promise<void> {
   serverNotice.value = "";
   if (servers.value.length === 0) await loadGenaServers();
@@ -5645,6 +5672,25 @@ function onRateChange(event: Event): void {
           <rect x="3.5" y="4" width="17" height="6" rx="1.6" />
           <rect x="3.5" y="14" width="17" height="6" rx="1.6" />
           <path d="M7 7h.01M7 17h.01" />
+        </svg>
+      </button>
+      <button
+        v-if="canToggleGuestMode"
+        type="button"
+        class="chat-panel__tool"
+        :class="{ 'is-on': activeSession?.continuation === 'view' }"
+        v-tip="t('access.continuation') + ': ' + (activeSession?.continuation === 'view' ? t('access.read') : t('access.write'))"
+        :aria-label="t('access.continuation')"
+        :aria-pressed="activeSession?.continuation === 'view'"
+        :disabled="guestModeBusy"
+        @click="toggleGuestMode"
+      >
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <template v-if="activeSession?.continuation === 'view'">
+            <path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z" />
+            <circle cx="12" cy="12" r="2.6" />
+          </template>
+          <path v-else d="M4 20h4L20 8a2.8 2.8 0 0 0-4-4L4 16v4z" />
         </svg>
       </button>
       <button

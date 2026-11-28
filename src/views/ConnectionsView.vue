@@ -21,6 +21,7 @@ import {
   type Protocol,
 } from "@/storage/types";
 import ConfirmModal from "@/components/ConfirmModal.vue";
+import AccessModal from "@/components/AccessModal.vue";
 import { deleteServer, listAgents, listServers, putAgent, putServer } from "@/storage/db";
 import { mergeAgents } from "@/storage/backup";
 import {
@@ -113,6 +114,11 @@ const serverToken = ref("");
 const serverBusy = ref(false);
 const serverCheck = ref<{ state: "idle" | "checking" | "ok" | "fail"; msg?: string }>({ state: "idle" });
 const confirmRemoveServerId = ref("");
+/** Сервер, у которого открыт список доступов; null — окно закрыто. */
+const accessServerId = ref("");
+const accessServer = computed(
+  () => servers.value.find((item) => item.id === accessServerId.value) ?? null,
+);
 const confirmRemoveServer = computed(() =>
   servers.value.find((item) => item.id === confirmRemoveServerId.value),
 );
@@ -241,6 +247,7 @@ async function testServer(server: GenaServer): Promise<void> {
         name: info.name,
         version: info.version || undefined,
         sessions: info.sessions,
+        role: info.role,
       },
     });
     await loadServers();
@@ -250,7 +257,7 @@ async function testServer(server: GenaServer): Promise<void> {
         name: info.name,
         version: info.version || "—",
         sessions: info.sessions,
-      }),
+      }) + (info.role === "guest" ? " · " + t("access.roleGuest") : ""),
     };
   } catch (e) {
     serverStates.value[server.id] = {
@@ -1221,7 +1228,22 @@ function addMixRoute(): void {
     <div v-for="server in servers" :key="server.id" class="card server-card">
       <div class="agent-head">
         <strong>{{ server.name }}</strong>
+        <span v-if="server.lastCheck?.role === 'guest'" class="badge">{{ t("access.roleGuest") }}</span>
         <span v-if="!server.sealedToken" class="badge">{{ t("connections.servers.tokenMissingShort") }}</span>
+        <button
+          type="button"
+          class="icon-btn"
+          v-tip="t('access.title')"
+          :aria-label="t('access.title')"
+          @click="accessServerId = server.id"
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="7.5" cy="16.5" r="3.5" />
+            <path d="M10 14 20 4" />
+            <path d="m17 7 3 3" />
+            <path d="m14 10 3 3" />
+          </svg>
+        </button>
         <button
           type="button"
           class="icon-btn"
@@ -1276,6 +1298,11 @@ function addMixRoute(): void {
       </p>
     </div>
 
+    <AccessModal
+      :open="Boolean(accessServer)"
+      :server="accessServer"
+      @close="accessServerId = ''"
+    />
     <ConfirmModal
       :open="Boolean(confirmRemoveServer)"
       :title="t('connections.servers.remove')"

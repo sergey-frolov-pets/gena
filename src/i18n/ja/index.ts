@@ -1,5 +1,6 @@
 import type { LocaleMessages } from "../types";
 import { appMessages } from "./app";
+import { accessMessages } from "./access";
 import { chatMessages } from "./chat";
 import { connectionsMessages } from "./connections";
 import { errorsMessages } from "./errors";
@@ -13,4 +14,5 @@ export const jaMessages = {
   ...sessionsMessages,
   ...errorsMessages,
   ...tokensByLocale.ja,
+  ...accessMessages,
 } as const satisfies LocaleMessages;
